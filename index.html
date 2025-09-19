@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <style>
+        .title{
+            display: none;
+        }
+    </style>
+</head>ssssss
+
+<body>
+    <!-- <h1 id="titleText" class="">Hello World</h1>
+    <div id="greetings"></div>
+    <button onclick="hideElement()" id="changeC" >Hide Elemente</button> -->
+    
+    
+    <input type="text" name = "" id="todo">
+   <button onclick="addElement()" id="changeC" >Add Elemente</button>
+   <div id = "results"></div>
+
+    <script src = "script.js"></script>
+    <script>
+        function addElement(){
+        document.createElement("p");
+        let inp = document.getElementById("todo").value;
+        let newElement = document.createElement("p");
+        newElement.innerHTML = "Hello " + inp;
+        document.getElementById("results")
+        let results = document.getElementById("results");
+        results.appendChild(newElement);
+        }
+    </script>
+
+</body>
+</html>
