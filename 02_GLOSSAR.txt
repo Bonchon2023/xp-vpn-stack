@@ -1,0 +1,41 @@
+vpn_masterkonzept/02_GLOSSAR.txt
+================================================================================
+GLOSSAR / BEGRIFFE
+================================================================================
+
+AAA: Authentication, Authorization, Accounting.
+Accounting: Protokollierung von Sessions (Start/Stop/Bytes/IP).
+AdGuardHome: DNS Filter/Blocker, liefert "Custom IP" für Blockpage.
+CA: Certificate Authority (Root/Intermediate für MITM).
+Calling-Station-ID: Identifier im RADIUS, oft MAC/LineID; bei L2TP unzuverlässig.
+DPD: Dead Peer Detection (strongSwan).
+ESP: Encapsulating Security Payload (IPsec, Proto 50).
+FQDN: Fully Qualified Domain Name, z.B. vpn.example.tld.
+Full-Tunnel: Standard-Route der Clients geht über VPN.
+IKEv1: Internet Key Exchange Version 1 (XP kompatibel, Legacy).
+IFB: Intermediate Functional Block (Linux Ingress Shaping via tc).
+IPCP: IP Control Protocol (PPP IP-Zuweisung).
+L2TP: Layer 2 Tunneling Protocol (UDP 1701).
+LCP: Link Control Protocol (PPP Keepalive/Echo).
+MITM Blockpage: HTTPS Sperrseite durch eigenes Zertifikat pro Domain.
+MSS Clamping: Setzen der TCP MSS in SYN, um Fragmentierungsprobleme zu vermeiden.
+NAT-T: NAT Traversal (IPsec über UDP 4500).
+NSS: Mozilla Network Security Services, Zertifikatsspeicher (cert9.db).
+OpenResty: Nginx mit Lua, geeignet für dynamische TLS-Logik.
+Panel: Weboberfläche für User/Admin (intern, nur über VPN erreichbar).
+pppX: Virtuelles Interface pro Clientverbindung (ppp0, ppp1, ...).
+PSK: Pre-Shared Key (IPsec Shared Secret).
+QoS/Shaping: Bandbreitensteuerung, Latenzschutz (tc, CAKE/fq_codel).
+rDNS/PTR: Reverse DNS Eintrag beim Provider.
+Service-IP: 10.77.0.1/32 auf lo, interner Dienst-Anker.
+Stealth: Auf WAN nur notwendige Ports sichtbar; SSH/Web nicht.
+Walled Garden: Für gesperrte User nur Portal/DNS erlauben, alles andere blocken.
+XFRM: Linux IPsec Transform Layer (IPsec Kontext im Kernel).
+Gate #1 (Claim): Onboarding-Sperre nach Trial-Ende; Internet nur nach Claim frei.
+Gate #2 (Email Verify): Nach Claim Internet frei; nach verify_deadline ohne Verify wieder Walled Garden.
+Claim: Zuordnung einer PREPROVISIONED VPN-Connection zu customer_id per Claim-Token.
+verify_deadline: Deadline, ab der ohne email_verified_at Gate #2 greift.
+
+================================================================================
+ENDE 02_GLOSSAR.txt
+================================================================================

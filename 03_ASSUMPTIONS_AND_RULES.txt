@@ -1,0 +1,33 @@
+vpn_masterkonzept/03_ASSUMPTIONS_AND_RULES.txt
+================================================================================
+ASSUMPTIONS & RULES (bindend)
+================================================================================
+
+A) Systemannahmen
+- Debian 13 minimal.
+- WAN Interface: ens13 (bei Abweichung: in B060 + B100 anpassen).
+- IPv6 deaktiviert (Provider + OS).
+- Alles läuft auf EINER Box (VPN-Exit, DB, Panel, DNS). Wenn später getrennt:
+  neue Version + neue Latenz/Failure-Analyse.
+
+B) Sicherheitsannahmen
+- XP ist potenziell kompromittiert -> Outbound Abuse Blocks sind Pflicht.
+- User sollen sich nicht gegenseitig sehen -> Peer-Isolation Pflicht.
+- Server darf von außen nicht wie "Admin-Server" wirken -> WAN minimal offen.
+
+C) Änderungsregeln
+- Jede Änderung:
+  1) neue Masterversion
+  2) betroffene Blocks aktualisieren + Block-Changelog
+  3) Master-Changelog aktualisieren
+- Keine stillen Änderungen, keine “wir machen das später”-Verschiebungen
+  ohne expliziten Entscheid.
+
+D) Qualitätsregeln / Abnahme
+- Jede MUST-Anforderung erhält Acceptance Criteria in Block.
+- Jeder Block hat Failure Modes + Diagnosepfad.
+- Setup-Tool ist Teil des Produkts (kein “User klickt sich das zusammen”).
+
+================================================================================
+ENDE 03_ASSUMPTIONS_AND_RULES.txt
+================================================================================

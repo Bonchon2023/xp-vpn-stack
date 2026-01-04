@@ -1,0 +1,165 @@
+vpn_masterkonzept/04_BLOCK_INDEX.txt
+================================================================================
+BLOCK INDEX (MASTER v1.8)
+================================================================================
+
+[B010] META / Scope & Constraints
+- Datei: blocks/B010_META_SCOPE.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: -
+- Influences: alle
+
+[B020] Goals / Zielsetzung
+- Datei: blocks/B020_GOALS_TARGETS.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B010
+
+[B030] Principles / Policy Model
+- Datei: blocks/B030_PRINCIPLES_POLICYMODEL.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B020
+
+[B040] Stack / Protokolle / Komponenten
+- Datei: blocks/B040_STACK_PROTOCOLS.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B020
+
+[B050] SQL AAA / FreeRADIUS / Accounting
+- Datei: blocks/B050_SQL_AAA_RADIUS.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B040
+
+[B060] Netzplan / IPs / Segmente / Bindings
+- Datei: blocks/B060_NETPLAN_IPS_SEGMENTS.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B020, B040
+
+[B070] Crypto Legacy / Debian 13
+- Datei: blocks/B070_CRYPTO_LEGACY_DEBIAN13.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B040
+
+[B080] XP NAT-T Registry Fix
+- Datei: blocks/B080_XP_NATT_REGFIX.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B040
+
+[B090] MTU/MSS Stabilität
+- Datei: blocks/B090_MTU_MSS_STABILITY.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B040, B060
+
+[B100] nftables WAN Minimal Exposure
+- Datei: blocks/B100_NFT_WAN_STEALTH.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B060
+
+[B110] nftables L2TP nur via IPsec
+- Datei: blocks/B110_NFT_L2TP_ONLY_VIA_IPSEC.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B100
+
+[B120] nftables Forward + NAT Full-Tunnel
+- Datei: blocks/B120_NFT_FORWARD_NAT_FULLTUNNEL.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B060, B100
+
+[B130] nftables Peer Isolation
+- Datei: blocks/B130_NFT_PEER_ISOLATION.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B120
+
+[B140] nftables Outbound Abuse Blocks
+- Datei: blocks/B140_NFT_OUTBOUND_ABUSE_BLOCKS.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B120
+
+[B150] Walled Garden (HARD: Gate#1 Claim + Gate#2 Email Verify + Quota/Expiry)
+- Datei: blocks/B150_WALLED_GARDEN_QUOTA_EXPIRY.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B050, B120, B220, B280, B155
+
+[B155] Onboarding Gates (Gate#1 Claim + Gate#2 Email Verify)
+- Datei: blocks/B155_ONBOARDING_GATES_STATE_MACHINE.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B050, B150, B280, B220
+- Influences: B240
+
+[B160] tc QoS pro PPP
+- Datei: blocks/B160_TC_QOS_PER_PPP.txt
+- Status: ACTIVE | Priority: SHOULD
+- Requires: B050, B040
+
+[B170] Session Stability DPD/LCP
+- Datei: blocks/B170_SESSION_STABILITY_DPD_LCP.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B040
+
+[B180] systemd Restart + Healthchecks
+- Datei: blocks/B180_SYSTEMD_RESTART_HEALTHCHECKS.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B040, B050, B220
+
+[B190] Offload Tuning Default (VM)
+- Datei: blocks/B190_OFFLOAD_TUNING_DEFAULT.txt
+- Status: ACTIVE | Priority: SHOULD
+- Requires: B060
+
+[B200] DNS Stack Unbound + AdGuard
+- Datei: blocks/B200_DNS_UNBOUND_ADGUARD.txt
+- Status: ACTIVE | Priority: SHOULD
+- Requires: B060, B220
+
+[B210] DNS Enforcement DNAT53
+- Datei: blocks/B210_DNS_ENFORCEMENT_DNAT53.txt
+- Status: ACTIVE | Priority: OPTIONAL
+- Requires: B200, B120
+
+[B220] Webstack OpenResty + PHP-FPM + DB
+- Datei: blocks/B220_WEBSTACK_OPENRESTY_PHPFPM_DB.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B060, B050
+
+[B230] HTTPS Blockpage MITM (CA)
+- Datei: blocks/B230_HTTPS_BLOCKPAGE_MITM_CA.txt
+- Status: ACTIVE | Priority: SHOULD
+- Requires: B220, B200, B260, B250
+
+[B240] Client Setup Tool XP/Vista
+- Datei: blocks/B240_CLIENT_SETUP_TOOL_XP.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B080, B260, B250, B270
+
+[B250] MyPal NSS Cert Import
+- Datei: blocks/B250_MYPAL_NSS_CERTIMPORT.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B230
+
+[B260] Time/NTP Strategy
+- Datei: blocks/B260_TIME_NTP_STRATEGY.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B220
+
+[B270] Diagnose Endpoint /diag
+- Datei: blocks/B270_DIAG_ENDPOINT.txt
+- Status: ACTIVE | Priority: SHOULD
+- Requires: B220
+
+[B280] Panel Features User/Admin
+- Datei: blocks/B280_PANEL_FEATURES_USER_ADMIN.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B050, B220
+
+[B290] Rollout Phasenplan
+- Datei: blocks/B290_PHASE_PLAN_ROLLOUT.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: alle
+
+[B300] Security/Stealth Guidelines
+- Datei: blocks/B300_SECURITY_STEALTH_GUIDELINES.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: alle
+
+================================================================================
+ENDE 04_BLOCK_INDEX.txt
+================================================================================

@@ -1,0 +1,158 @@
+00_MASTER_v1.8.txt (Inhalt/Format)
+
+Ziel: Das ist die Datei, die du immer “komplett” rausgeben kannst, wenn du sagst „gib mir das ganze Konzept“.
+Sie enthält keine Details doppelt, sondern verweist auf Blocks.
+
+Aufbau:
+
+Header (Version, Datum, Status)
+
+“Regeln” (keine Neuinterpretation, alles detailiert, keine Kürzung)
+
+Kurzübersicht Architektur (1 Seite)
+
+Blockliste (IDs + Titel)
+
+Abhängigkeiten (Graph in Textform)
+
+“Aktive Entscheidungen” (z.B. OpenResty fix, SQL-first fix)
+
+Verweis auf Changelog + Glossar
+
+Block-Index (04_BLOCK_INDEX.txt)
+
+Format je Block:
+
+[BLOCK-ID] [Titel]
+- Datei: blocks/Bxxx_*.txt
+- Status: ACTIVE | DRAFT | DEPRECATED
+- Pflichtgrad: MUST | SHOULD | OPTIONAL
+- Abhängigkeiten: Bxxx, Byyy, ...
+- Liefert: (Outputs)
+- Nutzt: (Inputs)
+- Letzte Änderung: v1.8 / YYYY-MM-DD
+
+Block-Datei Standard (templates/BLOCK_TEMPLATE.txt)
+
+Das ist die “zeilenfeste” Struktur, die jede Blockdatei exakt nutzt:
+
+================================================================================
+BLOCK-ID: B000
+TITLE: <Kurz & eindeutig>
+VERSION: v1.0 (Block-Version, unabhängig vom Master)
+STATUS: ACTIVE | DRAFT | DEPRECATED
+PRIORITY: MUST | SHOULD | OPTIONAL
+OWNER-INTENT: (Warum existiert der Block?)
+================================================================================
+
+1) ZWECK (WAS wird gelöst?)
+- …
+
+2) GRENZEN (WAS wird explizit NICHT gelöst?)
+- …
+
+3) ABHÄNGIGKEITEN
+- Requires: Bxxx, Byyy
+- Influences: Bzzz
+
+4) INPUTS
+- Interfaces: …
+- IP-Ranges: …
+- Credentials/DB: …
+- Services: …
+
+5) OUTPUTS
+- Verhalten/Guarantees: …
+- Ports exposed (internal): …
+- Ports exposed (WAN): …
+
+6) HARTE REGELN (MUST)
+- …
+
+7) OPTIONEN (SHOULD/OPTIONAL)
+- …
+
+8) FEHLERBILDER & DIAGNOSE
+- Symptom → Ursache → Fix
+
+9) TESTS / ACCEPTANCE CRITERIA
+- …
+
+10) CHANGELOG (Block-intern)
+- v1.0: …
+- v1.1: …
+================================================================================
+
+Decision Records (optional, aber extrem hilfreich)
+
+Wenn du später sagst “warum OpenResty?” oder “warum SQL first?” → du brauchst ein Decision-Log.
+
+Ich lege deshalb optional einen Ordner an:
+
+decisions/
+├─ D001_OPENRESTY_OVER_APACHE.txt
+├─ D002_SQL_FIRST_NO_MIGRATION.txt
+├─ D003_TWO_NETS_USER_ADMIN.txt
+├─ D004_MITM_BLOCKPAGE_APPROACH.txt
+└─ D005_OFFLOAD_DEFAULT_VM.txt
+
+
+Template:
+
+DECISION-ID: D000
+TITLE: …
+DATE: …
+STATUS: ACCEPTED | SUPERSEDED | REJECTED
+
+CONTEXT:
+- …
+
+DECISION:
+- …
+
+ALTERNATIVES:
+- …
+
+CONSEQUENCES:
+- Positive:
+- Negative:
+- Mitigations:
+
+LINKED BLOCKS:
+- Bxxx, Byyy
+
+Abhängigkeits-Graph (Textform)
+
+Damit du sofort siehst, was wovon abhängt:
+
+B020 Goals → steuert alle
+
+B040 Stack → bedingt B070, B080, B100…
+
+B050 SQL/RADIUS → bedingt B160 (QoS aus DB), B150 (Quota), B280 (Panel), B270 (Diag)
+
+B220 Webstack → bedingt B230 MITM, B280 Panel
+
+B200 DNS → bedingt B210 DNS-Zwang, B230 Blockpage Routing
+
+B260 NTP → bedingt B230/Panel (Zertifikate brauchbar)
+
+Kurze “Masterdatei Regeln” (03_ASSUMPTIONS_AND_RULES.txt)
+
+Hier stehen dauerhaft die Meta-Regeln rein:
+
+keine Neuinterpretation
+
+keine Kürzung
+
+jede Änderung = neue Masterversion
+
+jede Änderung muss in Changelog + betroffene Blockdatei eingetragen werden
+
+Versionierung:
+
+Master: v1.x
+
+Blocks: v1.x pro Block
+
+Namensregeln: Interface ens13 als Default, aber dokumentierbar austauschbar.

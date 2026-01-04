@@ -1,0 +1,127 @@
+vpn_masterkonzept/00_MASTER_v1.8.txt
+================================================================================
+MASTER-KONZEPT: XP/Vista Full-Tunnel VPN auf Debian 13 (from scratch)
+MASTER VERSION: v1.8
+STATUS: ACTIVE (produktionstaugliche Ziel-Architektur)
+DATUM: (von dir eintragen)
+AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
+================================================================================
+
+0) MASTER-REGELN (bindend)
+- Ehrlich, detailliert, präzise: keine Schönfärbung, keine Lücken.
+- Keine Neuinterpretation: Änderungen nur, wenn sie explizit beschlossen wurden.
+- Keine Kürzung: Wenn etwas in einen Block gehört, bleibt es dort vollständig.
+- Jede Konzept-Änderung erzeugt:
+  (1) neue MASTER-Version (v1.x)
+  (2) Update der betroffenen BLOCK-Datei(en) inkl. Block-Changelog
+  (3) Update 01_CHANGELOG.txt (Master-Changelog)
+- "Source of Truth" für Nutzer/Verbindungen/Expiry/Quota/Stats ist SQL ab Tag 1.
+- ONBOARDING ist HARD und bindend (2 Gates, 1 Mechanismus):
+  Gate #1 (CLAIM): Nach Trial-Ende wird Internet gesperrt (Walled Garden), bis eine Verbindung geclaimed ist.
+  Gate #2 (EMAIL VERIFY): Nach Claim ist Internet sofort frei, ABER nach Verify-Deadline wird Internet wieder
+  gesperrt (Walled Garden), bis Email verifiziert ist.
+- Walled Garden ist damit NICHT optional, sondern zwingende Kern-Policy (gilt für Gate #1/#2 und später Quota/Expiry).
+- Email-Verifikation ist technisch nicht “UX”, sondern Compliance/Abuse-Kontakt: Ohne Verify wird Gate #2 erzwungen.
+- Default-WAN-Interface im Konzept: ens13 (falls abweichend: in Assumptions anpassen).
+- IPv6 ist deaktiviert (Provider + OS), um Leaks/Überraschungen zu vermeiden.
+- User dürfen bewusst definierte Web-Services (Panel/Status/Portal/Blockpage) nutzen,
+  aber KEINE Admin-Services (SSH, AdGuard UI, phpMyAdmin, DB, etc.).
+
+1) ARCHITEKTUR-KURZÜBERSICHT (1 Seite)
+- Protokoll: L2TP/IPsec (IKEv1) via strongSwan + xl2tpd + pppd
+- Full-Tunnel: Clients routen kompletten Traffic über VPN-Server
+- IP-Vergabe: PPP/IPCP (keine manuelle IP/GW/DNS am Client)
+- Segmente:
+  - Service-IP: 10.77.0.1/32 auf lo (Bind-Anker für interne Dienste)
+  - User-Netz:  10.77.10.0/24 (verkaufte Geräte)
+  - Admin-Netz: 10.77.20.0/24 (deine Geräte)
+- Policy:
+  - nftables: WAN minimal offen (UDP 500/4500 + ESP), 1701 nur via IPsec/XFRM,
+    Forward+NAT, Peer-Isolation, Abuse-Outbound-Block, Walled-Garden (HARD: Gate#1 Claim + Gate#2 Email-Verify + später Quota/Expiry)
+  - tc: Bandbreite pro pppX (CAKE/fq_codel), live drosselbar
+- SQL-first AAA:
+  - FreeRADIUS + SQL (MySQL/MariaDB) für Auth + Accounting
+  - 1 Kunde → n Verbindungen: pro Gerät eigener Sub-Account (unique creds)
+  - Gate-relevante Pflichtfelder (konzeptionell): trial_until, verify_deadline, email_verified_at, claim_token_hash, status (PREPROVISIONED/CLAIMED/DISABLED), customer_id
+- Onboarding (2 Gates, HARD via Walled Garden):
+  - Gate #1 (Trial -> Claim): Nach trial_until nur noch DNS + Panel/Status erreichbar, bis Claim erfolgt.
+  - Gate #2 (Verify Deadline): Nach Claim Internet sofort frei; wenn Email bis verify_deadline nicht bestätigt,
+    wieder nur DNS + Panel/Status, bis verifiziert.
+- Webstack intern:
+  - OpenResty (Nginx+Lua) + PHP-FPM + DB + phpMyAdmin (admin-only)
+  - Bind nur an 10.77.0.1:80/443, niemals WAN
+- DNS später:
+  - Unbound lokal (127.0.0.1:5335)
+  - AdGuardHome (10.77.0.1:53; UI 2000 admin-only)
+  - DNS-Zwang per DNAT 53 (Phase später)
+- HTTPS Blockpage (MITM):
+  - AdGuard Custom-IP auf 10.77.0.1 (HTTP+HTTPS Blockpage)
+  - interne Root-CA; MyPal NSS Import + RateLimit/Cache für On-the-fly Certs
+- Zeit/NTP:
+  - Pflicht wegen XP Uhr-Problemen: NTP auf 10.77.0.1, optional NTP-DNAT/Redirect
+  - Setup-Tool macht Pre-Connect Zeitfix + Post-Connect NTP-Set
+
+2) BLOCK-LISTE (aktive Spezifikation)
+- B010 META / Scope & Constraints
+- B020 Goals / Zielsetzung
+- B030 Principles / Policy Model
+- B040 Stack / Protokolle / Komponenten
+- B050 SQL AAA / FreeRADIUS / Accounting
+- B060 Netzplan / IPs / Segmente / Bindings
+- B070 Crypto Legacy / Debian 13 / OpenSSL Legacy
+- B080 XP NAT-T Registry Fix
+- B090 MTU/MSS Stabilität
+- B100 nftables WAN Minimal Exposure
+- B110 nftables L2TP nur via IPsec (XFRM)
+- B120 nftables Forward + NAT Full-Tunnel
+- B130 nftables Peer Isolation
+- B140 nftables Outbound Abuse Blocks
+- B150 Walled Garden (HARD: Gate#1 Claim + Gate#2 Email Verify + Quota/Expiry)
+- B155 Onboarding Gates (Gate#1 Claim + Gate#2 Email Verify) – State Machine / Deadlines / Enforcement
+- B160 tc QoS pro PPP
+- B170 Session Stability (DPD + LCP Echo)
+- B180 systemd Restart + Healthchecks
+- B190 Offload Tuning Default (VM)
+- B200 DNS Stack Unbound + AdGuard
+- B210 DNS Enforcement DNAT 53
+- B220 Webstack (OpenResty + PHP-FPM + DB + pma)
+- B230 HTTPS Blockpage MITM (CA, Certs, RateLimit, Cache)
+- B240 Client Setup Tool XP/Vista (Automation)
+- B250 MyPal NSS Cert Import (portable NSS)
+- B260 Time/NTP Strategy
+- B270 Diagnose Endpoint /diag
+- B280 Panel Features (User/Admin)
+- B290 Rollout Phasenplan
+- B300 Security/Stealth Guidelines
+
+3) ABHÄNGIGKEITEN (Text-Graph)
+- B020 -> alle
+- B030 -> B100..B150, B160, B170, B300
+- B040 -> B070, B080, B090, B170
+- B050 -> B160, B150, B155, B280, B270 (Accounting/Quota/Onboarding/Stats)
+- B060 -> B100..B150, B200..B230 (Ports/Bindings)
+- B155 -> B050, B150, B280, B220 (Gates brauchen SQL-Truth + Walled Garden + Panel + Webstack)
+- B220 -> B230, B270, B280 (Panel/Diag/Blockpage)
+- B230 -> B250, B260 (MyPal Trust + Zeit)
+- B240 -> B155 (Setup-Tool liefert Claim Token / führt Onboarding vorbereitend aus)
+- B200 -> B210, B230 (DNS-Zwang + Blockpage)
+- B260 -> B230 (TLS relies on time)
+
+4) "AKTIVE ENTSCHEIDUNGEN" (fest)
+- SQL-first ab Tag 1 (keine chap-secrets als Master)
+- Pro Gerät / Verbindung eigener Sub-Account (unique creds)
+- OpenResty als Frontend (Panel + MITM Blockpage + PHP-FPM)
+- NTP Pflicht (Pre-Connect + Post-Connect)
+- Offload-Tuning Default (VM-Phantomfehler minimieren)
+- Onboarding ist 2-Gate HARD Enforcement:
+  - Gate #1 (Claim) nach Trial-Ende -> Walled Garden bis Claim
+  - Gate #2 (Email Verify) nach Verify-Deadline -> Walled Garden bis verifiziert
+- B155 ist der zentrale State-Machine Block für Gate #1/#2 (Deadlines/States/Enforcement-Regeln)
+
+5) CHANGELOG & INDEX
+- Siehe: 01_CHANGELOG.txt
+- Siehe: 04_BLOCK_INDEX.txt
+
+================================================================================
+ENDE 00_MASTER_v1.8.txt
+================================================================================

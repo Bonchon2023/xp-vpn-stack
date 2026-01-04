@@ -1,0 +1,33 @@
+vpn_masterkonzept/01_CHANGELOG.txt
+================================================================================
+MASTER CHANGELOG
+================================================================================
+
+v1.8
+- NEU: B155 Onboarding Gates (Gate#1 Claim + Gate#2 Email Verify) als eigener Block (State Machine / Deadlines / Enforcement).
+- Änderung: Walled Garden ist jetzt HARD (Basis-Policy für Gate#1+Gate#2 + später Quota/Expiry) und nicht mehr nur "Premium vorbereitet".
+- Konsistenz: Master/Dependencies/Decisions angepasst (B155 eingehängt: B050/B150/B280/B220; Setup-Tool B240 -> B155).
+- Klarstellung: Gate #2 ist hart: nach verify_deadline ohne Email-Verify -> wieder Walled Garden bis verifiziert (kundenweit).
+
+v1.7
+- Konsolidiert: SQL-first AAA ab Tag 1 (FreeRADIUS+SQL, Accounting Pflicht).
+- Klarstellung: "User dürfen keine Services" ersetzt durch definierte User-Services:
+  Panel/Status/Portal/Blockpage sind erlaubt, Admin-Services nicht.
+- Entscheidung: OpenResty als einziger Web-Frontend (Panel + MITM + PHP-FPM).
+- Pflicht: NTP Strategie (Pre-Connect Zeitfix + Post-Connect NTP auf 10.77.0.1).
+- Pflicht: XP NAT-T Registry Fix (AssumeUDPEncapsulationContextOnSendRule=2).
+- Pflicht: MSS/MTU Stabilisierung (MSS clamping).
+- Pflicht: Outbound Abuse Blocks (SMTP/SMB/NetBIOS).
+- Default: VM Offload-Tuning auf ens13 persistent.
+- Premium: Walled Garden Quota/Expiry vorbereitet.
+- Premium: Diagnose-Endpoint /diag vorbereitet.
+
+v1.6
+- NTP ergänzt, MyPal NSS Import detailliert, Offload-Tuning als Default-Baseline.
+
+v1.5
+- SQL-first Richtung festgezurrt, Webpanel intern, Blockpage MITM geplant.
+
+================================================================================
+ENDE 01_CHANGELOG.txt
+================================================================================
