@@ -1,0 +1,36 @@
+vpn_masterkonzept/templates/DECISION_RECORD_TEMPLATE.txt
+================================================================================
+DECISION-ID: D000
+TITLE: <Kurz & eindeutig>
+DATE: <YYYY-MM-DD>
+STATUS: ACCEPTED | SUPERSEDED | REJECTED
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+================================================================================
+
+CONTEXT
+- Ausgangslage:
+- Problem / Konflikt:
+- Anforderungen (MUST/SHOULD/OPTIONAL):
+
+DECISION
+- Wir entscheiden uns für:
+
+ALTERNATIVES
+- Alternative A:
+  - Pros:
+  - Cons:
+- Alternative B:
+  - Pros:
+  - Cons:
+
+CONSEQUENCES
+- Positive Auswirkungen:
+- Negative Auswirkungen / Risiken:
+- Mitigations (wie wir die Nachteile absichern):
+
+LINKED BLOCKS
+- Bxxx, Byyy, Bzzz
+
+CHANGELOG
+- v1.0: initial
+================================================================================

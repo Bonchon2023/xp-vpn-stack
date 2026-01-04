@@ -1,0 +1,47 @@
+vpn_masterkonzept/templates/BLOCK_TEMPLATE.txt
+================================================================================
+BLOCK-ID: B000
+TITLE: <Kurz & eindeutig>
+VERSION: v1.0
+STATUS: ACTIVE | DRAFT | DEPRECATED
+PRIORITY: MUST | SHOULD | OPTIONAL
+OWNER-INTENT: <Warum existiert der Block?>
+================================================================================
+
+1) ZWECK (WAS wird gelöst?)
+- …
+
+2) GRENZEN (WAS wird explizit NICHT gelöst?)
+- …
+
+3) ABHÄNGIGKEITEN
+- Requires: Bxxx, Byyy
+- Influences: Bzzz
+
+4) INPUTS
+- Interfaces: …
+- IP-Ranges: …
+- Credentials/DB: …
+- Services: …
+
+5) OUTPUTS
+- Verhalten/Guarantees: …
+- Ports exposed (internal): …
+- Ports exposed (WAN): …
+
+6) HARTE REGELN (MUST)
+- …
+
+7) OPTIONEN (SHOULD/OPTIONAL)
+- …
+
+8) FEHLERBILDER & DIAGNOSE
+- Symptom → Ursache → Fix
+
+9) TESTS / ACCEPTANCE CRITERIA
+- …
+
+10) CHANGELOG (Block-intern)
+- v1.0: …
+- v1.1: …
+================================================================================
