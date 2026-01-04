@@ -1,0 +1,56 @@
+vpn_masterkonzept/decisions/D004_MITM_BLOCKPAGE_APPROACH.txt
+================================================================================
+DECISION-ID: D004
+TITLE: HTTPS Blockpage via MITM (interne CA + On-the-fly Certs)
+DATE: (von dir eintragen)
+STATUS: ACCEPTED
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+================================================================================
+
+CONTEXT
+- Ausgangslage:
+  - AdGuard blockt Domains.
+  - Bei HTTPS reicht “HTTP Blockpage” nicht, User sieht sonst Browserfehler.
+- Problem / Konflikt:
+  - HTTPS Blockpage ohne Warnung erfordert CA-Trust und dynamische Zertifikate.
+  - MyPal nutzt NSS Store, nicht Windows Store.
+- Anforderungen:
+  - MUST: HTTPS Blockpage soll funktionieren (für typische Seiten).
+  - MUST: MyPal Truststore Import.
+  - SHOULD: RateLimit/Cache gegen DoS.
+
+DECISION
+- Wir entscheiden uns für:
+  - Interne Root-CA (ggf. Intermediate) + On-the-fly leaf cert pro Host.
+  - MyPal NSS Import (portable NSS certutil Bundle).
+  - RateLimit + Cache für Zert-Generierung.
+
+ALTERNATIVES
+- Alternative A: Nur HTTP Blockpage
+  - Pros:
+    - Einfach.
+  - Cons:
+    - HTTPS user experience schlecht, mehr Support.
+- Alternative B: “Block simply fails”
+  - Pros:
+    - Kein MITM, sicherer.
+  - Cons:
+    - Kein “Premium”-Gefühl, viele Rückfragen.
+
+CONSEQUENCES
+- Positive Auswirkungen:
+  - Premium UX.
+- Negative Auswirkungen / Risiken:
+  - HSTS/Pinning Edgecases möglich.
+  - DoS Risiko bei Zert-Erzeugung.
+- Mitigations:
+  - RateLimit pro Client-IP.
+  - Zert-Cache.
+  - Dokumentierte “nicht unterstützte Pinning Apps”-Grenze.
+
+LINKED BLOCKS
+- B230, B250, B260, B200
+
+CHANGELOG
+- v1.0: initial
+================================================================================

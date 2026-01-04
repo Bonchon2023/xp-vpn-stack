@@ -1,0 +1,49 @@
+vpn_masterkonzept/decisions/D006_NTP_MANDATORY_XP.txt
+================================================================================
+DECISION-ID: D006
+TITLE: NTP/Zeitstrategie ist Pflicht (XP Zertifikats- und Panel-Stabilität)
+DATE: (von dir eintragen)
+STATUS: ACCEPTED
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+================================================================================
+
+CONTEXT
+- Ausgangslage:
+  - XP Geräte haben oft falsche Zeit (CMOS Batterie).
+  - TLS/Certificates (Panel/Blockpage) scheitern dann.
+- Anforderungen:
+  - MUST: Zeitdrift muss korrigierbar sein, ohne Support.
+  - MUST: Setup-Tool soll Zeit fixen.
+
+DECISION
+- Wir entscheiden uns für:
+  - Pre-Connect best-effort Zeitfix über normales Internet.
+  - Post-Connect NTP auf 10.77.0.1 als dauerhaftes Time-Source.
+  - Optional NTP Redirect (udp/123) intern.
+
+ALTERNATIVES
+- Alternative A: Zeit ist “User Problem”
+  - Pros:
+    - Kein Aufwand.
+  - Cons:
+    - Support eskaliert, Panel/Blockpage "kaputt".
+- Alternative B: Nur Post-Connect
+  - Pros:
+    - Einfach.
+  - Cons:
+    - Wenn Zeit extrem falsch, bleibt User beim TLS hängen.
+
+CONSEQUENCES
+- Positive Auswirkungen:
+  - Stabiler TLS Betrieb, weniger Tickets.
+- Negative Auswirkungen / Risiken:
+  - Mehr Logik im Setup-Tool.
+- Mitigations:
+  - Fallback: HTTP Date header check, klare Fehlermeldung.
+
+LINKED BLOCKS
+- B260, B240, B230
+
+CHANGELOG
+- v1.0: initial
+================================================================================

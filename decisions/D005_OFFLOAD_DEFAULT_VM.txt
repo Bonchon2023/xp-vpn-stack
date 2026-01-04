@@ -1,0 +1,47 @@
+vpn_masterkonzept/decisions/D005_OFFLOAD_DEFAULT_VM.txt
+================================================================================
+DECISION-ID: D005
+TITLE: Offload-Tuning als Default (VM Stabilität)
+DATE: (von dir eintragen)
+STATUS: ACCEPTED
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+================================================================================
+
+CONTEXT
+- Ausgangslage:
+  - VM/virtio kann Offload-Edgecases erzeugen (Phantom Packetloss/Checksum issues).
+  - Kunden können keine Diagnose ausführen -> Supportlast steigt.
+- Anforderungen:
+  - SHOULD: Eliminieren einer Fehlerklasse ohne großen Nachteil.
+  - MUST: Persistenz über Reboot, Fail-safe.
+
+DECISION
+- Wir entscheiden uns für:
+  - Offload-Tuning (tso/gso/gro etc.) als Default via systemd oneshot.
+
+ALTERNATIVES
+- Alternative A: Nur Troubleshooting
+  - Pros:
+    - Default Performance maximal.
+  - Cons:
+    - Fehler treten erst beim Kunden auf -> Support.
+- Alternative B: Komplett alles off (tx/rx checksum etc.)
+  - Pros:
+    - Maximal kompatibel.
+  - Cons:
+    - Unnötig hohe CPU, evtl. schlechter Durchsatz.
+
+CONSEQUENCES
+- Positive Auswirkungen:
+  - Stabilere Verbindungen, weniger Phantomfehler.
+- Negative Auswirkungen / Risiken:
+  - Geringer CPU-Mehraufwand.
+- Mitigations:
+  - Nur relevante Offloads disable; bei Bedarf feinjustieren.
+
+LINKED BLOCKS
+- B190, B180, B120
+
+CHANGELOG
+- v1.0: initial
+================================================================================

@@ -1,0 +1,53 @@
+vpn_masterkonzept/decisions/D002_SQL_FIRST_NO_MIGRATION.txt
+================================================================================
+DECISION-ID: D002
+TITLE: SQL-first AAA ab Tag 1 (keine chap-secrets Migration)
+DATE: (von dir eintragen)
+STATUS: ACCEPTED
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+================================================================================
+
+CONTEXT
+- Ausgangslage:
+  - chap-secrets wäre “schnell”, wird aber unübersichtlich und schlecht wartbar
+    bei vielen Usern, Expiry, Quota, Stats und Panel-Verknüpfung.
+- Problem / Konflikt:
+  - “Später migrieren” erzeugt Aufwand, Risiko und Supportprobleme.
+- Anforderungen:
+  - MUST: zentrale DB für User + Verbindungen + Expiry + Quota + Stats.
+  - MUST: Webpanel braucht Verknüpfung zwischen Kundenkonto und VPN-Verbindungen.
+  - MUST: Accounts sperrbar ohne Datei-Editing.
+
+DECISION
+- Wir entscheiden uns für:
+  - FreeRADIUS + SQL (MySQL/MariaDB) als “Source of Truth” ab Tag 1.
+  - Accounting (radacct) wird von Anfang an genutzt.
+
+ALTERNATIVES
+- Alternative A: chap-secrets + später RADIUS
+  - Pros:
+    - Schnell fürs Lab.
+  - Cons:
+    - Migration später, doppelte Logik, Fehleranfällig.
+- Alternative B: pppd-file + Script
+  - Pros:
+    - Kein RADIUS.
+  - Cons:
+    - Wieder Bastellösung, schlechter für Accounting/Panel.
+
+CONSEQUENCES
+- Positive Auswirkungen:
+  - Keine Migration, Panel-Logik von Anfang konsistent.
+  - Expiry/Quota/Stats sauber modellierbar.
+- Negative Auswirkungen / Risiken:
+  - Mehr initialer Setup-Aufwand (RADIUS + DB).
+- Mitigations:
+  - Alles lokal auf einer Box halten.
+  - Klarer DB-Schema-Plan + Backups.
+
+LINKED BLOCKS
+- B050, B280, B150, B160
+
+CHANGELOG
+- v1.0: initial
+================================================================================

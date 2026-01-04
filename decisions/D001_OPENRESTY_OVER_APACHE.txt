@@ -1,0 +1,63 @@
+vpn_masterkonzept/decisions/D001_OPENRESTY_OVER_APACHE.txt
+================================================================================
+DECISION-ID: D001
+TITLE: OpenResty (Nginx+Lua) statt Apache als Web-Frontend
+DATE: (von dir eintragen)
+STATUS: ACCEPTED
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+================================================================================
+
+CONTEXT
+- Ausgangslage:
+  - Es existiert ein interner Webstack für Panel/Status/Portal und zusätzlich eine
+    HTTPS-Blockpage (MITM) mit On-the-fly Zertifikaten.
+- Problem / Konflikt:
+  - Apache ist für dynamische TLS-Handshake-Logik (Zertifikat je SNI Host zur Laufzeit)
+    in der Praxis deutlich unhandlicher und weniger performant.
+  - Der MITM-Teil ist ein zentrales Alleinstellungsmerkmal und muss stabil sein.
+- Anforderungen:
+  - MUST: On-the-fly Cert Handling möglich, performant, wartbar.
+  - MUST: PHP8 Panel nutzbar.
+  - MUST: Nur intern (10.77.0.1) gebunden, niemals WAN.
+  - SHOULD: Geringer RAM-Footprint (VM).
+
+DECISION
+- Wir entscheiden uns für:
+  - OpenResty als einziger Frontend-Webserver.
+  - Panel läuft über PHP-FPM hinter OpenResty.
+  - Keine Doppel-Webserver-Kette (kein Apache hinter Nginx).
+
+ALTERNATIVES
+- Alternative A: Apache + PHP Modul
+  - Pros:
+    - Einfacher apt-install Standardweg.
+  - Cons:
+    - MITM / dynamische Zertifikate sehr komplex, potenziell fragil.
+    - Weniger geeignet für Lua-basierte RateLimits/Cache.
+- Alternative B: Nginx (ohne OpenResty) + separate Tools
+  - Pros:
+    - Nginx schlank.
+  - Cons:
+    - Ohne Lua-Modul fehlt der flexible dynamische TLS-Teil oder wird schwer.
+- Alternative C: OpenResty + Apache (Apache für PHP, OpenResty nur MITM)
+  - Pros:
+    - Trennung nach Funktionen.
+  - Cons:
+    - Mehr Komponenten, mehr RAM, mehr Fehlerquellen.
+
+CONSEQUENCES
+- Positive Auswirkungen:
+  - Ein Web-Frontend für alles: Panel + Blockpage + /diag.
+  - Lua ermöglicht RateLimit/Cache in einem Stack.
+- Negative Auswirkungen / Risiken:
+  - PHP-FPM Setup ist etwas komplexer als “Apache+libphp”.
+- Mitigations:
+  - Panel vHosts sauber trennen; PHP-FPM via Socket.
+  - Konfigurations-Templates im Projekt pflegen.
+
+LINKED BLOCKS
+- B220, B230, B270, B280
+
+CHANGELOG
+- v1.0: initial
+================================================================================

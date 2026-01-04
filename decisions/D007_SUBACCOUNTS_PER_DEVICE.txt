@@ -1,0 +1,50 @@
+vpn_masterkonzept/decisions/D007_SUBACCOUNTS_PER_DEVICE.txt
+================================================================================
+DECISION-ID: D007
+TITLE: Pro Gerät/Sub-Verbindung eigene Credentials (Sub-Accounts)
+DATE: (von dir eintragen)
+STATUS: ACCEPTED
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+================================================================================
+
+CONTEXT
+- Ausgangslage:
+  - 1 Kunde -> n Verbindungen (mehrere Geräte).
+  - Feste IP pro Verbindung gewünscht.
+  - L2TP liefert Calling-Station-ID oft nicht zuverlässig.
+- Anforderungen:
+  - MUST: Feste IPs eindeutig je Verbindung.
+  - MUST: Accounting/Stats sauber je Gerät.
+
+DECISION
+- Wir entscheiden uns für:
+  - Sub-Accounts pro Gerät (max-laptop, max-pc).
+  - Panel zeigt diese als “Verbindungen” unter einem Kundenkonto.
+
+ALTERNATIVES
+- Alternative A: Ein Login, dynamischer Pool
+  - Pros:
+    - Einfach.
+  - Cons:
+    - IP/Stats Mapping schwieriger, Logging unsauber.
+- Alternative B: Ein Login, Device-ID über Calling-Station-ID
+  - Pros:
+    - Ein Login.
+  - Cons:
+    - Unzuverlässig, nicht robust.
+
+CONSEQUENCES
+- Positive Auswirkungen:
+  - Klare Zuordnung IP/Stats/Quota.
+- Negative Auswirkungen / Risiken:
+  - User hat mehrere Passwörter.
+- Mitigations:
+  - Setup-Tool generiert/verwaltet Verbindungen automatisch.
+  - Panel kann Passwörter rotieren.
+
+LINKED BLOCKS
+- B050, B280, B240
+
+CHANGELOG
+- v1.0: initial
+================================================================================

@@ -1,0 +1,52 @@
+vpn_masterkonzept/decisions/D003_TWO_NETS_USER_ADMIN.txt
+================================================================================
+DECISION-ID: D003
+TITLE: Zwei VPN-Netze (User/Admin) + Service-IP auf lo
+DATE: (von dir eintragen)
+STATUS: ACCEPTED
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+================================================================================
+
+CONTEXT
+- Ausgangslage:
+  - User sollen strikt eingeschränkt sein.
+  - Admin-Geräte brauchen Managementzugriff auf interne Dienste.
+  - Dienste müssen unabhängig von PPP Sessions existieren.
+- Anforderungen:
+  - MUST: Peer-Isolation im User-Netz.
+  - MUST: Admin darf mehr, aber kontrolliert.
+  - MUST: Service-IP immer up (10.77.0.1/32 lo).
+
+DECISION
+- Wir entscheiden uns für:
+  - User-Netz: 10.77.10.0/24
+  - Admin-Netz: 10.77.20.0/24
+  - Service-IP: 10.77.0.1/32 auf lo
+
+ALTERNATIVES
+- Alternative A: Nur ein Netz
+  - Pros:
+    - Einfacher.
+  - Cons:
+    - Rechte-Trennung schwieriger, mehr Risiko.
+- Alternative B: Service-IP aus einem Netz
+  - Pros:
+    - Weniger IPs.
+  - Cons:
+    - Abhängig von PPP/Interface, instabiler Bind-Anker.
+
+CONSEQUENCES
+- Positive Auswirkungen:
+  - Saubere Policy-Gates in nftables.
+  - Admin-Dienste können streng gated werden.
+- Negative Auswirkungen / Risiken:
+  - Mehr Regeln/Komplexität.
+- Mitigations:
+  - Block-Struktur: Regeln sind modular.
+
+LINKED BLOCKS
+- B060, B130, B220, B300
+
+CHANGELOG
+- v1.0: initial
+================================================================================
