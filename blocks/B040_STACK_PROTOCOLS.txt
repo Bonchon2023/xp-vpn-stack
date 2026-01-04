@@ -1,0 +1,56 @@
+vpn_masterkonzept/blocks/B040_STACK_PROTOCOLS.txt
+================================================================================
+BLOCK-ID: B040
+TITLE: Stack / Protokolle / Komponenten
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: Technische Basis definieren (Pakete, Rollen, Schnittstellen).
+================================================================================
+
+1) ZWECK
+- Definiert den Kernstack: strongSwan + xl2tpd + pppd, plus unterstützende Komponenten.
+
+2) GRENZEN
+- Kein SoftEther-Client.
+- Kein anderes VPN-Protokoll als L2TP/IPsec (IKEv1) im Kern.
+
+3) ABHÄNGIGKEITEN
+- Requires: B020
+- Influences: B070, B080, B170, B180, B190
+
+4) INPUTS
+- Debian 13 minimal
+- WAN: ens13
+- Loopback Service-IP: 10.77.0.1/32
+
+5) OUTPUTS
+- Tunneling:
+  - IKEv1/PSK über UDP 500/4500 + ESP
+  - L2TP über UDP 1701 (nur innerhalb IPsec)
+  - PPP Sessions ppp0..pppN
+- IP allocation:
+  - PPP/IPCP, statische IPs pro Verbindung via RADIUS Reply Attribute
+
+6) HARTE REGELN (MUST)
+- xl2tpd/pppd nur akzeptieren, wenn IPsec Kontext stimmt (via firewall).
+- pppd muss RADIUS nutzen (SQL-first).
+- Für Gate/Quota/Verify wird nicht reject genutzt, sondern accept + "restricted" Flag/Group, das B150 aktiviert.
+- Reject ist reserviert für DISABLED/BAN.
+
+7) OPTIONEN
+- Vista Support: gleiches Setup, testpflichtig.
+
+8) FEHLERBILDER & DIAGNOSE
+- Fehler 789/809: NAT-T Registry Fix fehlt oder Router NAT-T Problem.
+- "no proposal chosen": Crypto Legacy fehlt (B070).
+- Tunnel steht, Webseiten hängen: MSS clamp fehlt (B090).
+
+9) TESTS / ACCEPTANCE
+- XP kann verbinden, bekommt IP, Full-Tunnel funktioniert.
+- Zwei Clients parallel -> zwei pppX -> Policies greifen.
+
+10) CHANGELOG
+- v1.0: Initial
+
+================================================================================

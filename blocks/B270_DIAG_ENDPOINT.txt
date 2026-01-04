@@ -1,0 +1,53 @@
+vpn_masterkonzept/blocks/B270_DIAG_ENDPOINT.txt
+================================================================================
+BLOCK-ID: B270
+TITLE: Diagnose Endpoint /diag
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: SHOULD
+OWNER-INTENT: "Erste Hilfe" für Support und Setup-Tool.
+================================================================================
+
+1) ZWECK
+- Single endpoint that confirms:
+  - connected
+  - correct IP
+  - DNS ok
+  - time drift
+  - basic reachability
+
+2) GRENZEN
+- No sensitive data; should be safe to expose to user net.
+
+3) ABHÄNGIGKEITEN
+- Requires: B220
+
+4) INPUTS
+- Client request on 10.77.0.1
+- Server can query dns/time metrics
+
+5) OUTPUTS
+- JSON or plain text:
+  - Your_IP
+  - DNS_Check
+  - Time_Drift
+  - Optional: throughput quick test
+
+6) MUST (wenn aktiv)
+- Minimal, stable format
+- No DB secrets
+
+7) OPTIONAL
+- Provide human readable page too.
+
+8) FEHLERBILDER
+- diag unreachable -> web/firewall down.
+- time drift huge -> NTP not working.
+
+9) TESTS
+- Setup tool button gets green.
+
+10) CHANGELOG
+- v1.0: Initial
+
+================================================================================

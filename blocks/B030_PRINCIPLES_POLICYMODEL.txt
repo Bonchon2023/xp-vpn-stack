@@ -1,0 +1,53 @@
+vpn_masterkonzept/blocks/B030_PRINCIPLES_POLICYMODEL.txt
+================================================================================
+BLOCK-ID: B030
+TITLE: Principles / Policy Model
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: Policy im OS, nicht in "VPN-Software" verankern.
+================================================================================
+
+1) ZWECK
+- Definiert, wie Kontrolle umgesetzt wird: Linux (nft/tc/bindings), nicht "magische GUI".
+
+2) GRENZEN
+- Keine iptables (nur nftables).
+- Keine "SecureNAT" / "VPN-intern regelt das" Mentalität.
+
+3) ABHÄNGIGKEITEN
+- Requires: B020
+- Influences: B100..B160, B220..B230
+
+4) INPUTS
+- L2TP/IPsec liefert pppX Interfaces.
+- Need: deterministisches Verhalten, auditierbar.
+
+5) OUTPUTS (Prinzipien)
+- P1: WAN Exposure minimal (nur nötig)
+- P2: Services bind nur an 10.77.0.1, nie an WAN
+- P3: Access-Control: nftables (Netz/Ports) + App-Layer (Panel IP Check)
+- P4: Traffic-Shaping: tc pro pppX
+- P5: Identity: SQL/RADIUS, Sub-Accounts pro Gerät
+- P6: Feature-Gates: Walled-Garden schaltet Policies pro User um
+- P7: Observability: Accounting + /diag Endpoint
+
+6) HARTE REGELN (MUST)
+- Keine direkte Admin-UI in User-Netz.
+- Peer Isolation ist Kernel-Policy, nicht "Best effort".
+
+7) OPTIONEN
+- Additional service endpoints nur, wenn sie an 10.77.0.1 gebunden + firewall gated sind.
+
+8) FEHLERBILDER & DIAGNOSE
+- Wenn ein Service auf 0.0.0.0 bindet -> Regelbruch, sofort fixen.
+
+9) TESTS
+- Portscan WAN zeigt nur 500/4500, ESP.
+- Portscan User-Netz sieht nur 10.77.0.1:80/443/53 (wenn aktiv).
++ optional 10.77.0.1:123/UDP (wenn NTP aktiv).
+
+10) CHANGELOG
+- v1.0: Initial
+
+================================================================================

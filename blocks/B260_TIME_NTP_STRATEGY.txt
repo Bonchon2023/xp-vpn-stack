@@ -1,0 +1,49 @@
+vpn_masterkonzept/blocks/B260_TIME_NTP_STRATEGY.txt
+================================================================================
+BLOCK-ID: B260
+TITLE: Time / NTP Strategy (XP Uhr-Probleme)
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: TLS/Panel/Blockpage zuverlässig trotz kaputter XP-Uhr.
+================================================================================
+
+1) ZWECK
+- XP Uhr kann falsch sein -> TLS cert "not yet valid".
+- Strategy:
+  - Pre-connect time fix over normal internet (best effort)
+  - Post-connect NTP forced to 10.77.0.1
+
+2) GRENZEN
+- Zeitfix vor connect kann scheitern (no internet dns), dann fallback to manual.
+
+3) ABHÄNGIGKEITEN
+- Requires: B220
+- Influences: B230, B240
+
+4) INPUTS
+- chrony (server) on 10.77.0.1:123
+- Setup tool logic
+
+5) OUTPUTS
+- XP time corrected sufficiently
+- NTP source locked to server after connect
+
+6) MUST
+- Server provides NTP internally
+- Setup tool configures w32time peers post-connect
+- Optional firewall redirect NTP requests (ppp* udp 123) to 10.77.0.1
+
+7) OPTIONAL
+- Pre-connect check using public NTP or HTTP Date header.
+
+8) FEHLERBILDER
+- Panel cert invalid -> time wrong -> run time fix again.
+
+9) TESTS
+- Set XP time to 2005 -> run setup -> panel works.
+
+10) CHANGELOG
+- v1.0: Initial
+
+================================================================================

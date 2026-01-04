@@ -1,0 +1,43 @@
+vpn_masterkonzept/blocks/B130_NFT_PEER_ISOLATION.txt
+================================================================================
+BLOCK-ID: B130
+TITLE: nftables Peer Isolation (User-Netz)
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: User sehen sich nicht.
+================================================================================
+
+1) ZWECK
+- Blockiert user->user Kommunikation.
+
+2) GRENZEN
+- Kein “nur ports sperren”: grundsätzlich drop.
+
+3) ABHÄNGIGKEITEN
+- Requires: B120
+- Influences: Security, Abuse containment
+
+4) INPUTS
+- user subnet 10.77.10.0/24
+
+5) OUTPUTS
+- forward drop: 10.77.10.0/24 -> 10.77.10.0/24
+- optional: admin->user policy separat (default: drop)
+
+6) MUST
+- Peer isolation enforced in kernel.
+
+7) OPTIONEN
+- Admin->User on demand via explicit rules (separates block).
+
+8) FEHLERBILDER
+- Users can ping each other -> isolation missing.
+
+9) TESTS
+- Two user clients cannot ping/smb each other.
+
+10) CHANGELOG
+- v1.0: Initial
+
+================================================================================

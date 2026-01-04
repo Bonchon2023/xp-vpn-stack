@@ -1,0 +1,43 @@
+vpn_masterkonzept/blocks/B080_XP_NATT_REGFIX.txt
+================================================================================
+BLOCK-ID: B080
+TITLE: XP NAT-T Registry Fix (AssumeUDPEncapsulationContextOnSendRule)
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: NAT Traversal zuverlässig für Kunden hinter Routern.
+================================================================================
+
+1) ZWECK
+- XP/Vista L2TP/IPsec hinter NAT kann ohne registry fix scheitern (789/809).
+
+2) GRENZEN
+- Fix ist Pflicht: kein "optional".
+
+3) ABHÄNGIGKEITEN
+- Requires: B040
+- Influences: B240
+
+4) INPUTS
+- Setup-Tool mit Adminrechten
+
+5) OUTPUTS
+- Registry key gesetzt: AssumeUDPEncapsulationContextOnSendRule=2
+- reboot info
+
+6) MUST
+- Setup-Tool setzt key automatisch und zeigt reboot requirement.
+
+7) OPTIONEN
+- Prüfung: Key existiert bereits -> idempotent.
+
+8) FEHLERBILDER
+- Fehler 789/809: Key fehlt / NAT kaputt / Router bug.
+
+9) TESTS
+- Auf frischem XP: Tool setzt Key, nach reboot VPN connect.
+
+10) CHANGELOG
+- v1.0: Initial
+
+================================================================================

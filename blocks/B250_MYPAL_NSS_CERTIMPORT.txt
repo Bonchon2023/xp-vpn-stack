@@ -1,0 +1,46 @@
+vpn_masterkonzept/blocks/B250_MYPAL_NSS_CERTIMPORT.txt
+================================================================================
+BLOCK-ID: B250
+TITLE: MyPal NSS Cert Import (cert9.db)
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: MyPal vertraut interner CA (keine Browserwarnung).
+================================================================================
+
+1) ZWECK
+- Import CA in MyPal NSS DB (cert9.db) im Profil.
+
+2) GRENZEN
+- Windows cert store import reicht nicht.
+- certutil needs supporting DLLs (portable NSS bundle).
+
+3) ABHÄNGIGKEITEN
+- Requires: B230
+- Influences: "no warning" HTTPS
+
+4) INPUTS
+- Portable NSS tools bundle
+- MyPal profile discovery logic
+
+5) OUTPUTS
+- CA trusted in MyPal -> HTTPS MITM works.
+
+6) MUST
+- Bundle includes certutil + required libraries
+- Profile discovery robust
+- Import idempotent (if exists, skip)
+
+7) OPTIONAL
+- Support multiple profiles.
+
+8) FEHLERBILDER
+- MyPal still warns -> wrong profile or import failed.
+
+9) TESTS
+- After import: open https://blocked-domain -> no warning.
+
+10) CHANGELOG
+- v1.0: Initial
+
+================================================================================

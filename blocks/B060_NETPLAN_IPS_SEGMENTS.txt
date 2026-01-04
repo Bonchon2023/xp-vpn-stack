@@ -1,0 +1,53 @@
+vpn_masterkonzept/blocks/B060_NETPLAN_IPS_SEGMENTS.txt
+================================================================================
+BLOCK-ID: B060
+TITLE: Netzplan / IPs / Segmente / Bindings
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: Saubere IP-Architektur als Basis aller Policies.
+================================================================================
+
+1) ZWECK
+- Definiert IPs, Segmente und bind-Strategie (10.77.0.1/32 auf lo).
+
+2) GRENZEN
+- Keine Dienste auf WAN-IP binden (außer IPsec).
+- Keine Vermischung der Netze.
+
+3) ABHÄNGIGKEITEN
+- Requires: B020, B040
+- Influences: B100..B150, B200..B230
+
+4) INPUTS
+- WAN: ens13 (public IP)
+- Service-IP: 10.77.0.1/32 auf lo
+- User: 10.77.10.0/24
+- Admin: 10.77.20.0/24
+
+5) OUTPUTS (Bind-Matrix)
+- SSH bind: 127.0.0.1 + 10.77.0.1
+- OpenResty bind: 10.77.0.1:80/443
+- AdGuard DNS: 10.77.0.1:53
+- AdGuard UI: 10.77.0.1:2000 (admin only)
+- Unbound: 127.0.0.1:5335
+- NTP: 10.77.0.1:123 (UDP)
+
+6) HARTE REGELN (MUST)
+- 10.77.0.1/32 liegt auf lo (immer up).
+- Kein Dienst lauscht auf 0.0.0.0 ohne zwingenden Grund.
+
+7) OPTIONEN
+- Zusätzliche interne Domains via AdGuard rewrite (vpn.status etc.).
+
+8) FEHLERBILDER
+- Wenn 10.77.0.1 nicht auf lo -> Dienste abhängig von PPP sessions -> instabil.
+
+9) TESTS
+- reboot: 10.77.0.1 existiert vor erster VPN session.
+- port checks: Web nur auf 10.77.0.1.
+
+10) CHANGELOG
+- v1.0: Initial
+
+================================================================================

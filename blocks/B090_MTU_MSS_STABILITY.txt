@@ -1,0 +1,43 @@
+vpn_masterkonzept/blocks/B090_MTU_MSS_STABILITY.txt
+================================================================================
+BLOCK-ID: B090
+TITLE: MTU / MSS Stabilität (Full-Tunnel Killer)
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: HTTPS/Modern Web zuverlässig über L2TP/IPsec.
+================================================================================
+
+1) ZWECK
+- Verhindert MTU Blackholes durch encapsulation overhead.
+
+2) GRENZEN
+- Nicht optional: ohne MSS clamp Support-Hölle (Webseiten hängen).
+
+3) ABHÄNGIGKEITEN
+- Requires: B040, B060
+- Influences: B120
+
+4) INPUTS
+- nftables forward path (pppX -> ens13)
+
+5) OUTPUTS
+- SYN packets werden MSS reduziert (z.B. 1280-1300)
+
+6) MUST
+- MSS clamping aktiv auf ppp* forward syn
+- Value konservativ (Start 1300, fallback 1280 wenn Probleme)
+
+7) OPTIONEN
+- Logging bei Fragment/PMTU issues für Diagnose.
+
+8) FEHLERBILDER
+- Ping ok, HTTPS hängt -> clamp fehlt oder zu hoch.
+
+9) TESTS
+- XP browsing test auf HTTPS heavy sites, download, video metadata etc.
+
+10) CHANGELOG
+- v1.0: Initial
+
+================================================================================

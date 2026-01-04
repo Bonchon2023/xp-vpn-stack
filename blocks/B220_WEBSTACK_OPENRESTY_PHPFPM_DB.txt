@@ -1,0 +1,57 @@
+vpn_masterkonzept/blocks/B220_WEBSTACK_OPENRESTY_PHPFPM_DB.txt
+================================================================================
+BLOCK-ID: B220
+TITLE: Webstack intern (OpenResty + PHP-FPM + DB + phpMyAdmin)
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: Panel/Portal/Blockpage auf interner Service-IP, niemals WAN.
+================================================================================
+
+1) ZWECK
+- OpenResty als Frontend für:
+  - Panel (PHP via PHP-FPM)
+  - /diag endpoint
+  - Blockpage (HTTP + TLS intercept logic in B230)
+
+2) GRENZEN
+- Kein Apache.
+- Keine Webports auf WAN.
+- phpMyAdmin admin-only.
+
+3) ABHÄNGIGKEITEN
+- Requires: B060, B050
+- Influences: B230, B240, B270, B280
+
+4) INPUTS
+- Bind: 10.77.0.1:80/443
+- PHP-FPM local socket/localhost
+- DB local (MySQL/MariaDB)
+
+5) OUTPUTS
+- User accessible: panel/status/portal/diag (as per firewall)
+- Admin accessible additionally: phpMyAdmin (separate vhost/path + firewall)
+
+6) MUST
+- OpenResty only listens on 10.77.0.1
+- firewall defines user/admin access (user cannot reach pma)
+- TLS for panel (trusted via CA import)
+
+7) OPTIONAL
+- Separate server blocks for:
+  - vpn.status (panel)
+  - blockpage host (wildcard) for MITM
+
+8) FEHLERBILDER
+- User can reach phpMyAdmin -> firewall/vhost wrong
+- Web reachable from WAN -> bind wrong
+
+9) TESTS
+- From WAN: cannot connect to 80/443.
+- From user net: can open panel only.
+- From admin net: can open admin tools.
+
+10) CHANGELOG
+- v1.0: Initial
+
+================================================================================

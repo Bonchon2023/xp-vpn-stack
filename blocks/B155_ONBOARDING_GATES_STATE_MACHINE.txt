@@ -1,0 +1,142 @@
+================================================================================
+BLOCK ID: B155
+TITLE: Onboarding Gates / State Machine (Gate#1 Claim + Gate#2 Email Verify)
+VERSION: v1.0
+STATUS: ACTIVE
+OWNER: Marco
+OWNER-INTENT: 2-Gate HARD Enforcement (Trial->Claim, Claim->Verify) mit minimalen Supportfällen und verifizierbarer Kontakt-Email (Abuse/Compliance).
+PRIORITY: MUST
+REQUIRES: B050, B150, B280, B220
+INFLUENCES: B240 (Setup-Tool / Claim Token Distribution)
+NOTES:
+- Kein nftables-Regeldetail (das ist B150).
+- Keine UI/UX-Screens (das ist B280).
+- Keine RADIUS Attribute-Mappings im Detail (das ist B050).
+================================================================================
+
+1) ZWECK
+- Definiert den vollständigen, zeilenfesten Ablauf, wie eine VPN-Connection:
+  (a) PREPROVISIONED ausgeliefert wird
+  (b) Trial nutzt
+  (c) nach Trial in Gate #1 fällt (Restricted Mode / Walled Garden)
+  (d) per Claim einem Kunden zugeordnet wird (Internet sofort frei)
+  (e) danach ggf. in Gate #2 fällt, wenn Email nicht verifiziert ist (Restricted Mode / Walled Garden)
+- Ergebnis: Minimaler Support + verifizierbare Kontakt-Email als Compliance/Abuse-Anker.
+
+2) BEGRIFFE
+- Customer = Panel-Account (email, password_hash, email_verified_at)
+- VPN-Connection = Sub-Account pro Gerät (username/pass + fixed IP + Status)
+- Claim = Verknüpfung VPN-Connection -> Customer (customer_id wird gesetzt)
+- Restricted Mode = Walled Garden Policy (definiert in B150)
+
+3) SOURCE OF TRUTH (MUST)
+- SQL ist Source of Truth ab Tag 1 (keine chap-secrets Migration).
+- Entscheidungen/States werden ausschließlich aus DB abgeleitet.
+
+4) STATES (VPN_CONNECTION.status)
+- PREPROVISIONED:
+  - Connection existiert, ist nutzbar (Trial), aber noch keinem Customer zugeordnet (customer_id = NULL).
+- CLAIMED:
+  - Connection ist einem Customer zugeordnet (customer_id gesetzt).
+- DISABLED:
+  - Connection ist deaktiviert (no VPN / oder nur Portal – Policy in B150/B280 entscheidet).
+
+5) PFLICHTFELDER (DB – konzeptionell)
+5.1 VPN_CONNECTIONS (pro Gerät/Subaccount)
+- id
+- username
+- password (oder password_hash, je nach AAA-Design)
+- fixed_ip
+- status (PREPROVISIONED/CLAIMED/DISABLED)
+- customer_id (NULL bis Claim)
+- trial_until (Gate #1 Trigger)
+- verify_deadline (Gate #2 Trigger, customerweit möglich; siehe 8)
+- claim_deadline (Hard stop empfohlen)
+- claim_token_hash (DB speichert Hash; Klartext-Token liegt auf dem Gerät)
+- claimed_at (timestamp)
+
+5.2 CUSTOMERS (Panel-User)
+- id
+- email
+- password_hash
+- email_verified_at (NULL bis Verify)
+
+6) GATE #1 (CLAIM) – HARD
+6.1 Trigger-Bedingung
+- now > trial_until
+- UND status = PREPROVISIONED
+- UND customer_id IS NULL
+
+6.2 Enforcement (B150)
+- Restricted Mode aktiv (via B150):
+  - nur DNS + Panel/Status (10.77.0.1:80/443/53)
+  - kein normales Internet
+
+6.3 Exit/Beenden Gate #1 (Claim erfolgreich)
+- Claim-Prozess:
+  - Customer registriert
+  - Claim Token wird eingegeben
+  - Token_hash Match
+  - fixed_ip der Connection stimmt mit aktueller VPN-IP (oder Whitelist-Regel, falls erweitert)
+- Dann:
+  - customer_id setzen
+  - status = CLAIMED
+  - claimed_at setzen
+- Ergebnis:
+  - Internet sofort frei (unabhängig von Email-Verifikation)
+
+7) GATE #2 (EMAIL VERIFY) – HARD
+7.1 Trigger-Bedingung
+- now > verify_deadline
+- UND email_verified_at IS NULL
+- UND (mindestens eine CLAIMED Connection existiert ODER customer_id ist gesetzt)
+
+7.2 Enforcement (B150)
+- Restricted Mode aktiv (via B150):
+  - nur DNS + Panel/Status (10.77.0.1:80/443/53)
+  - kein normales Internet
+
+7.3 Exit/Beenden Gate #2 (Verify erfolgreich)
+- email_verified_at wird gesetzt (Verifikationslink/Token bestätigt)
+- Danach:
+  - Restricted Mode wird aufgehoben
+  - Internet frei
+
+8) SCOPE-ENTSCHEIDUNG (MUST): Gate #2 gilt kundenweit
+- Gate #2 wird kundenweit erzwungen:
+  - Wenn Customer nicht verifiziert, dann betrifft das alle CLAIMED Connections dieses Customers.
+- Begründung:
+  - Ziel ist eine verifizierbare Kontakt-Email pro Kunde (Abuse/Compliance).
+  - Ein “eine Connection ist verified, andere nicht” macht im Abuse-Fall keinen Sinn.
+
+9) CLAIM TOKEN (MUST)
+- Token wird bei Provisionierung erzeugt.
+- Klartext-Token wird lokal auf dem Gerät abgelegt (Desktop-Datei).
+- DB speichert ausschließlich Hash.
+- Token kann nach Claim ungültig gemacht/rotiert werden.
+
+10) HARD STOP (empfohlen)
+- claim_deadline:
+  - wenn now > claim_deadline UND status=PREPROVISIONED:
+    -> DISABLED (oder Portal-only, nach B150/B280 Policy)
+- Zweck: keine “ewigen Leichen” / keine dauerhaft offenen preprovisioned Zugänge.
+
+11) TESTFÄLLE (MUST – Konzept-Tests)
+- T1: Trial aktiv -> normales Internet geht
+- T2: Trial endet -> nur Panel/DNS geht
+- T3: Claim erfolgreich -> Internet geht sofort
+- T4: Verify-Deadline erreicht & Email nicht verified -> nur Panel/DNS geht
+- T5: Email verifiziert -> Internet geht wieder
+- T6: claim_deadline überschritten -> disabled/portal-only greift zuverlässig
+
+12) NICHT-IN-SCOPE (bewusst)
+- nftables Regeldetails: B150
+- UI/Panel Screens/Flows: B280
+- Setup-Tool Implementierung: B240
+- RADIUS Attribute Mapping: B050
+
+13) CHANGELOG
+- v1.0: Initiale Version im B150-Header-Stil (Inhalt aus der bestehenden B155 übernommen, nur Form/Metadaten vereinheitlicht).
+================================================================================
+END BLOCK B155
+================================================================================

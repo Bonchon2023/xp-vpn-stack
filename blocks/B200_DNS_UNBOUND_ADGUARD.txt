@@ -1,0 +1,51 @@
+vpn_masterkonzept/blocks/B200_DNS_UNBOUND_ADGUARD.txt
+================================================================================
+BLOCK-ID: B200
+TITLE: DNS Stack (Unbound + AdGuardHome)
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: SHOULD
+OWNER-INTENT: Sauberer Resolver + Filter + interne rewrites.
+================================================================================
+
+1) ZWECK
+- Unbound als Resolver (local-only)
+- AdGuardHome als DNS server für clients + blockpage routing
+
+2) GRENZEN
+- AdGuard UI ist admin-only.
+
+3) ABHÄNGIGKEITEN
+- Requires: B060, B220
+- Influences: B210, B230
+
+4) INPUTS
+- Unbound bind 127.0.0.1:5335
+- AdGuard bind 10.77.0.1:53, UI 10.77.0.1:2000
+- Upstream of AdGuard = Unbound
+
+5) OUTPUTS
+- DNS for user/admin
+- Rewrite:
+  - vpn.status -> 10.77.0.1
+- Blocking mode: Custom IP -> 10.77.0.1
+
+6) MUST (wenn aktiv)
+- User net allow 53 only (no UI)
+- Admin net allow 53 + 2000
+
+7) OPTIONAL
+- Multiple profiles per group (user/admin)
+
+8) FEHLERBILDER
+- DNS fails -> check bindings and firewall.
+- Blockpage not hit -> blocking mode wrong or web not reachable.
+
+9) TESTS
+- From client: resolve works, blocked domain returns 10.77.0.1.
+- Admin can open UI, user cannot.
+
+10) CHANGELOG
+- v1.0: Initial
+
+================================================================================

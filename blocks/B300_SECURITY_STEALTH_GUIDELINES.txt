@@ -1,0 +1,45 @@
+vpn_masterkonzept/blocks/B300_SECURITY_STEALTH_GUIDELINES.txt
+================================================================================
+BLOCK-ID: B300
+TITLE: Security & Stealth Guidelines
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: Leitlinien, damit Betrieb stabil und unauffällig bleibt.
+================================================================================
+
+1) ZWECK
+- Definiert Sicherheits- und Exposure-Regeln.
+
+2) GRENZEN
+- Kein Adminzugang über WAN.
+- User sind untrusted.
+
+3) ABHÄNGIGKEITEN
+- Requires: alle
+
+4) RULES MUST
+- WAN: nur UDP 500/4500 + ESP.
+- SSH: bind nur 127.0.0.1 + 10.77.0.1, nft allow nur Admin-Netz.
+- Web: bind nur 10.77.0.1; nft allow user/admin subsets.
+- AdGuard UI/pma: admin-only.
+- Peer isolation: user-user drop.
+- Abuse blocks: SMTP/SMB/NetBIOS drop.
+- IPv6 disabled.
+
+5) OPTIONAL
+- ICMP rate-limit.
+- Additional outbound blocks.
+
+6) FEHLERBILDER
+- Service exposed on WAN -> immediate incident.
+- Abuse report -> check blocks + compromised admin credentials.
+
+7) TESTS
+- Regular external scan results documented.
+- Internal access matrix validated.
+
+8) CHANGELOG
+- v1.0: Initial
+
+================================================================================

@@ -1,0 +1,55 @@
+vpn_masterkonzept/blocks/B020_GOALS_TARGETS.txt
+================================================================================
+BLOCK-ID: B020
+TITLE: Goals / Zielsetzung
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: Ziele so definieren, dass Designentscheidungen ableitbar sind.
+================================================================================
+
+1) ZWECK
+- Konkrete, prüfbare Ziele definieren (Full-Tunnel, idiotensicher, supportarm).
+
+2) GRENZEN
+- Kein "Best effort": Must-Haves sind verbindlich.
+- Kein “später migrieren”: SQL-first sofort.
+
+3) ABHÄNGIGKEITEN
+- Requires: B010
+- Influences: alle
+
+4) INPUTS
+- Käufer sitzen meist hinter NAT/Router (Double-NAT möglich).
+- XP Systeme sind oft alt (Uhr falsch, TLS/CA Probleme).
+- XP Systeme sind potenziell unsicher (Malware).
+
+5) OUTPUTS (Zielkatalog)
+- G1 Full-Tunnel: gesamter Client-Traffic über VPN-Server
+- G2 Minimal-Client-Setup: FQDN + User/Pass + PSK + Setup-Tool einmalig
+- G3 Peer-Isolation: User sehen sich nicht
+- G4 Segmentierung: User/Admin getrennt
+- G5 SQL-first: User/Verbindungen/Expiry/Stats/Quota in DB + RADIUS Accounting
+- G6 Support-Minimierung: Diagnose-Endpoint, Statuspage, klare Portal-Meldungen
+- G7 Reputation-Schutz: Outbound-Blocking für SMTP/SMB/NetBIOS
+- G8 Stealth: WAN nur IPsec offen, SSH/Web nicht extern
+- G9 Webpanel intern: User dürfen Panel, Admin-only Tools bleiben Admin-only
+- G10 Blockpage: HTTP+HTTPS geblockte Domains landen auf interner Sperrseite ohne Warnungen
+- G11 Zeit-Resilienz: NTP Strategie (Pre-Connect + Post-Connect)
+
+6) HARTE REGELN (MUST)
+- Jede der oben genannten G1..G8 muss testbar sein.
+
+7) OPTIONEN
+- Quota kann initial deaktiviert sein; Walled Garden Mechanismus für Onboarding-Gates ist MUST (B150/B155).
+
+8) FEHLERBILDER & DIAGNOSE
+- Support-Explosion-Indikator: wenn Setup-Tool nicht 100% abdeckt, steigt Support.
+
+9) TESTS / ACCEPTANCE
+- Abnahme-Checklist vorhanden (siehe B290).
+
+10) CHANGELOG
+- v1.0: Initial
+
+================================================================================

@@ -1,0 +1,50 @@
+vpn_masterkonzept/blocks/B070_CRYPTO_LEGACY_DEBIAN13.txt
+================================================================================
+BLOCK-ID: B070
+TITLE: Crypto Legacy / Debian 13 / OpenSSL Legacy
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: XP IKEv1 Legacy Cipher Support auf modernem Debian sicherstellen.
+================================================================================
+
+1) ZWECK
+- XP kann keine modernen Proposals -> legacy muss angeboten werden.
+- Debian 13/OpenSSL 3 blockiert legacy ggf. -> Legacy Provider aktivieren.
+
+2) GRENZEN
+- Wir akzeptieren bewusst schwache Algorithmen NUR für XP-Kompatibilität.
+- Kein "unsicher aber egal": mitigations via Segmentierung + Abuse Blocks + Quota.
+
+3) ABHÄNGIGKEITEN
+- Requires: B040
+- Influences: VPN connect success
+
+4) INPUTS
+- XP: typischer Bedarf 3DES/SHA1/MODP1024 (variiert je Patchlevel)
+- strongSwan: OpenSSL backend
+
+5) OUTPUTS
+- strongSwan kann legacy proposals handeln
+- XP handshake erfolgreich
+
+6) HARTE REGELN (MUST)
+- Legacy Provider ist aktiv (charon openssl plugin load legacy).
+- Proposals sind explizit festgelegt (nicht default-modern).
+- OpenSSL legacy provider wird systemweit aktiviert (openssl.cnf) ODER strongSwan wird so gebaut/konfiguriert, dass legacy verfügbar ist (Testpflicht).
+
+7) OPTIONEN
+- Vista ggf. kann AES/SHA1 -> separate proposal sets möglich (aber nicht nötig initial).
+
+8) FEHLERBILDER & DIAGNOSE
+- "no proposal chosen": proposals mismatch
+- "crypto library error": legacy provider fehlt
+- Diagnose: ipsec statusall, logs
+
+9) TESTS
+- XP connect test vor produktivem Rollout.
+
+10) CHANGELOG
+- v1.0: Initial
+
+================================================================================

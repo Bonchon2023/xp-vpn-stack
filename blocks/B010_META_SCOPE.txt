@@ -1,0 +1,56 @@
+vpn_masterkonzept/blocks/B010_META_SCOPE.txt
+================================================================================
+BLOCK-ID: B010
+TITLE: META / Scope & Constraints
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: Rahmen setzen, damit alle folgenden Blöcke konsistent bleiben.
+================================================================================
+
+1) ZWECK
+- Definiert, was dieses System ist (und was nicht).
+- Definiert die nicht verhandelbaren Randbedingungen (SQL-first, XP-Support, Full-Tunnel).
+
+2) GRENZEN
+- Kein WireGuard/SoftEther Bestandteil im finalen Konzept.
+- Keine IPv6 Unterstützung (bewusst deaktiviert).
+- Kein öffentliches Webpanel auf WAN.
+- Keine "User klicken sich durch Windows Dialoge" Lösung: Setup-Tool ist Pflicht.
+
+3) ABHÄNGIGKEITEN
+- Requires: -
+- Influences: alle Blöcke
+
+4) INPUTS
+- Zielgruppe: Windows XP (optional Vista), Käufer/Endnutzer mit minimalem Know-how
+- Betriebsumgebung: Debian 13 minimal, VM möglich, WAN via ens13
+
+5) OUTPUTS
+- Bindende Prinzipien:
+  - SQL-first AAA
+  - Full-Tunnel
+  - 2 Netze + Service-IP
+  - User dürfen Panel/Blockpage, aber keine Admin-Services
+  - Abuse-Blocking Pflicht
+
+6) HARTE REGELN (MUST)
+- Jede VPN-Verbindung (pro Gerät) hat eigene Credentials (Sub-Account).
+- User-Netz ist peer-isoliert.
+- WAN minimal offen: UDP 500/4500 + ESP.
+- IPv6 deaktiviert.
+- Setup-Tool setzt NAT-T Fix + Truststore + Zeitlogik.
+
+7) OPTIONEN
+- Quota kann initial deaktiviert sein; Walled Garden Mechanismus für Onboarding-Gates ist MUST (B150/B155).
+
+8) FEHLERBILDER & DIAGNOSE
+- Wenn ein späterer Block gegen diese Regeln verstößt -> Block gilt als inkonsistent, muss angepasst werden.
+
+9) TESTS / ACCEPTANCE CRITERIA
+- Review-Check: alle Blöcke referenzieren diese Constraints ohne Widerspruch.
+
+10) CHANGELOG
+- v1.0: Initial
+
+================================================================================

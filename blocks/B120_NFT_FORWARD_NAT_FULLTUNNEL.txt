@@ -1,0 +1,52 @@
+vpn_masterkonzept/blocks/B120_NFT_FORWARD_NAT_FULLTUNNEL.txt
+================================================================================
+BLOCK-ID: B120
+TITLE: nftables Forward + NAT (Full-Tunnel)
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: Full-Tunnel Routing/NAT sauber und deterministisch.
+================================================================================
+
+1) ZWECK
+- Erlaubt VPN subnets -> WAN und NAT.
+
+2) GRENZEN
+- Kein Forward zwischen User-Clients (handled in B130).
+- Restricted Mode (B150) kann Forward zusätzlich reduzieren (Portal-Only).
+
+3) ABHÄNGIGKEITEN
+- Requires: B060, B100
+- Influences: B130, B140, B150
+
+4) INPUTS
+- VPN source ranges
+- WAN: ens13
+- ppp interfaces
+
+5) OUTPUTS
+- forward allow:
+  - 10.77.10.0/24 -> ens13
+  - 10.77.20.0/24 -> ens13
+- conntrack allow for return traffic
+- NAT masquerade both nets out ens13
+
+6) MUST
+- Full-tunnel works: default route on clients points to PPP
+- NAT correct
+
+7) OPTIONEN
+- Separate NAT policies per subnet if needed later.
+
+8) FEHLERBILDER
+- No internet: forward or nat missing
+- Only some sites: MSS clamp missing
+
+9) TESTS
+- From client: traceroute shows server exit.
+- IP check: public IP = server IP.
+
+10) CHANGELOG
+- v1.0: Initial
+
+================================================================================

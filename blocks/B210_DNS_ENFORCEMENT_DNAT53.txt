@@ -1,0 +1,41 @@
+vpn_masterkonzept/blocks/B210_DNS_ENFORCEMENT_DNAT53.txt
+================================================================================
+BLOCK-ID: B210
+TITLE: DNS Enforcement (DNAT 53)
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: OPTIONAL
+OWNER-INTENT: "Idiotensicher" DNS egal was User einträgt.
+================================================================================
+
+1) ZWECK
+- Redirect TCP/UDP 53 from ppp* to 10.77.0.1:53.
+
+2) GRENZEN
+- Aktivieren erst wenn DNS stack stabil.
+
+3) ABHÄNGIGKEITEN
+- Requires: B200, B120
+
+4) INPUTS
+- nft nat prerouting for interfaces ppp*
+
+5) OUTPUTS
+- forced DNS
+
+6) MUST (wenn aktiv)
+- Both UDP and TCP 53
+
+7) OPTIONAL
+- Log attempts to use external DNS.
+
+8) FEHLERBILDER
+- Some apps use DoH -> not covered by DNS enforcement (later policy decision).
+
+9) TESTS
+- Client set DNS 8.8.8.8 -> still uses 10.77.0.1.
+
+10) CHANGELOG
+- v1.0: Initial
+
+================================================================================

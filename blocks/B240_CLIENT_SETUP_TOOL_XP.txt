@@ -1,0 +1,58 @@
+vpn_masterkonzept/blocks/B240_CLIENT_SETUP_TOOL_XP.txt
+================================================================================
+BLOCK-ID: B240
+TITLE: Client Setup Tool (XP/Vista) - Automation Package
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: Käufer klickt 1x Setup -> fertig.
+================================================================================
+
+1) ZWECK
+- Automatisiert alle kritischen client-side Schritte:
+  - NAT-T reg fix
+  - VPN connection creation
+  - shortcuts (connect/disconnect/status)
+  - time sync (pre & post)
+  - CA import windows store + MyPal NSS
+  - optional keepalive redial + diagnose button
+
+2) GRENZEN
+- Tool muss idempotent sein (mehrfach laufen ok).
+- Tool muss klar kommunizieren, wenn Adminrechte fehlen.
+
+3) ABHÄNGIGKEITEN
+- Requires: B080, B260, B250, B270
+
+4) INPUTS
+- Server FQDN
+- PSK
+- Sub-account username/password per device
+- CA cert files
+- NSS bundle (certutil + dlls)
+
+5) OUTPUTS
+- Functional VPN connection with minimal user interaction.
+
+6) MUST
+- Sets NAT-T registry key + reboot notice
+- Creates VPN profile automatically
+- Installs CA into Windows store
+- Installs CA into MyPal NSS
+- Implements time strategy (B260)
+- Provides "Test" button (calls /diag)
+
+7) OPTIONAL
+- Redial loop script for unstable Wi-Fi users.
+
+8) FEHLERBILDER
+- Setup fails due to missing admin -> show message.
+- MyPal import fails -> show manual fallback instructions.
+
+9) TESTS
+- Clean XP VM run -> setup success -> connect works.
+
+10) CHANGELOG
+- v1.0: Initial
+
+================================================================================

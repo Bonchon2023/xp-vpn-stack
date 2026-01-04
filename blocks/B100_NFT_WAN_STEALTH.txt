@@ -1,0 +1,49 @@
+vpn_masterkonzept/blocks/B100_NFT_WAN_STEALTH.txt
+================================================================================
+BLOCK-ID: B100
+TITLE: nftables WAN Minimal Exposure (Stealth)
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: Von außen nur VPN sichtbar.
+================================================================================
+
+1) ZWECK
+- Minimiert Angriffsfläche: WAN zeigt nur IPsec.
+
+2) GRENZEN
+- Kein SSH auf WAN.
+- Kein Web auf WAN.
+
+3) ABHÄNGIGKEITEN
+- Requires: B060
+- Influences: B110, B120
+
+4) INPUTS
+- Interface ens13
+
+5) OUTPUTS
+- ACCEPT:
+  - UDP 500
+  - UDP 4500
+  - ESP (proto 50)
+- Optional ICMP limit/drop
+- DROP sonst
+
+6) MUST
+- Default policy drop.
+- stateful return allowed.
+
+7) OPTIONEN
+- Rate-limit log for scans.
+
+8) FEHLERBILDER
+- Wenn Port 22 sichtbar -> ssh bind/fwrule falsch.
+
+9) TESTS
+- nmap von außen: nur 500/4500, ESP sichtbar.
+
+10) CHANGELOG
+- v1.0: Initial
+
+================================================================================

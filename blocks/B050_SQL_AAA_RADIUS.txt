@@ -1,0 +1,69 @@
+vpn_masterkonzept/blocks/B050_SQL_AAA_RADIUS.txt
+================================================================================
+BLOCK-ID: B050
+TITLE: SQL AAA / FreeRADIUS / Accounting
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: SQL als Source of Truth, RADIUS als Enforcement + Logging.
+================================================================================
+
+1) ZWECK
+- Implementiert: Auth + Authorization + Accounting (AAA) über SQL.
+
+2) GRENZEN
+- Kein chap-secrets als Master.
+- Keine Migration später: DB ist ab Start master.
+
+3) ABHÄNGIGKEITEN
+- Requires: B040
+- Influences: B160, B150, B280, B270
+
+4) INPUTS
+- Panel-User (Kunde) + mehrere VPN-Verbindungen
+- Jede VPN-Verbindung = eigenes Login (Sub-Account)
+- Attribute pro Verbindung:
+  - assigned IP
+  - group (user/admin)
+  - speed profile
+  - expiry date
+  - quota/volumen (optional)
+  - panel login allowlist (optional)
+
+5) OUTPUTS
+- Auth decision: allow/deny
+- Reply:
+  - statische IP (Framed-IP-Address)
+  - ggf. session timeout / idle timeout (optional)
+- Accounting:
+  - Start/Stop
+  - Bytes in/out
+  - Assigned IP
+  - Username (connection-id)
+
+6) HARTE REGELN (MUST)
+- Sub-Accounts pro Gerät zwingend (damit feste IPs eindeutig sind).
+- Accounting ist Pflicht und muss persistent gespeichert werden.
+- DB liegt lokal auf derselben Maschine (Latenz/Failure minimieren).
+
+7) OPTIONEN (SHOULD/OPTIONAL)
+- Local cache für speed/quota decisions (falls DB Down Fail-Policy nötig).
+- API layer statt direkter SQL reads in Hooks (später), aber DB local reicht.
+
+8) FEHLERBILDER & DIAGNOSE
+- DB down -> Auth kann hängen -> Fail-Policy definieren:
+  - Default: Fail-Closed (User) / optional Fail-Safe (Admin).
+- Accounting Stop fehlt (Laptop sleep) -> Session cleanup via DPD/LCP + timeouts.
+
+9) TESTS
+- Erstelle Kunde + 2 Verbindungen -> beide können parallel rein.
+- radacct zeigt Start/Stop/Bytes korrekt.
+- Expiry überschritten -> Verbindung geht in Restricted Mode (B150) statt RADIUS reject (Portal-Only).
+- Für Gate#1/Gate#2/Quota/Expiry wird grundsätzlich kein RADIUS reject verwendet, sondern "ACCEPT + restricted state/flag" (Enforcement über B150).
+- RADIUS reject bleibt reserviert für DISABLED/BAN/Missbrauch-Sperre.
+- DISABLED/BAN -> RADIUS reject greift sofort.
+
+10) CHANGELOG
+- v1.0: Initial
+
+================================================================================

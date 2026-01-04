@@ -1,0 +1,58 @@
+vpn_masterkonzept/blocks/B230_HTTPS_BLOCKPAGE_MITM_CA.txt
+================================================================================
+BLOCK-ID: B230
+TITLE: HTTPS Blockpage (MITM) / CA / On-the-fly Certs / RateLimit
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: HTTPS Blockpage ohne Warnungen auf XP/MyPal.
+================================================================================
+
+1) ZWECK
+- Wenn AdGuard blockt:
+  - DNS antwortet 10.77.0.1
+  - HTTP + HTTPS landen auf Sperrseite
+- HTTPS soll ohne Warnung funktionieren:
+  - interne Root-CA vertrauenswürdig im Client (Windows + MyPal NSS)
+  - OpenResty erzeugt leaf cert pro SNI host (oder cached)
+
+2) GRENZEN
+- Nicht 100% gegen Pinning/HSTS-Edgecases garantierbar.
+- Nur Browser/typische HTTP(S) requests; Apps mit Pinning können scheitern.
+
+3) ABHÄNGIGKEITEN
+- Requires: B220, B200, B260
+- Influences: UX, support, B250 (Client trust store integration)
+
+4) INPUTS
+- Root-CA (offline storage optional; operational policy)
+- Signing mechanism (on-box, intermediate possible)
+- Rate limit rules (per client IP/host)
+- Cert cache (SNI->cert)
+
+5) OUTPUTS
+- Blockpage served on HTTP and HTTPS for blocked domains
+- Minimal info: URL blocked reason, optional "allowlist request" message
+
+6) MUST (wenn aktiv)
+- MyPal NSS import must succeed for "no warning" target.
+- Rate limiting + caching required to prevent CPU DoS.
+- Blockpage web must not expose admin functions.
+
+7) OPTIONAL
+- Custom IP block mode for AdGuard (primary)
+- Additional captive portal integration
+
+8) FEHLERBILDER
+- Zertwarnung in MyPal -> NSS import failed or wrong profile.
+- High CPU load -> rate limit/caching missing.
+- Some domains still fail -> pinning/HSTS; acceptable limitation.
+
+9) TESTS
+- Block domain -> HTTPS opens blockpage without warning on MyPal.
+- Flood subdomains -> server remains responsive.
+
+10) CHANGELOG
+- v1.0: Initial
+
+================================================================================

@@ -1,0 +1,48 @@
+vpn_masterkonzept/blocks/B190_OFFLOAD_TUNING_DEFAULT.txt
+================================================================================
+BLOCK-ID: B190
+TITLE: Offload Tuning Default (VM)
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: VM Phantomfehler minimieren ohne Support-Diagnose beim Kunden.
+================================================================================
+
+1) ZWECK
+- Deaktiviert Offloads auf ens13, um VM/virtio edge cases zu vermeiden.
+
+2) GRENZEN
+- Betrifft WAN-vNIC (ens13), nicht pppX.
+- Nicht jeder Switch supported -> "try/ignore".
+
+3) ABHÄNGIGKEITEN
+- Requires: B060
+- Influences: stability under load
+
+4) INPUTS
+- systemd oneshot after network-online
+- ethtool
+
+5) OUTPUTS
+- disable: tso, gso, gro, lro (wenn vorhanden), tx-gso-partial off (wenn vorhanden)
+- optionally disable tx-checksum-ip-generic if supported
+
+6) MUST (für Default in VM)
+- Persistenz über Boot.
+- Fail-safe: command errors don't break boot.
+
+7) OPTIONAL
+- Full checksum off only when proven needed.
+
+8) FEHLERBILDER
+- Performance drop -> CPU limits; but with speed caps usually ok.
+- No effect -> driver doesn't support toggles.
+
+9) TESTS
+- After reboot: ethtool -k shows disabled features.
+- Under load: stable throughput.
+
+10) CHANGELOG
+- v1.0: Initial
+
+================================================================================

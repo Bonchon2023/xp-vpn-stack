@@ -1,0 +1,49 @@
+vpn_masterkonzept/blocks/B160_TC_QOS_PER_PPP.txt
+================================================================================
+BLOCK-ID: B160
+TITLE: tc QoS / Speedlimit pro pppX
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: SHOULD
+OWNER-INTENT: Per-Client Bandbreite + niedriger Ping.
+================================================================================
+
+1) ZWECK
+- Limit pro Verbindung, live drosselbar.
+
+2) GRENZEN
+- nftables ist nicht der shaper.
+
+3) ABHÄNGIGKEITEN
+- Requires: B050, B040
+- Influences: user experience
+
+4) INPUTS
+- pppX interface created on connect
+- speed profile from RADIUS/SQL
+
+5) OUTPUTS
+- qdisc on pppX:
+  - CAKE or fq_codel
+  - bandwidth = profile
+
+6) MUST (wenn aktiv)
+- ip-up hook sets qdisc per connect
+- ip-down cleanup optional
+
+7) OPTIONAL
+- Ingress shaping via IFB (später)
+- Burst policy for admin net
+
+8) FEHLERBILDER
+- No limit applied -> ip-up script not firing.
+- High latency under load -> wrong qdisc or no CAKE/fq_codel.
+
+9) TESTS
+- Speedtest shows caps match.
+- Ping stable under download.
+
+10) CHANGELOG
+- v1.0: Initial
+
+================================================================================

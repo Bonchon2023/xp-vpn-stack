@@ -1,0 +1,52 @@
+vpn_masterkonzept/blocks/B180_SYSTEMD_RESTART_HEALTHCHECKS.txt
+================================================================================
+BLOCK-ID: B180
+TITLE: systemd Auto-Restart + Healthchecks
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: 24/7 Betrieb ohne Handarbeit.
+================================================================================
+
+1) ZWECK
+- Services restart automatically.
+- Healthcheck detects "hung but running".
+
+2) GRENZEN
+- Restart alleine reicht nicht, wenn Service stuck ist -> healthcheck.
+
+3) ABHÄNGIGKEITEN
+- Requires: B040, B050, B220
+- Influences: uptime
+
+4) INPUTS
+- systemd override units
+- healthcheck scripts/timers
+
+5) OUTPUTS
+- Restart=always for core services:
+  - strongSwan, xl2tpd, freeradius, openresty, php-fpm, mysql, (dns später)
+- Healthcheck:
+  - ipsec status sanity
+  - xl2tpd responsiveness (logs, sockets)
+  - openresty 10.77.0.1 respond
+  - db alive
+
+6) MUST
+- Overrides via systemctl edit (not file edits in /lib)
+
+7) OPTIONAL
+- watchdog timer to reboot VM on repeated failures (last resort)
+
+8) FEHLERBILDER
+- Service restarts loop -> config error
+- Hung process -> needs watchdog script
+
+9) TESTS
+- Kill process -> systemd restarts.
+- Simulate stuck -> healthcheck triggers restart.
+
+10) CHANGELOG
+- v1.0: Initial
+
+================================================================================

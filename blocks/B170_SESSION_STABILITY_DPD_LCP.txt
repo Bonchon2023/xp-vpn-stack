@@ -1,0 +1,46 @@
+vpn_masterkonzept/blocks/B170_SESSION_STABILITY_DPD_LCP.txt
+================================================================================
+BLOCK-ID: B170
+TITLE: Session Stability (strongSwan DPD + PPP LCP Echo)
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: Keine Ghost Sessions / Reconnect sauber.
+================================================================================
+
+1) ZWECK
+- Kill stale sessions quickly (laptop sleep, wifi drop).
+
+2) GRENZEN
+- Aggressive timeouts are intentional.
+
+3) ABHÄNGIGKEITEN
+- Requires: B040
+- Influences: support volume
+
+4) INPUTS
+- strongSwan config
+- pppd options
+
+5) OUTPUTS
+- DPD detects dead peers -> clears
+- LCP echo kills dead PPP links
+
+6) MUST
+- DPD enabled with reasonable timers
+- LCP echo enabled
+
+7) OPTIONAL
+- enforce 1 session per sub-account (or allow multiple if you ever want)
+
+8) FEHLERBILDER
+- User cannot reconnect -> stale session not cleared -> tighten timers or fix cleanup.
+
+9) TESTS
+- Simulate laptop sleep -> session cleared within minutes.
+- Reconnect works.
+
+10) CHANGELOG
+- v1.0: Initial
+
+================================================================================

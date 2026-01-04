@@ -1,0 +1,61 @@
+vpn_masterkonzept/blocks/B280_PANEL_FEATURES_USER_ADMIN.txt
+================================================================================
+BLOCK-ID: B280
+TITLE: Panel Features (User/Admin)
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: Self-service, weniger Support, klare Trennung.
+================================================================================
+
+1) ZWECK
+- User Panel:
+  - status, stats, quota, expiry
+  - password change per connection
+  - allowed login IP management
+- Admin Panel:
+  - customer management, create/revoke connections
+  - speed profile, quota, expiry
+  - maintenance banner
+  - abuse tools / walled garden toggles
+
+2) GRENZEN
+- User darf keine admin-only UIs.
+- Panel login only via VPN IP allowlist.
+- Restricted Mode (B150) kann Panel-Rechte einschränken (z.B. nur Status/Claim/Verify), unabhängig von den normalen User-Features.
+
+3) ABHÄNGIGKEITEN
+- Requires: B050, B220
+- Influences: B150
+
+4) INPUTS
+- SQL tables for:
+  - customers
+  - vpn_connections
+  - accounting stats
+  - banners
+  - allowlists
+  - tokens for password reset (email external)
+
+5) OUTPUTS
+- Reduced support, clear self-service flow.
+
+6) MUST
+- IP-bound login enforcement.
+- Password reset uses external mail infra (your mailserver).
+- Stats come from radacct.
+
+7) OPTIONAL
+- per-connection "lock to one IP" mode toggle.
+
+8) FEHLERBILDER
+- User cannot login though connected -> allowlist mismatch.
+- Stats missing -> accounting misconfigured.
+
+9) TESTS
+- Create user+2 connections -> both show in panel, stats correct.
+
+10) CHANGELOG
+- v1.0: Initial
+
+================================================================================

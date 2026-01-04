@@ -1,0 +1,69 @@
+vpn_masterkonzept/blocks/B290_PHASE_PLAN_ROLLOUT.txt
+================================================================================
+BLOCK-ID: B290
+TITLE: Rollout / Phasenplan
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: Reihenfolge, damit nichts instabil "oben drauf" kommt.
+================================================================================
+
+1) ZWECK
+- Definiert Build-Reihenfolge und Abnahmekriterien je Phase.
+
+2) GRENZEN
+- Keine Feature-Flut bevor VPN stabil.
+
+3) ABHÄNGIGKEITEN
+- Requires: alle
+
+4) PHASEN
+PH1: VPN + SQL AAA + Firewall Baseline
+- strongSwan/xl2tpd/pppd
+- FreeRADIUS+SQL+Accounting
+- nft: WAN minimal, 1701 via IPsec, forward+nat, peer isolation, abuse blocks, MSS clamp
+- systemd restart
+- offload default
+- Tests: XP connect stable, full-tunnel, logs ok
+
+PH2: QoS
+- tc per pppX
+- speed profiles from SQL
+
+PH3: Webpanel Core
+- OpenResty+PHP-FPM+DB
+- user login IP-bound
+- stats from accounting
+- diag endpoint
+- Onboarding Gates aktiv (B155): Gate#1 Claim + Gate#2 Email Verify (Deadlines/State Machine)
+- Enforcement via Restricted Mode / Walled Garden (B150):
+  - Portal-Only Allowlist (Panel/Status/Diag + DNS optional)
+  - Trigger durch B155/B050 (restricted flag/state) – kein RADIUS reject für Gates
+
+PH4: DNS Stack
+- Unbound + AdGuard
+- rewrite vpn.status
+- blocking custom ip -> 10.77.0.1
+Hinweis: Ohne PH6 (CA+MITM) können HTTPS-Blockseiten bei geblockten Domains noch Zertifikatswarnungen zeigen.
+
+PH5: DNS Enforcement
+- DNAT 53 from ppp* to 10.77.0.1
+
+PH6: MITM HTTPS Blockpage
+- CA infra + MyPal NSS import
+- cert cache + ratelimit
+- full tests
+
+PH7: Premium
+- Quota/Volumenlimit (Monetization): DB-Felder + Enforcement über B150 (restricted when quota<=0)
+- Expiry / Laufzeit (Monetization): DB-Felder + Enforcement über B150 (restricted when expired)
+- Maintenance/Broadcast Banner im Panel (SQL Flag) (Support-Reduktion)
+
+
+5) MUST (Acceptance)
+- Jede Phase hat Tests; fail -> stop and fix.
+
+6) CHANGELOG
+- v1.0: Initial
+
+================================================================================

@@ -1,0 +1,45 @@
+vpn_masterkonzept/blocks/B140_NFT_OUTBOUND_ABUSE_BLOCKS.txt
+================================================================================
+BLOCK-ID: B140
+TITLE: nftables Outbound Abuse Blocks (Reputation-Schutz)
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: Server-IP nicht auf Blacklists landen lassen.
+================================================================================
+
+1) ZWECK
+- XP clients may be infected -> block common abuse ports.
+
+2) GRENZEN
+- Diese Regeln gelten mindestens für User-Netz; Admin nach Policy.
+
+3) ABHÄNGIGKEITEN
+- Requires: B120
+- Influences: operational safety
+
+4) INPUTS
+- forward chain for traffic to WAN
+
+5) OUTPUTS
+- drop outbound (clients -> wan):
+  - tcp dport 25, 465, 587
+  - tcp dport 445
+  - tcp/udp dport 137-139
+
+6) MUST
+- Must be enabled before selling service.
+
+7) OPTIONEN
+- Additional blocks (e.g. 23/telnet, 135 RPC) as hardening later.
+
+8) FEHLERBILDER
+- Abuse report from hoster -> check if blocks bypassed or admin net compromised.
+
+9) TESTS
+- From client: telnet/smtp connect fails, smb fails.
+
+10) CHANGELOG
+- v1.0: Initial
+
+================================================================================

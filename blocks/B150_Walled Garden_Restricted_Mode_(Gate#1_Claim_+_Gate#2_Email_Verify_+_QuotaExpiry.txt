@@ -1,0 +1,63 @@
+vpn_masterkonzept/blocks/B150_Walled Garden / Restricted Mode (Gate#1 Claim + Gate#2 Email Verify + Quota/Expiry.txt
+================================================================================
+BLOCK-ID: B150
+TITLE: Walled Garden / Restricted Mode (Gate#1 Claim + Gate#2 Email Verify + Quota/Expiry)
+VERSION: v1.1
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: Statt "Internet kaputt" eine klare Portal-Seite zeigen (HARD Enforcement für Gate#1/Gate#2 + Quota/Expiry).
+================================================================================
+
+1) ZWECK
+- Wenn Restricted Mode aktiv ist (Gate#1 / Gate#2 / Quota / Expiry):
+  - nur Portal/DNS erlauben
+  - Rest blocken
+  - User bekommt klare Anweisung
+- Zusätzlich HARD Onboarding Enforcement:
+  - Gate #1 (CLAIM): Nach Trial-Ende (Connection noch nicht geclaimed) -> nur Portal/DNS erlauben, Rest blocken.
+  - Gate #2 (EMAIL VERIFY): Nach Verify-Deadline ohne Email-Verify -> nur Portal/DNS erlauben, Rest blocken.
+
+2) GRENZEN
+- Primärmechanik: Firewall allowlist (kein DNS cache chaos).
+- DNS-Portal optional, aber nicht default.
+
+3) ABHÄNGIGKEITEN
+- Requires: B050, B120, B220, B280, B155
+- Influences: Support volume, UX, Abuse/Compliance enforcement
+
+4) INPUTS
+- Decision source: SQL (gate flags + quota/expiry flags) -> enforcement via scripts/hook
+- Gate/State Inputs (konzeptionell):
+  - Gate #1: trial_until + status PREPROVISIONED/CLAIMED + customer_id NULL/SET
+  - Gate #2: verify_deadline + email_verified_at NULL/SET (kundenweit)
+- Allowed services:
+  - 10.77.0.1:80/443
+  - 10.77.0.1:53
+  - udp/123 to 10.77.0.1
+
+5) OUTPUTS
+- For blocked users:
+  - allow only above
+  - drop everything else to WAN
+
+6) MUST (immer, da HARD Enforcement)
+- Must be immediate (no DNS TTL issue)
+- Must show portal page with reason + next step
+
+7) OPTIONAL
+- DNS-Portal: only if TTL extremely low + flushdns after unlock.
+
+8) FEHLERBILDER
+- User unlocked but still stuck:
+  - if DNS portal used: local cache -> fix by flushdns
+  - if firewall: rule not removed -> script bug
+
+9) TESTS
+- Toggle expiry -> user gets portal instantly.
+- Toggle back -> internet works immediately.
+
+10) CHANGELOG
+- v1.1: Expanded to HARD Restricted Mode for Gate#1 Claim + Gate#2 Email Verify + Quota/Expiry; Requires updated (B155,B280); Priority MUST.
+- v1.0: Initial
+
+================================================================================
