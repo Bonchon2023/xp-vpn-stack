@@ -39,6 +39,7 @@ vpn_masterkonzept/
 │  ├─ B280_PANEL_FEATURES_USER_ADMIN.txt
 │  ├─ B290_PHASE_PLAN_ROLLOUT.txt
 │  └─ B300_SECURITY_STEALTH_GUIDELINES.txt
-└─ templates/
-   ├─ BLOCK_TEMPLATE.txt
-   └─ DECISION_RECORD_TEMPLATE.txt
+├─  templates/
+│  ├─ BLOCK_TEMPLATE.txt
+│  └─ DECISION_RECORD_TEMPLATE.txt
+└─ README.md
