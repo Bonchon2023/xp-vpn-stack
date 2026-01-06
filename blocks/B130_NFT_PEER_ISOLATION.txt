@@ -27,6 +27,7 @@ OWNER-INTENT: User sehen sich nicht.
 
 6) MUST
 - Peer isolation enforced in kernel.
+- Reihenfolge: Peer-Isolation Drop MUSS vor allgemeinem Forward-Allow (B120) liegen; Restricted (B150) liegt ebenfalls vor B120 (siehe B150 2.1).
 
 7) OPTIONEN
 - Admin->User on demand via explicit rules (separates block).

@@ -37,9 +37,9 @@ The intended outcome is a reproducible server setup where the VPN software provi
   - UDP 1701 (L2TP) only accepted **via IPsec/XFRM**
 - **Per-client QoS**
   - shaping per `pppX` using `tc` (CAKE/fq_codel)
-- **DNS stack (phased)**
+- **DNS stack (v2.0: enforced)**
   - Unbound local resolver + AdGuardHome (internal)
-  - optional DNS enforcement (DNAT port 53)
+  - **DNS enforcement is MUST** (DNAT TCP+UDP 53 from `ppp*` → `10.77.0.1:53`)
 - **Internal webstack**
   - OpenResty (Nginx+Lua) + PHP-FPM + MySQL/MariaDB + phpMyAdmin (admin-only)
   - webpanel reachable only inside VPN, bound to `10.77.0.1`
@@ -49,9 +49,10 @@ The intended outcome is a reproducible server setup where the VPN software provi
   - XP browser target: **MyPal** with NSS trust store handling
 - **Time/NTP strategy**
   - XP time problems handled (pre-/post-connect strategy; optional NTP hijack to `10.77.0.1`)
-- **Onboarding gates**
+- **Onboarding gates (v2.0 hardened)**
   - Gate#1: claim / link device+VPN connection to a user account
   - Gate#2: email verification hard gate
+  - **Gate#2 is customerwide** (unverified customer → all claimed connections restricted)
   - enforcement via **Restricted Mode / Walled Garden** (panel-only access)
 
 ---
@@ -65,6 +66,7 @@ The stack intentionally avoids relying on “VPN software features” for contro
 - QoS: **tc**
 - Services: bound to `10.77.0.1` and firewall-limited
 - AAA/accounting: **SQL + FreeRADIUS** (source of truth)
+- Determinism: **policy-apply + reconcile** (drift-safe)
 
 This is built for selling/supporting XP systems with minimal support overhead and predictable behavior.
 
@@ -88,10 +90,10 @@ This is built for selling/supporting XP systems with minimal support overhead an
 - per-PPP interface shaping via tc
 - default limits by group (User/Admin) and DB-driven parameters
 
-### DNS
+### DNS (v2.0)
 - Unbound (local-only)
 - AdGuardHome on `10.77.0.1:53` (UI admin-only)
-- optional DNS enforcement (DNAT 53)
+- **DNS enforcement MUST**: DNAT TCP+UDP 53 from `ppp*` → `10.77.0.1:53`
 
 ### Webpanel & Blockpage
 - OpenResty + PHP-FPM + DB
@@ -99,29 +101,34 @@ This is built for selling/supporting XP systems with minimal support overhead an
 - MITM HTTPS blockpage using an internal CA
 - MyPal NSS trust store integration
 
-### Reliability
+### Reliability / Operations (v2.0 hardened)
 - systemd auto-restart + healthchecks for key services
 - DPD + LCP echo to avoid stale sessions
 - offload tuning defaults for virtualized environments
+- **Accounting collector + session mapping** (pppX → connection_id)
+- **Stale-session janitor + on-demand janitor in login flow** (SimUse lockout-safe)
+- **Policy apply + reconcile (FLUSH+REBUILD)** to prevent drift
 
 ---
 
-## Repository structure
+## Repository structure (authoritative)
 
-- `MASTER/` or root MASTER files: canonical “zeilenfest” spec
-- `blocks/` : B010–B300 implementation blocks
+- `000_MASTER-KONZEPT vX.X (ZEILENFEST).txt` : canonical “zeilenfest” spec
+- `00_MASTER_vX.X.txt` : readable master summary + block map
+- `01_CHANGELOG.txt` : version history / deltas
+- `02_GLOSSAR.txt` : glossary
+- `03_ASSUMPTIONS_AND_RULES.txt` : bindende Annahmen & Regeln
+- `04_BLOCK_INDEX.txt` : block index (B010–B300)
+- `blocks/` : implementation blocks
 - `decisions/` : ADR decision records
 - `templates/` : templates for consistent future changes
-- `CHANGELOG` : version history / deltas
-
-(Exact filenames may vary depending on your layout, but the intent stays the same.)
 
 ---
 
 ## Phased rollout model
 
-The spec is built around phases (VPN first, then QoS/DNS/web/MITM/gates), with the key rule:
-**VPN stability first, then features.**
+The spec is built around phases (VPN first, then QoS/web/MITM/gates), with the key rule:
+**VPN stability first, then features**.
 
 See `B290_PHASE_PLAN_ROLLOUT` and the MASTER file for the authoritative phase plan.
 
@@ -129,9 +136,9 @@ See `B290_PHASE_PLAN_ROLLOUT` and the MASTER file for the authoritative phase pl
 
 ## Status
 
-- Spec baseline: **MASTER v1.8 (zeilenfest)**
-- Blocks: B010–B300 present
-- Decision records: present
+- Spec baseline: **MASTER v2.0**
+- Blocks: B010–B300 present (incl. v2.0 additions B165–B169)
+- Decision records: present (incl. D008 customerwide Gate#2)
 - Templates: present
 
 ---
@@ -139,8 +146,8 @@ See `B290_PHASE_PLAN_ROLLOUT` and the MASTER file for the authoritative phase pl
 ## Scope / Non-goals
 
 - This repo does **not** ship a one-click installer yet.
-- Some features are explicitly marked optional/phased in the spec (e.g., DNS enforcement).
 - DoH/DoT bypass prevention is out of scope for the “DNS enforcement” mechanism.
+- “DNS enforcement” means **port 53 enforcement** (DNAT), not DoH/DoT interception.
 
 ---
 

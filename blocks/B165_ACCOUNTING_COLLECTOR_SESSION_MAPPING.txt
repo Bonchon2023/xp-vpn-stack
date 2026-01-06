@@ -1,0 +1,83 @@
+BLOCK: B165_ACCOUNTING_COLLECTOR_SESSION_MAPPING
+VERSION: v1.0
+STATUS: ACTIVE
+OWNER: Marco + ChatGPT
+LAST-UPDATE: (Datum von dir)
+
+================================================================================
+1) ZWECK
+================================================================================
+- Definiert Session-Mapping und Accounting-Lifecycle für Quota-Usage.
+- Ziel: Quota-Zählung über pppX rx/tx Kernel-Counter ohne DB-Spam.
+- Schlüssel-Identität: connection_id (SQL PK), nicht username.
+
+================================================================================
+2) KERNPRINZIP
+================================================================================
+- Datenpfad (Traffic) läuft im Kernel, KEIN SQL pro Paket.
+- SQL wird nur im Control-Plane genutzt (AAA/Policy/Accounting batch).
+- Quota-Usage wird als Deltas gesammelt und batchweise geschrieben (Intervall 300s).
+
+================================================================================
+3) SESSION-MAPPING (pppX -> connection_id)
+================================================================================
+- Bei PPP Connect (ip-up Hook) wird ein Mapping-File erstellt:
+  - Pfad: /run/vpn-sessions/<ppp_if>.env
+  - Format: KEY=VALUE (shell-friendly)
+  - Muss enthalten:
+    - PPP_IF=pppX
+    - CLIENT_IP=10.77.x.y
+    - CONNECTION_ID=<int>
+    - SESSION_ID=<string>
+    - START_TS=<unix>
+- Bei PPP Disconnect (ip-down Hook) wird /run/vpn-sessions/<ppp_if>.env entfernt.
+
+- Hinweis: stale Mapping-Files werden zentral durch Reconcile (B166) bereinigt (PPP_IF Existenzcheck).
+================================================================================
+4) DURABLE ACCOUNTING STATE + SPOOL
+================================================================================
+- Durable Session-State pro PPP-Session:
+  - Pfad: /var/lib/vpn-accounting/sessions/<SESSION_ID>.state
+  - Enthält mindestens:
+    - last_rx_bytes
+    - last_tx_bytes
+    - pending_rx_bytes
+    - pending_tx_bytes
+    - last_flush_ts
+- Durable Spool/Journal (DB-Down/Retry):
+  - Pfad: /var/lib/vpn-accounting/spool.log (append-only)
+  - Einträge: timestamp + connection_id + delta_bytes
+
+================================================================================
+5) COLLECTOR LIFECYCLE (GLOBAL)
+================================================================================
+- Ein globaler Collector verarbeitet alle aktiven PPP Sessions:
+  - Trigger: systemd timer alle 300s
+  - Ablauf:
+    - Liste aktiver pppX via /run/vpn-sessions/*.env
+    - Lesen rx/tx counters: /sys/class/net/pppX/statistics/{rx_bytes,tx_bytes}
+    - Delta = current - last (aus durable state)
+    - DB up:
+      - Batch-Commit in einer Transaktion: quota_used += delta (pro connection_id)
+      - Update durable state (last_*, pending=0)
+    - DB down:
+      - pending_* aufaddieren + spool.log append
+      - Kein Auth-Fallback (B050 Fail-Closed bleibt)
+- Disconnect Handling (ip-down):
+  - Final read rx/tx, final delta berechnen
+  - Einmaliger Commit-Versuch; bei DB down -> spool append
+  - Cleanup /run mapping
+- Wiring (PPP Hooks + systemd collector timer/service) ist in B167 verbindlich definiert.
+
+================================================================================
+6) TESTS
+================================================================================
+- Mapping Test: pppX verbindet -> /run/vpn-sessions/pppX.env existiert und enthält CONNECTION_ID + SESSION_ID.
+- Collector Test: alle 300s werden Deltas korrekt berechnet und als Batch committed.
+- DB Down Test: DB stoppen -> spool.log wächst, pending wächst; nach DB recovery wird nachgetragen.
+- Reboot Test: DB down + reboot -> spool/state bleibt; nach DB recovery wird korrekt nachgetragen.
+================================================================================
+7) CHANGELOG
+================================================================================
+- v1.0: initial
+================================================================================

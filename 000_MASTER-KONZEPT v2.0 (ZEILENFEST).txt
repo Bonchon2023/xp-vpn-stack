@@ -1,0 +1,374 @@
+0001| ==================================================================================================
+0002| MASTER-KONZEPT v2.0 (ZEILENFEST)
+0003| XP/Vista Full-Tunnel VPN auf Debian 13 (from scratch) — L2TP/IPsec (strongSwan + xl2tpd + pppd)
+0004| Policies in Linux: nftables + tc + SQL/RADIUS + interner Webstack + DNS-Stack + MITM-Blockpage
+0005| ==================================================================================================
+0006| 
+0007| 1) ZIELSETZUNG (MUST)
+0008| 1.1| Dedizierter VPN-Server für Windows XP (optional Vista).
+0009| 1.2| Full-Tunnel erzwungen: gesamter Client-Traffic läuft durch den VPN-Server ins Internet.
+0010| 1.3| “Idiotensicher”: clientseitig minimal (FQDN + User/Pass + PSK), alles andere automatisch.
+0011| 1.4| Keine WAN-Services außer VPN: von außen idealerweise nur UDP 500/4500 + ESP sichtbar.
+0012| 1.5| Peer-Isolation: verkaufte Geräte sehen sich untereinander nicht (User↔User strikt DROP).
+0013| 1.6| Zwei logisch getrennte VPN-Bereiche: User (verkaufte Geräte) vs Admin (deine Geräte).
+0014| 1.7| Bandbreitenkontrolle pro Verbindung (pppX) + manuelle Drosselung + Quota/Expiry möglich.
+0015| 1.8| DNS-Stack (Unbound + AdGuardHome) + DNS-ZWANG IMMER (MUST): DNS wird per DNAT 53 (TCP+UDP)
+0016|     | auf 10.77.0.1:53 erzwungen und kann clientseitig nicht umgangen werden.
+0017| 1.9| Interner Webstack (OpenResty + PHP-FPM + MariaDB + phpMyAdmin) für:
+0018|     | - User-Panel (Login nur über VPN; IP-Abgleich/Whitelist im Panel)
+0019|     | - Statusseite (vpn.status)
+0020|     | - Admin-Panel / Admin-Tools
+0021|     | - HTTPS-Blockpage (MITM) für AdGuard-Blocklisten (“Custom IP” -> interne Blockpage)
+0022| 1.10| ONBOARDING / BUSINESS-ENFORCEMENT (MUST):
+0023|     | - Gate #1 (CLAIM): Nach Ablauf der Trial-Frist wird Internet gesperrt (Walled Garden),
+0024|     |   bis der Käufer einen Panel-Account erstellt UND die Verbindung claimed (Verknüpfung
+0025|     |   Panel-User ↔ VPN-Connection).
+0026|     | - Gate #2 (EMAIL VERIFY): Nach dem Claim läuft Internet sofort wieder (unabhängig von
+0027|     |   Verifikation), ABER wenn die Email nicht bis zur Verify-Deadline bestätigt ist, wird
+0028|     |   wieder Walled Garden erzwungen, bis verifiziert.
+0029|     | - Gate #2 ist KUNDENWEIT: ist ein Customer nicht verifiziert, bleiben ALLE claimed
+0030|     |   Verbindungen dieses Customers im Restricted Mode, bis verifiziert.
+0031|     | - Ziel: minimale Supportfälle + am Ende verifizierbare Kontakt-Email für Abuse/Compliance.
+0032| 1.11| AAA/Policy ist SQL-first ab Tag 1 (MUST):
+0033|     | - RADIUS+SQL sind “Source of Truth”; keine chap-secrets Migration.
+0034|     | - Simultaneous-Use=1 pro Subaccount (pro Gerät genau eine Session).
+0035|     | - “Restricted statt Reject”: Gate/Quota/Verify/Manual -> ACCEPT + restricted_effective.
+0036|     | - Reject nur für DISABLED/BANNED/Missbrauch.
+0037| 
+0038| 2) GRUNDPRINZIP (MUST): “VPN-Software nur Tunnel – Kontrolle im OS”
+0039| 2.1| strongSwan: nur IPsec Terminierung (IKEv1 für XP-Kompatibilität).
+0040| 2.2| xl2tpd/pppd: L2TP/PPP Einwahl, IP-Vergabe via PPP/IPCP (keine DHCP-Abhängigkeit).
+0041| 2.3| nftables: zentrale Policy (WAN-Exposure, Forwarding, NAT, Isolation, Missbrauchsschutz,
+0042|     | Restricted/Walled-Garden Enforcement, DNS-Zwang).
+0043| 2.4| tc: Traffic Shaping pro pppX (User/Admin Limits, Live-Drosselung).
+0044| 2.5| SQL/RADIUS ist “Source of Truth” ab Tag 1 (keine chap-secrets Migration).
+0045| 2.6| Webstack und Services sind strikt an interne Service-IP gebunden (10.77.0.1/32 auf lo).
+0046| 2.7| Policy-Apply/Reconcile ist deterministisch (MUST):
+0047|     | - ip-up/ip-down schreiben Runtime-Mapping (/run/vpn-sessions/pppX.env)
+0048|     | - vpn-policy-apply setzt tc + enforced nft sets für Restricted
+0049|     | - Reconcile (<=5min) macht FLUSH+REBUILD der Restricted-Sets (Drift-Schutz)
+0050| 
+0051| 3) PROTOKOLLENTSCHEIDUNG (MUST): L2TP/IPsec statt SoftEther
+0052| 3.1| SoftEther-Client ist zu fehleranfällig/zu viele Optionen für Käufer -> raus.
+0053| 3.2| L2TP/IPsec ist in XP/Vista “built-in” -> keine Fremdsoftware nötig.
+0054| 3.3| IP-Zuweisung via PPP/IPCP -> Client muss keine IP/Gateway/DNS manuell setzen.
+0055| 
+0056| 4) NETZWERKDESIGN (MUST)
+0057| 4.1| Service-IP (stabiler Anker für alle internen Services):
+0058|     | - 10.77.0.1/32 auf loopback (lo)
+0059|     | - existiert immer (auch ohne aktive PPP-Sessions)
+0060| 4.2| Zwei VPN-Netze:
+0061|     | - User-Netz:  10.77.10.0/24  (verkaufte Geräte)
+0062|     | - Admin-Netz: 10.77.20.0/24  (deine Geräte)
+0063| 4.3| IP-Vergabe:
+0064|     | - via PPP/IPCP (pppd)
+0065|     | - feste IPs pro “Verbindung” (nicht nur pro Kunde)
+0066| 4.4| “1 Kunde -> n Verbindungen” (MUST):
+0067|     | - Pro Gerät/Verbindung eigene Sub-Accounts (z.B. max-laptop, max-pc)
+0068|     | - Jede Sub-Connection bekommt eine feste IP (für Regeln, Stats, Quota, tc)
+0069|     | - Damit bleiben Policy, Speedlimit, Accounting und Abuse-Tracking sauber pro Gerät.
+0070| 
+0071| 5) DNS-/FQDN-KONZEPT (MUST)
+0072| 5.1| Client verbindet per öffentlicher FQDN (z.B. vpn.deinedomain.tld).
+0073| 5.2| FQDN muss vor Tunnelaufbau über normales Internet-DNS auflösbar sein.
+0074| 5.3| rDNS/PTR beim Provider: optional (nice-to-have), kein Muss für Funktion.
+0075| 5.4| IPv6: bewusst deaktiviert (Leak-Vermeidung):
+0076|     | - Provider-seitig IPv6 aus
+0077|     | - OS-seitig Kernel IPv6 deaktivieren
+0078| 
+0079| 6) KOMPATIBILITÄT: NAT-T / LEGACY-KRYPTO / MTU (MUST)
+0080| 6.1| NAT-Traversal (Showstopper, MUST):
+0081|     | - XP/Vista (und teils neuere Windows) benötigen Registry-Key für NAT-T:
+0082|     |   AssumeUDPEncapsulationContextOnSendRule = 2
+0083|     | - Ohne diesen Fix: häufig Fehler 789/809 oder IPsec steht, aber L2TP/1701 fließt nicht.
+0084|     | - Konsequenz: Setup-Tool MUSS das setzen + Reboot/Neustart verlangen.
+0085| 6.2| Legacy-Krypto (IKEv1) für XP (MUST):
+0086|     | - XP kann i.d.R. nur alte Proposals zuverlässig (z.B. 3des/sha1/modp1024).
+0087|     | - strongSwan muss so konfiguriert werden, dass XP-Proposals akzeptiert werden.
+0088| 6.3| Debian 13 Crypto-Konflikt (MUST, kritisch):
+0089|     | - Debian 13 / OpenSSL 3.x kann Legacy-Algorithmen blockieren (SHA1/3DES).
+0090|     | - Lösungspfad A (bevorzugt): OpenSSL Legacy Provider aktivieren (openssl.cnf).
+0091|     | - Lösungspfad B (Fallback): strongSwan mit alternativem Crypto-Backend bauen
+0092|     |   (z.B. libgcrypt) ODER eigene OpenSSL-Variante (nur wenn A nicht reicht).
+0093|     | - MUST: Vor produktivem Rollout XP Handshake in Testphase verifizieren.
+0094| 6.4| MTU/MSS (Full-Tunnel Killer, MUST):
+0095|     | - Massive Kapselung: TCP -> PPP -> L2TP -> ESP -> UDP -> IP
+0096|     | - Symptom ohne Fix: Ping ok, aber HTTPS lädt langsam/gar nicht, Timeouts.
+0097|     | - Lösung: TCP MSS Clamping in nftables für SYN Pakete (Forward Pfad).
+0098|     | - Startwert: MSS 1280 oder 1300 (sicherer eher 1280).
+0099| 
+0100| 7) FIREWALL & ROUTING (nftables) – ZENTRALE POLICY (MUST)
+0101| 7.1| WAN-Interface: ens13 (dein reales Interface; NICHT ens18/tap/etc.)
+0102| 7.2| WAN Exposure (“Stealth”, MUST):
+0103|     | - erlauben auf ens13:
+0104|     |   UDP 500  (IKE)
+0105|     |   UDP 4500 (NAT-T)
+0106|     |   ESP (IP proto 50)
+0107|     | - optional: ICMP echo-request droppen oder rate-limit (Stealth)
+0108|     | - SSH von WAN: blocken + zusätzlich sshd nicht an WAN binden
+0109| 7.3| L2TP-Schutz (MUST):
+0110|     | - UDP 1701 darf NICHT “blank” aus dem Internet erreichbar sein.
+0111|     | - nftables Regel: UDP 1701 nur akzeptieren, wenn Paket IPsec/XFRM-entschlüsselt ist.
+0112|     | - Implementierung: meta ipsec exists (oder xfrm match) für 1701 accept, sonst drop.
+0113| 7.4| Forwarding (Full-Tunnel, MUST):
+0114|     | - forward erlauben: 10.77.10.0/24 -> ens13 (Internet)
+0115|     | - forward erlauben: 10.77.20.0/24 -> ens13 (Internet)
+0116|     | - return traffic: conntrack established/related accept
+0117|     | - Reihenfolge im Forward-Pfad (MUST):
+0118|     |   1) established/related accept
+0119|     |   2) Peer-Isolation Drop (User↔User)
+0120|     |   3) Restricted/Walled Garden Enforcement
+0121|     |   4) normaler Forward Allow (Full-Tunnel)
+0122| 7.5| NAT Masquerade (MUST):
+0123|     | - postrouting masquerade für beide VPN-Netze Richtung ens13
+0124| 7.6| Peer-Isolation (MUST):
+0125|     | - User-Netz: 10.77.10.0/24 -> 10.77.10.0/24 = DROP (kein User↔User)
+0126|     | - Admin↔User: Policy separat definierbar (Default: Admin darf User NICHT direkt scannen)
+0127| 7.7| Missbrauchsschutz / Reputation (MUST):
+0128|     | - Outbound blocken (Forward chain) für User-Netz mindestens:
+0129|     |   TCP 25, 465, 587 (SMTP)
+0130|     |   TCP 445 (SMB)
+0131|     |   TCP/UDP 137-139 (NetBIOS)
+0132|     | - Ziel: Botnet/Spam über deine Exit-IP minimieren -> Schutz vor Blacklists/Abuse.
+0133| 7.8| DNS-Zwang (MUST, immer):
+0134|     | - nft nat prerouting: DNAT TCP/UDP 53 von iif ppp* -> 10.77.0.1:53
+0135|     | - Egal was Client einträgt -> DNS immer “deins”
+0136|     | - Kein syslog-spam: optional counters; AdGuard übernimmt Detail-Logging
+0137| 
+0138| 8) VPN-DIENSTE (MUST)
+0139| 8.1| strongSwan (IKEv1, NAT-T):
+0140|     | - DPD aktiv (Ghost Sessions verhindern):
+0141|     |   dpd_delay=30s, dpd_timeout=120s, dpd_action=clear
+0142|     | - NAT-T aktiv (UDP 4500)
+0143|     | - XP-kompatible Proposals (z.B. ike=3des-sha1-modp1024; esp=3des-sha1)
+0144|     | - Legacy Provider / Crypto-Backend gemäß 6.3.
+0145| 8.2| xl2tpd + pppd:
+0146|     | - pppd LCP Echo (Ghost Sessions verhindern):
+0147|     |   lcp-echo-interval 30, lcp-echo-failure 3
+0148|     | - IP-Vergabe via IPCP (Pools/Fixed-IP per User/Subaccount)
+0149|     | - ip-up/ip-down Hooks sind zentrale Integrationspunkte (tc, policy apply, accounting).
+0150| 
+0151| 9) AUTH / AAA: FREE RADIUS + SQL (MUST, ab Tag 1)
+0152| 9.1| Ziel: Keine chap-secrets als Truth, keine spätere Migration.
+0153| 9.2| FreeRADIUS (MUST):
+0154|     | - Authentication: Subaccount-Login + Passwort
+0155|     | - Authorization: feste IP je Subaccount (Framed-IP-Address)
+0156|     | - Simultaneous-Use=1 je Subaccount (genau eine Session pro Gerät)
+0157|     | - Accounting: Session Start/Stop, Assigned IP, Duration, Bytes (radacct)
+0158| 9.3| SQL DB (MariaDB/MySQL lokal auf derselben Box):
+0159|     | - Tabellen für:
+0160|     |   Customers (Kundenkonto)
+0161|     |   VPN_Connections (Subaccounts pro Gerät; feste IP; Limits; Status; expiry; quota; gates)
+0162|     |   Accounting (radacct)
+0163|     |   PanelUsers/ResetTokens/Emails etc. (für Webpanel)
+0164| 9.4| Onboarding-Felder (MUST, für Gate #1/#2)
+0165|     | - VPN_Connections zusätzlich:
+0166|     |   status: PREPROVISIONED | CLAIMED | DISABLED
+0167|     |   customer_id (NULL bis Claim)
+0168|     |   trial_until (Gate #1 Start)
+0169|     |   verify_deadline (Gate #2 Start)
+0170|     |   claim_deadline (Hard stop optional, aber empfohlen)
+0171|     |   claim_token_hash (Token liegt auf Gerät; DB speichert nur Hash)
+0172|     | - Customers zusätzlich:
+0173|     |   email_verified_at (NULL bis Verify)
+0174| 9.5| “Restricted statt Reject” (MUST):
+0175|     | - Gate/Quota/Verify/Manual -> ACCEPT + restricted_effective + restricted_reason
+0176|     | - Reject nur für DISABLED/BANNED/Missbrauch
+0177| 9.6| DB-Down Policy (MUST, fail-closed):
+0178|     | - Wenn SQL/RADIUS-Policy nicht sauber evaluierbar ist: Zugriff wird nicht erlaubt.
+0179|     | - Kein “Break-Glass” VPN-Bypass; Admin arbeitet über direkten Serverzugang (SSH lokal/VPN
+0180|     |   nur wenn AAA verfügbar ist).
+0181| 9.7| Stale Sessions / Lockout (MUST, Produkt-Problem):
+0182|     | - Janitor/Sweeper schließt stale radacct Sessions (Interim 300s, Threshold 900s).
+0183|     | - On-demand Janitor im RADIUS-Login-Flow + Retry (RateLimit/Cache/Timeout).
+0184|     | - Safety-Check gegen /run/vpn-sessions/ (keine echten Sessions killen).
+0185| 
+0186| 10) BANDWIDTH / SPEEDLIMIT / DROSSELUNG (tc) (MUST)
+0187| 10.1| Grundsatz: nftables ist nicht Shaper; tc macht Shaping.
+0188| 10.2| PPP Vorteil: jede Verbindung hat pppX -> pro Client direkt limitierbar.
+0189| 10.3| Standard Shaper (MUST):
+0190|     | - CAKE (oder fq_codel) als root qdisc auf pppX
+0191|     | - Beispiel: tc qdisc replace dev pppX root cake bandwidth 10mbit
+0192| 10.4| Automatisierung (MUST):
+0193|     | - ip-up Hook setzt tc je pppX anhand DB-Parameter (user/admin/individual).
+0194| 10.5| Manuelle Drosselung (MUST):
+0195|     | - live tc qdisc replace möglich (sofort wirksam).
+0196| 10.6| Optional (später): Ingress shaping via IFB (Upload exakt begrenzen).
+0197| 
+0198| 11) DNS-STACK (MUST)
+0199| 11.1| Unbound:
+0200|     | - nur lokal (127.0.0.1:5335)
+0201| 11.2| AdGuardHome:
+0202|     | - DNS:  10.77.0.1:53
+0203|     | - UI:   10.77.0.1:2000 (Admin only)
+0204|     | - User-Netz darf DNS (53), darf NICHT UI (2000)
+0205| 11.3| DNS Rewrite (MUST):
+0206|     | - vpn.status -> 10.77.0.1 (Panel/Status)
+0207| 11.4| DNS-Zwang (MUST, immer):
+0208|     | - DNAT TCP/UDP 53 von ppp* -> 10.77.0.1:53 (siehe 7.8)
+0209| 
+0210| 12) WEBSTACK INTERN (MUST)
+0211| 12.1| Bind-Policy:
+0212|     | - Webstack lauscht nur auf 10.77.0.1 (niemals WAN).
+0213| 12.2| Stack-Entscheidung (MUST):
+0214|     | - OpenResty als Frontend (Nginx+Lua) + PHP-FPM (PHP8) + MariaDB + phpMyAdmin
+0215|     | - Kein Apache als zweiter Server.
+0216| 12.3| Zugriffspolitik:
+0217|     | - Admin Services: strikte Freigabe nur aus Admin-Netz (z.B. /admin, /pma, UI:2000)
+0218|     | - User Panel: Zugriff aus User-Netz erlaubt, aber Login nur über VPN und IP-Abgleich.
+0219| 12.4| User Login IP-Abgleich (MUST):
+0220|     | - Panel prüft: Client-IP muss zu einer erlaubten VPN-IP des Kunden passen.
+0221|     | - Kunde kann im Panel festlegen, von welchen seiner VPN-IPs Login erlaubt ist
+0222|     |   (Whitelist pro Connection/Subaccount) – Default: alle eigenen VPN-IPs erlaubt.
+0223| 12.5| Passwort-Reset / Email (MUST):
+0224|     | - Panel nutzt externen Mailserver (dein Server, hohe Reputation) für “Passwort vergessen”.
+0225| 
+0226| 13) HTTPS-BLOCKPAGE (MITM) + “UNIVERSELLES” TRUST (MUST)
+0227| 13.1| Ziel:
+0228|     | - HTTP und HTTPS geblockte Requests sollen auf Blockseite landen (nicht nur HTTP).
+0229| 13.2| Mechanik:
+0230|     | - Interne Root-CA (ggf. Intermediate)
+0231|     | - On-the-fly Leaf Zertifikate pro Host (SNI) via OpenResty Lua
+0232|     | - Zertifikate gecached (Disk/Memory) um CPU zu sparen
+0233| 13.3| DoS-Schutz (MUST):
+0234|     | - RateLimit pro Client-IP für neue Zert-Generierung
+0235|     | - Max Requests/sec + Burst; bei Überschreitung: fallback auf statische Blockantwort
+0236| 13.4| Grenzen (MUST, ehrlich):
+0237|     | - HSTS/Pinning/CT kann bei manchen Domains/Apps trotzdem blocken.
+0238|     | - Für “typische” Web-Surfaces soll es funktionieren; Pinning-Apps sind Edgecase.
+0239| 
+0240| 14) MYPAL TRUSTSTORE (MUST)
+0241| 14.1| Realität:
+0242|     | - MyPal nutzt NSS Zertdatenbank (cert8.db/cert9.db), NICHT Windows Zertstore.
+0243| 14.2| Setup-Paket MUSS:
+0244|     | - MyPal Profile finden
+0245|     | - NSS certutil (Mozilla NSS Tools) inkl. benötigter DLLs mitliefern (portable bundle)
+0246|     | - CA in NSS DB importieren (silent)
+0247| 
+0248| 15) ZEIT / NTP STRATEGIE (MUST)
+0249| 15.1| Problem:
+0250|     | - XP hat oft falsche Zeit (CMOS), TLS Zertifikate “not yet valid”.
+0251| 15.2| Setup-Tool (MUST):
+0252|     | - Pre-Connect: best-effort Zeitsync über normales Internet (Fallback-Logik)
+0253|     | - Post-Connect: NTP Source auf 10.77.0.1 setzen (dauerhaft)
+0254| 15.3| Server:
+0255|     | - lokaler NTP Dienst auf 10.77.0.1 (UDP 123) verfügbar
+0256|     | - optional: NTP Redirect (udp/123) von Clients -> 10.77.0.1 (damit “immer korrekt”)
+0257| 
+0258| 16) CLIENT-ERLEBNIS / AUTOMATISIERUNG (MUST)
+0259| 16.1| Setup-Tool (ein Paket, MUST):
+0260|     | - setzt NAT-T Registry-Key
+0261|     | - richtet L2TP/IPsec Verbindung automatisch ein (rasphone.pbk/rasdial)
+0262|     | - setzt NTP/Zeitstrategie
+0263|     | - importiert CA in Windows Store (für systemweite Tools) + in MyPal NSS Store
+0264|     | - erstellt Desktop-Shortcuts: Connect / Disconnect / Status / Diagnose
+0265| 16.2| Redial/Keep-Alive (OPTIONAL, aber empfohlen):
+0266|     | - Batch Loop mit rasdial (reconnect bei WLAN-Hickups)
+0267| 
+0268| 16.3| Device Claim Token (MUST)
+0269|     | - Pro Laptop/Connection wird ein Claim-Token erzeugt (DB speichert Hash).
+0270|     | - Auf dem XP-Desktop liegt eine Datei (z.B. RETROWORK_AKTIVIERUNG.txt) mit:
+0271|     |   * Claim Token (klar lesbar)
+0272|     |   * URL: https://vpn.status
+0273|     |   * Kurztext: "Wenn Internet gesperrt: Panel öffnen, registrieren, Token eingeben."
+0274|     | - Zweck: Käufer kann Connection claimen, obwohl Name/Email/Passwort vorher unbekannt sind.
+0275| 
+0276| 17) DIAGNOSE-ENDPOINT (MUST, Supportkiller)
+0277| 17.1| /diag (intern auf 10.77.0.1) liefert:
+0278|     | - Your_IP (VPN IP)
+0279|     | - DNS Check (Server resolvable)
+0280|     | - Time Drift (grob)
+0281|     | - Optional: Mini Throughput test / route check
+0282| 17.2| Setup-Tool kann “Verbindung testen” Button haben (grün/rot).
+0283| 
+0284| 18) EXPIRY / QUOTA / PORTAL MODE (MUST für Business)
+0285| 18.1| Expiry:
+0286|     | - Expiry Feld in DB pro Verbindung/Subaccount.
+0287|     | - Nightly Job sperrt abgelaufene Verbindungen (Status=disabled).
+0288| 18.2| Quota (MUST):
+0289|     | - DB Felder: quota_total, quota_used, quota_reset_policy
+0290|     | - Accounting Collector schreibt Deltas batchweise (kein DB-spam).
+0291|     | - Quota-Logik setzt restricted_effective bei <=0 (kein sofortiges Reject).
+0292| 18.3| Restricted Mode (Walled Garden) – MUST (Basis für Gate #1/#2 + Quota/Verify)
+0293|     | - Erlaubt im Restricted Mode NUR:
+0294|     |   * DNS (TCP/UDP 53) -> 10.77.0.1
+0295|     |   * HTTP/HTTPS (80/443) -> 10.77.0.1 (Panel/Status/Verify/Resend)
+0296|     |   * NTP (UDP 123) -> 10.77.0.1
+0297|     | - Alles andere: DROP (kein normales Internet)
+0298| 18.4| Gate #1 (CLAIM) – HARD (MUST)
+0299|     | - Bedingung: now > trial_until UND status = PREPROVISIONED (customer_id ist NULL)
+0300|     | - Aktion: Restricted Mode aktiv, bis Claim abgeschlossen
+0301|     | - Claim bedeutet: Käufer registriert Panel-Account + gibt Claim-Token ein
+0302|     | - Ergebnis: Connection wird CLAIMED (customer_id gesetzt) -> Internet sofort wieder frei
+0303| 18.5| Gate #2 (EMAIL VERIFY) – HARD (MUST)
+0304|     | - Bedingung: now > verify_deadline UND email_verified_at ist NULL
+0305|     | - Aktion: Restricted Mode aktiv, bis Email verifiziert
+0306|     | - Scope: kundenweit (alle claimed Connections des Customers bleiben restricted)
+0307| 
+0308| 19) SERVICE WATCHDOG / STABILITÄT (MUST)
+0309| 19.1| systemd Auto-Restart:
+0310|     | - strongSwan, xl2tpd, radius, openresty, php-fpm, mariadb, adguard/unbound
+0311|     | - Restart=always, RestartSec=3 (über systemctl edit overrides)
+0312| 19.2| Zusätzlich: Health Checks (OPTIONAL, später):
+0313|     | - nicht nur “Prozess läuft”, sondern “Ports/Handshake ok”.
+0314| 
+0315| 20) OFFLOAD-TUNING (VM) – DEFAULT (MUST)
+0316| 20.1| Hintergrund:
+0317|     | - VirtIO/VM Offloading kann “Phantom”-Packetloss/Checksum Issues erzeugen.
+0318| 20.2| Policy:
+0319|     | - Offload-Tuning als Default via systemd oneshot beim Boot.
+0320| 20.3| Wichtig:
+0321|     | - Wir tunen das reale NIC (ens13) und nur falls vorhanden/benötigt:
+0322|     |   tso off, gso off, gro off (und gezielt checksum-offloads falls nötig).
+0323|     | - Hinweis: “tap_soft” existiert in diesem Konzept NICHT (kein SoftEther TAP Mode).
+0324| 20.4| Beispiel-Kommandos (Richtwert, final nach Test):
+0325|     | - ethtool -K ens13 tso off gso off gro off
+0326|     | - (optional) ethtool -K ens13 tx off rx off NUR wenn Tests zeigen, dass nötig
+0327| 
+0328| 21) PHASENPLAN (MUST)
+0329| Phase 1: VPN + AAA + Policy-Core stabil
+0330| - Debian 13 minimal
+0331| - strongSwan + xl2tpd + pppd
+0332| - FreeRADIUS + SQL (Accounts/Subaccounts/Feste IPs/Accounting)
+0333| - nftables: WAN minimal, 1701 nur via IPsec, Forward+NAT, Isolation, Outbound blocks
+0334| - MSS Clamping aktiv
+0335| - DPD + LCP Echo aktiv
+0336| - DNS-Stack ist aktiv (Unbound+AdGuard) + DNS-Zwang (DNAT 53 TCP/UDP) ist aktiv (MUST)
+0337| - Policy-Apply/Reconcile (ip-up/ip-down mapping + restricted sets rebuild) ist aktiv
+0338| - Stale-Session Janitor + On-demand Login Cleanup aktiv (Simultaneous-Use=1 zuverlässig)
+0339| - Offload-Tuning Default
+0340| - Tests: XP Einwahl NAT, Full-Tunnel, DNS-Zwang (udp+tcp), Reconnect, Logs sauber
+0341| 
+0342| Phase 2: QoS aktiv
+0343| - tc (CAKE/fq_codel) pro pppX via ip-up mit DB Parametern
+0344| - Live-Drosselung testbar
+0345| 
+0346| Phase 3: Webpanel + Gates + /diag
+0347| - OpenResty + PHP-FPM + MariaDB + phpMyAdmin intern
+0348| - Panel: User Login mit IP-Abgleich + Reset via externem Mailserver
+0349| - Claim/Verify UX inkl. Gate #1/#2 (kundenweit Gate #2)
+0350| - Panel-Events triggern vpn-policy-apply
+0351| - /diag Endpoint
+0352| - MyPal NSS Import Bundle
+0353| 
+0354| Phase 4: MITM Blockpage “Premium”
+0355| - AdGuard “Custom IP” -> 10.77.0.1 (Webstack)
+0356| - MITM Blockpage mit RateLimit + Cache
+0357| 
+0358| Phase 5 (optional): Captive/Walled-Garden + Quota/Payment UX
+0359| - nft Policy “restricted mode” pro expired/quota
+0360| - Panel Banner (Wartung/Infos)
+0361| 
+0362| 22) STEALTH & SICHERHEIT (MUST)
+0363| 22.1| WAN: nur IKE/NAT-T/ESP; sonst drop.
+0364| 22.2| SSH: nur 127.0.0.1 + 10.77.0.1 gebunden; nft erlaubt SSH nur aus Admin-Netz.
+0365| 22.3| User-Netz:
+0366|     | - keine Admin-Services
+0367|     | - Panel/Status ist erlaubt (bewusst), aber nur intern + IP-abgesichert
+0368|     | - Peer-Isolation strikt
+0369| 22.4| Admin-Netz:
+0370|     | - darf Admin UIs (pma/adguard ui) und SSH, aber alles explizit freigeschaltet.
+0371| 
+0372| ==================================================================================================
+0373| ENDE MASTER-KONZEPT v2.0 (ZEILENFEST)
+0374| ==================================================================================================

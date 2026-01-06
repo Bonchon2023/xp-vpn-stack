@@ -1,0 +1,244 @@
+BLOCK: B167_WIRING_HOOKS_SYSTEMD
+VERSION: v1.6
+STATUS: ACTIVE
+OWNER: Marco + ChatGPT
+LAST-UPDATE: 2026-01-05
+
+================================================================================
+1) ZWECK
+================================================================================
+- Verbindliche Verdrahtung (Wiring), wo welche Logik aufgerufen wird.
+- Definiert Hook-Punkte + systemd Services/Timer für:
+  - Policy Apply/Reconcile (B166)
+  - Accounting Collector (B165)
+
+================================================================================
+2) NAMEN UND PFADE (KANONISCH)
+================================================================================
+- Zentrales Policy-Tool:
+  - /usr/local/bin/vpn-policy-apply
+- (Optional) Zentrales Accounting-Tool:
+  - /usr/local/bin/vpn-accounting-collector
+
+- PPP Hooks:
+  - /etc/ppp/ip-up.d/99-vpn-hooks
+  - /etc/ppp/ip-down.d/99-vpn-hooks
+
+- Runtime Mapping (volatile):
+  - /run/vpn-sessions/<ppp_if>.env   (B165)
+- Durable Accounting State + Spool:
+  - /var/lib/vpn-accounting/         (B165)
+
+================================================================================
+3) CONNECT TRIGGER (ip-up)
+================================================================================
+- Event: PPP-Session kommt hoch (pppX ist da, CLIENT_IP vergeben)
+- Verantwortlich: /etc/ppp/ip-up.d/99-vpn-hooks
+
+MUSS ausführen (Reihenfolge):
+1) Session-Mapping erzeugen/aktualisieren (B165):
+   - /run/vpn-sessions/<ppp_if>.env
+   - Muss enthalten: CONNECTION_ID (CONNECTION_ID wird vorher per SQL Lookup gemäß Regel unten ermittelt), PPP_IF, CLIENT_IP, SESSION_ID, START_TS
+
+2) Policy sofort anwenden (B166, STRICT):
+   - vpn-policy-apply --connection-id=<CONNECTION_ID>
+
+Regel:
+- PPP Username Quelle für ip-up ist primär: PEERNAME (pppd env).
+- Fallbacks (nur wenn PEERNAME leer):
+  - USER
+  - PPPLOGNAME
+- Wenn PPP Username nicht ermittelbar ist => Mapping wird NICHT geschrieben und vpn-policy-apply wird NICHT ausgeführt (Fehler -> Diagnose).
+- ip-up ermittelt CONNECTION_ID deterministisch per SQL Lookup über den authentifizierten PPP Username.
+- Der PPP Username MUSS identisch sein mit vpn_connections.subaccount_login (eindeutig/UNIQUE).
+- Lookup (konzeptionell):
+  - SELECT id FROM vpn_connections WHERE subaccount_login=<PPP_USERNAME> AND status='ACTIVE';
+- Wenn Lookup fehlschlägt (kein Treffer / mehrere Treffer) => Mapping wird NICHT geschrieben und vpn-policy-apply wird NICHT ausgeführt (Fehler -> Diagnose).
+- Da DB-down Fail-Closed ist (B050), ist SQL Lookup im ip-up konzeptionell zulässig.
+
+================================================================================
+4) DISCONNECT TRIGGER (ip-down)
+================================================================================
+- Event: PPP-Session geht runter
+- Verantwortlich: /etc/ppp/ip-down.d/99-vpn-hooks
+
+SOLL ausführen (Reihenfolge):
+1) Final Accounting Flush (B165):
+   - final rx/tx lesen, delta bilden
+   - Commit versuchen; bei DB down -> spool append
+
+2) Cleanup / Stale vermeiden:
+   - nft restricted cleanup für CLIENT_IP (falls Mapping noch vorhanden)
+   - tc cleanup für PPP_IF (falls möglich)
+
+3) Session-Mapping entfernen:
+   - /run/vpn-sessions/<ppp_if>.env löschen
+
+Hinweis:
+- Selbst wenn Cleanup ausfällt, repariert Reconcile (B166) stale state spätestens <= 5 Minuten.
+
+================================================================================
+5) PANEL EVENT TRIGGER (sofortige Wirkung)
+================================================================================
+- Event: Panel verändert Policy-relevanten Zustand (Claim/Verify/Quota/Expiry/Speed)
+- Verantwortlich: Panel Backend (OpenResty/PHP)
+
+MUSS ausführen (B166, STRICT):
+- Single: vpn-policy-apply --connection-id=<id>
+- Customer scope (optional, Gate2 kundenweit): vpn-policy-apply --customer-id=<id>
+
+Hinweis:
+- Panel ruft NICHT nft/tc direkt, sondern nur vpn-policy-apply.
+
+================================================================================
+6) SYSTEMD: POLICY RECONCILE TIMER (Option B)
+================================================================================
+- Zweck: Drift-Reparatur + stale cleanup + self-healing (B166)
+- Intervall: alle 5 Minuten
+
+Konzept-Units:
+- vpn-policy-reconcile.service:
+  - ExecStart: vpn-policy-apply --reconcile-all
+  - Mode: BEST EFFORT
+  - Optional: Locking via flock, damit nie zwei Reconciles parallel laufen
+
+- vpn-policy-reconcile.timer:
+  - OnUnitActiveSec=5min
+
+================================================================================
+7) SYSTEMD: ACCOUNTING COLLECTOR TIMER
+================================================================================
+- Zweck: Batch Accounting via pppX counters + durable spool (B165)
+- Intervall: 300s
+
+Konzept-Units:
+- vpn-accounting-collector.service:
+  - ExecStart: vpn-accounting-collector
+  - Liest /run/vpn-sessions + /sys/class/net/pppX/statistics
+  - Batch-Commit in SQL; bei DB down -> spool
+
+- vpn-accounting-collector.timer:
+  - OnUnitActiveSec=300s
+
+================================================================================
+7.1) SYSTEMD: STALE SESSION JANITOR TIMER (B168)
+================================================================================
+- Zweck: Stale radacct Sessions schließen, damit Simultaneous-Use=1 nicht fälschlich blockiert (B168).
+- Intervall: alle 5 Minuten
+
+Konzept-Units:
+- vpn-stale-session-janitor.service:
+  - ExecStart: vpn-stale-session-janitor
+  - Mode: BEST EFFORT (DB down -> späterer Lauf)
+- vpn-stale-session-janitor.timer:
+  - OnUnitActiveSec=5min
+
+- Zusätzlich (On-Demand): FreeRADIUS kann vor Simultaneous-Use den Janitor gezielt aufrufen:
+  - vpn-stale-session-janitor --subaccount-login=<User-Name> (B168)
+  - Zweck: Reconnect ohne Lockout bei stale radacct.
+
+- RADIUS Login-Flow (On-Demand Trigger vor Simultaneous-Use) ist in B169 definiert.
+
+================================================================================
+7.2) BOOT-ORDER / BOOT-RECONCILE (SERVER RESTART)
+================================================================================
+Problem:
+- /run ist tmpfs und nach Boot leer (kein Mapping).
+- nft/tc Policy-State muss nach Restart auf den echten Runtime-Zustand gebracht werden.
+
+Boot-Strategie (KANONISCH):
+1) Boot-Reconcile:
+   - Einmalig nach Service-Start: vpn-policy-apply --reconcile-all (B166)
+   - Ziel: nft/tc Sollzustand für aktuell aktive pppX Interfaces herstellen.
+
+2) Boot-Janitor (verzögert):
+   - Einmalig nach Boot-Reconcile (Delay empfohlen): globaler stale sweep (B168)
+   - Ziel: stale radacct stop_time NULL bereinigen, damit Simultaneous-Use=1 nicht fälschlich blockiert.
+
+Hinweis:
+- Boot-Janitor darf mit Delay laufen (z.B. 60-120s), damit ip-up Mapping (/run/vpn-sessions) wieder aufgebaut wird.
+
+================================================================================
+7.3) SYSTEMD DEPENDENCIES (AFTER/REQUIRES) - START ORDER
+================================================================================
+Ziel:
+- Policy/Collector/Janitor sollen erst laufen, wenn Netzwerk + VPN-Stack bereit ist.
+- Boot-Reconcile darf nicht "zu früh" laufen (sonst keine pppX sichtbar).
+
+Kanonische Abhängigkeiten (Konzept):
+- Alle VPN-bezogenen Units (collector, janitor, reconcile/boot-reconcile) hängen an:
+  - After=network-online.target
+  - Wants=network-online.target
+
+- RADIUS:
+  - freeradius.service After=network-online.target
+  - (strongSwan/xl2tpd können parallel starten; RADIUS kann früh, ist ok)
+
+- Boot-Reconcile Unit (einmalig):
+  - After=network-online.target strongswan.service xl2tpd.service freeradius.service
+  - Wants=strongswan.service xl2tpd.service freeradius.service
+  - ExecStart: vpn-policy-apply --reconcile-all
+  - Restart=no (oneshot)
+  - Optional: ExecStartPre=/bin/sleep 10 (kleiner Delay, um pppX zu sehen)
+
+- Boot-Janitor Unit (einmalig, verzögert):
+  - After=boot-reconcile.service
+  - ExecStart: vpn-stale-session-janitor (global)
+  - ExecStartPre=/bin/sleep 60..120 (Delay, damit /run/vpn-sessions via ip-up wieder da ist)
+
+Hinweis:
+- ip-up bleibt der primäre "strict" Trigger pro Session.
+- Boot-Reconcile ist Backstop, nicht Primärmechanismus.
+
+================================================================================
+7.4) DB DOWN BEHAVIOR (FAIL-CLOSED WITHOUT BOOT DEADLOCK)
+================================================================================
+Ziel:
+- SQL ist Wahrheit (B050), Fail-Closed für Auth/State.
+- Trotzdem sollen Services sauber starten (kein Boot-Deadlock), auch wenn DB temporär down ist.
+
+Kanonisch:
+- Services dürfen starten, auch wenn DB down ist:
+  - strongSwan, xl2tpd, OpenResty/PHP, FreeRADIUS, policy-apply tooling, collector/janitor timers.
+- AUTH bleibt STRICT Fail-Closed (B050):
+  - Wenn SQL nicht erreichbar -> Login muss scheitern (kein Accept).
+- On-Demand Cleanup/Janitor/Collector sind BEST EFFORT:
+  - DB down -> skip/fail (kurzer Timeout), loggen (sparsam), nächster Lauf holt nach.
+- Boot-Reconcile:
+  - Ist primär Kernel-basiert (pppX + nft/tc Soll/Ist).
+  - Wenn SQL für Statusabfragen benötigt wird und DB down ist -> reconcile läuft "no-op" bzw. bricht best effort ab.
+  - Keine "Ratespielchen" ohne SQL.
+
+================================================================================
+8) LOCKING (EMPFOHLEN)
+================================================================================
+- Reconcile sollte nicht parallel laufen:
+  - /run/vpn-policy-reconcile.lock (flock)
+- Accounting Collector sollte ebenfalls nicht parallel laufen:
+  - /run/vpn-accounting-collector.lock (flock)
+
+================================================================================
+9) TESTS (WIRING)
+================================================================================
+- ip-up Test: Mapping file wird erstellt + vpn-policy-apply wird aufgerufen.
+- ip-down Test: Final flush + cleanup + mapping removal.
+- Panel Event Test: Policy Änderung -> sofort vpn-policy-apply Aufruf.
+- Timer Test: Reconcile läuft alle 5 Minuten; Accounting Collector alle 300s.
+- PPP Username Source Test: ip-up nutzt PEERNAME; wenn leer, nutzt USER/PPPLOGNAME; wenn weiterhin leer -> kein Mapping, kein apply, Diagnose-Log.
+- Boot-Reconcile Test: Server Neustart -> reconcile-all läuft einmalig -> nft/tc passen zu aktiven pppX Interfaces.
+- Boot-Janitor Test: Nach Boot (mit Delay) läuft global sweep -> stale radacct wird geschlossen ohne aktive Sessions zu treffen.
+- Start-Order Test: Nach Boot sind network-online, strongSwan, xl2tpd, freeradius aktiv bevor boot-reconcile läuft.
+- Early-Reconcile Protection Test: boot-reconcile läuft nicht bevor network-online erreicht ist; optional Delay verhindert "0 pppX" Fehlzustand.
+- DB Down Boot Test: DB down beim Boot -> Services starten trotzdem; Auth fail-closed; collector/janitor skippen best effort ohne Loop/Spam.
+
+================================================================================
+10) CHANGELOG
+================================================================================
+- v1.6: DB-down Verhalten definiert (Fail-Closed für Auth, Services starten ohne Deadlock, Best-Effort für collector/janitor/reconcile), inkl. Test.
+- v1.5: Systemd Start-Order/Dependencies für Boot-Reconcile + Boot-Janitor ergänzt (After/Wants network-online + VPN-Stack), inkl. Tests.
+- v1.4: Boot-Reconcile/Boot-Janitor Strategie ergänzt (reconcile-all beim Boot, Janitor global verzögert), inkl. Tests.
+- v1.3: systemd wiring für B168 ergänzt (vpn-stale-session-janitor.service/.timer, 5min).
+- v1.2: PPP Username Quelle festgelegt (PEERNAME, Fallback USER/PPPLOGNAME) für Option 1 SQL Lookup im ip-up.
+- v1.1: ip-up ermittelt CONNECTION_ID via SQL Lookup über PPP Username == vpn_connections.subaccount_login (UNIQUE).
+- v1.0: initial wiring für Hooks + systemd Timer (Policy Reconcile 5min, Accounting Collector 300s)
+================================================================================

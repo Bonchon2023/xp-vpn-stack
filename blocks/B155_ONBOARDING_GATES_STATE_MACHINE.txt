@@ -1,7 +1,7 @@
 ================================================================================
 BLOCK ID: B155
 TITLE: Onboarding Gates / State Machine (Gate#1 Claim + Gate#2 Email Verify)
-VERSION: v1.0
+VERSION: v1.2
 STATUS: ACTIVE
 OWNER: Marco
 OWNER-INTENT: 2-Gate HARD Enforcement (Trial->Claim, Claim->Verify) mit minimalen Supportfällen und verifizierbarer Kontakt-Email (Abuse/Compliance).
@@ -39,7 +39,8 @@ NOTES:
 - CLAIMED:
   - Connection ist einem Customer zugeordnet (customer_id gesetzt).
 - DISABLED:
-  - Connection ist deaktiviert (no VPN / oder nur Portal – Policy in B150/B280 entscheidet).
+  - Connection ist deaktiviert (no VPN)
+  - Enforcement: RADIUS reject (siehe B050)
 
 5) PFLICHTFELDER (DB – konzeptionell)
 5.1 VPN_CONNECTIONS (pro Gerät/Subaccount)
@@ -74,10 +75,16 @@ NOTES:
 
 6.3 Exit/Beenden Gate #1 (Claim erfolgreich)
 - Claim-Prozess:
-  - Customer registriert
+  - Customer registriert + im Panel eingeloggt
   - Claim Token wird eingegeben
-  - Token_hash Match
-  - fixed_ip der Connection stimmt mit aktueller VPN-IP (oder Whitelist-Regel, falls erweitert)
+  - Token_hash Match -> VPN-Connection (Ziel-Connection) wird eindeutig bestimmt
+  - Claim-Authorization (Anti-Abuse):
+    - Fall A: Erster Claim für diesen Customer (Customer hat noch keine CLAIMED Connection):
+      - aktuelle VPN-IP des Requests MUSS der fixed_ip der Ziel-Connection entsprechen
+      - (Claim muss von der unclaimed Connection selbst kommen)
+    - Fall B: Weitere Claims (Customer hat bereits >=1 CLAIMED Connection):
+      - aktuelle VPN-IP des Requests MUSS eine zum Customer gehörende, login-berechtigte VPN-IP sein
+      - (Claim kann aus einer bestehenden erlaubten Connection erfolgen; neue Connection muss nicht aktiv sein)
 - Dann:
   - customer_id setzen
   - status = CLAIMED
@@ -118,7 +125,7 @@ NOTES:
 10) HARD STOP (empfohlen)
 - claim_deadline:
   - wenn now > claim_deadline UND status=PREPROVISIONED:
-    -> DISABLED (oder Portal-only, nach B150/B280 Policy)
+    -> DISABLED (no VPN; RADIUS reject, siehe B050)
 - Zweck: keine “ewigen Leichen” / keine dauerhaft offenen preprovisioned Zugänge.
 
 11) TESTFÄLLE (MUST – Konzept-Tests)
@@ -127,7 +134,7 @@ NOTES:
 - T3: Claim erfolgreich -> Internet geht sofort
 - T4: Verify-Deadline erreicht & Email nicht verified -> nur Panel/DNS geht
 - T5: Email verifiziert -> Internet geht wieder
-- T6: claim_deadline überschritten -> disabled/portal-only greift zuverlässig
+- T6: claim_deadline überschritten -> DISABLED greift zuverlässig (no VPN; RADIUS reject)
 
 12) NICHT-IN-SCOPE (bewusst)
 - nftables Regeldetails: B150
@@ -136,6 +143,8 @@ NOTES:
 - RADIUS Attribute Mapping: B050
 
 13) CHANGELOG
+- v1.2: Claim-Authorization präzisiert: Erster Claim nur aus der Ziel-Connection selbst (Request VPN-IP == fixed_ip). Weitere Claims dürfen aus einer bereits login-berechtigten Customer-Connection erfolgen; neue Connection muss nicht aktiv sein.
+- v1.1: DISABLED-Semantik präzisiert: DISABLED = no VPN (RADIUS reject, siehe B050). "Portal-only/Restricted" ist kein DISABLED, sondern Enforcement über B150. HARD STOP Zeile und Test T6 entsprechend angepasst.
 - v1.0: Initiale Version im B150-Header-Stil (Inhalt aus der bestehenden B155 übernommen, nur Form/Metadaten vereinheitlicht).
 ================================================================================
 END BLOCK B155

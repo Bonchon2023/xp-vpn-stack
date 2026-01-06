@@ -1,4 +1,6 @@
-00_MASTER_v1.8.txt (Inhalt/Format)
+0000_Erklärung.txt (v2.0)
+
+00_MASTER_v2.0.txt (Inhalt/Format)
 
 Ziel: Das ist die Datei, die du immer “komplett” rausgeben kannst, wenn du sagst „gib mir das ganze Konzept“.
 Sie enthält keine Details doppelt, sondern verweist auf Blocks.
@@ -30,7 +32,8 @@ Format je Block:
 - Abhängigkeiten: Bxxx, Byyy, ...
 - Liefert: (Outputs)
 - Nutzt: (Inputs)
-- Letzte Änderung: v1.8 / YYYY-MM-DD
+- Letzte Änderung: v2.0 / YYYY-MM-DD
+
 
 Block-Datei Standard (templates/BLOCK_TEMPLATE.txt)
 
@@ -83,18 +86,22 @@ OWNER-INTENT: (Warum existiert der Block?)
 - v1.1: …
 ================================================================================
 
+
 Decision Records (optional, aber extrem hilfreich)
 
 Wenn du später sagst “warum OpenResty?” oder “warum SQL first?” → du brauchst ein Decision-Log.
 
-Ich lege deshalb optional einen Ordner an:
+Ordner:
 
 decisions/
 ├─ D001_OPENRESTY_OVER_APACHE.txt
 ├─ D002_SQL_FIRST_NO_MIGRATION.txt
 ├─ D003_TWO_NETS_USER_ADMIN.txt
 ├─ D004_MITM_BLOCKPAGE_APPROACH.txt
-└─ D005_OFFLOAD_DEFAULT_VM.txt
+├─ D005_OFFLOAD_DEFAULT_VM.txt
+├─ D006_NTP_MANDATORY_XP.txt
+├─ D007_SUBACCOUNTS_PER_DEVICE.txt
+└─ D008_GATE2_CUSTOMERWIDE_VERIFY.txt
 
 
 Template:
@@ -121,21 +128,28 @@ CONSEQUENCES:
 LINKED BLOCKS:
 - Bxxx, Byyy
 
+
 Abhängigkeits-Graph (Textform)
 
 Damit du sofort siehst, was wovon abhängt:
 
 B020 Goals → steuert alle
 
-B040 Stack → bedingt B070, B080, B100…
+B040 Stack → bedingt B070, B080, B090, B100…
 
-B050 SQL/RADIUS → bedingt B160 (QoS aus DB), B150 (Quota), B280 (Panel), B270 (Diag)
+B050 SQL/RADIUS → bedingt B150 (Gates/Restricted/Quota), B155 (State Machine), B160 (QoS aus DB),
+B165 (Accounting Collector / Session Mapping), B166 (Policy Apply/Reconcile), B167 (Hooks/systemd),
+B168/B169 (Stale/On-demand Login Flow), B280 (Panel), B270 (Diag)
 
-B220 Webstack → bedingt B230 MITM, B280 Panel
+B150 Walled Garden → bedingt B166 (restricted set rebuild), B210 (DNS im Restricted Mode erlaubt),
+B220/B280 (Portal/Panel erreichbar)
 
-B200 DNS → bedingt B210 DNS-Zwang, B230 Blockpage Routing
+B220 Webstack → bedingt B230 MITM, B280 Panel, B270 /diag
 
-B260 NTP → bedingt B230/Panel (Zertifikate brauchbar)
+B200 DNS → bedingt B210 DNS-Zwang (DNAT53), B230 Blockpage Routing
+
+B260 NTP → bedingt B230/Panel/Setup-Tool (TLS-Zertifikate nutzbar)
+
 
 Kurze “Masterdatei Regeln” (03_ASSUMPTIONS_AND_RULES.txt)
 
@@ -151,8 +165,19 @@ jede Änderung muss in Changelog + betroffene Blockdatei eingetragen werden
 
 Versionierung:
 
-Master: v1.x
+Master: v2.x
 
-Blocks: v1.x pro Block
+Blocks: v1.x pro Block (Block-Version unabhängig vom Master)
 
 Namensregeln: Interface ens13 als Default, aber dokumentierbar austauschbar.
+
+Wichtig (v2.0-Update, explizit):
+
+DNS-ZWANG ist IMMER aktiv (MUST): DNAT TCP+UDP 53 von iif ppp* -> 10.77.0.1:53.
+
+Gate #2 (Email Verify) ist kundenweit (Decision D008): ist ein Customer nicht verifiziert, bleiben alle
+claimed Connections dieses Customers im Restricted Mode, bis verifiziert.
+
+Policy-Enforcement ist deterministisch (B166/B167): Drift wird über Reconcile (<=5min) verhindert.
+
+Stale-Session/SimUse Lockout wird aktiv gelöst (B168/B169) statt “weicher SimUse” oder “parallel sessions”.

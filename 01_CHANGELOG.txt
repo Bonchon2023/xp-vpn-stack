@@ -3,6 +3,26 @@ vpn_masterkonzept/01_CHANGELOG.txt
 MASTER CHANGELOG
 ================================================================================
 
+v2.0
+- KERN-ÄNDERUNG: DNS-ZWANG ist jetzt IMMER aktiv (MUST): DNAT TCP+UDP 53 von iif ppp* -> 10.77.0.1:53 (B210 auf MUST umgestellt).
+- KERN-ÄNDERUNG: Policy-Enforcement ist jetzt deterministisch und “operativ geschlossen”:
+  - B166 Policy Apply + Reconcile (DRY Tool, Exitcodes, FLUSH+REBUILD restricted_v4; Drift-Schutz <=5min).
+  - B167 Wiring (ip-up/ip-down Runtime-Mapping /run/vpn-sessions/pppX.env, Boot-Reconcile, systemd timer/services).
+- NEU: Accounting Collector / Session Mapping als eigenes, verbindliches Modul (B165):
+  - pppX -> connection_id Mapping (run-state) + durable spool für DB-Down; batchweise Deltas (kein DB-Spam).
+- KERN-ÄNDERUNG: Simultaneous-Use=1 ist jetzt “Produkt-hart” und Lockout-sicher gelöst:
+  - B168 Stale Session Janitor (Interim 300s, Threshold 900s, Safety Check gegen /run/vpn-sessions).
+  - B169 RADIUS Login Flow mit On-demand Janitor + 2-step Retry (RateLimit/Cache/Timeout).
+- SCHÄRFUNG: SQL/AAA/Policy ist jetzt konsequent “Fail-Closed” bei DB-Down (kein Break-Glass über VPN).
+- SCHÄRFUNG: Walled Garden/Restricted ist jetzt kanonisch und vollständig definiert:
+  - B150 Allowlist im Restricted Mode (nur DNS/HTTP/HTTPS/NTP zu 10.77.0.1, optional ICMP zu 10.77.0.1).
+  - Reihenfolge im Forward-Pfad fest: established -> Peer-Isolation -> Restricted -> normal Forward Allow.
+- SCHÄRFUNG: Gate #2 (Email Verify) ist jetzt als Decision explizit fixiert und kundenweit bindend (D008):
+  - ohne Verify bleiben ALLE claimed Connections des Customers im Restricted Mode bis verifiziert.
+- UPDATE: B050 SQL AAA / FreeRADIUS / Accounting erweitert (Restricted statt Reject, restricted_reason, Stale-Handling, Onboarding-Felder).
+- UPDATE: nft Blöcke auf v2.0-Order und Konsistenz gehärtet (B120 Forward/NAT, B130 Peer Isolation, B150 Restricted/Walled Garden).
+- UPDATE: Panel ist mit Policy-Apply gekoppelt (B280): Statusänderungen müssen vpn-policy-apply triggern, Reconcile bleibt Safety-Net.
+
 v1.8
 - NEU: B155 Onboarding Gates (Gate#1 Claim + Gate#2 Email Verify) als eigener Block (State Machine / Deadlines / Enforcement).
 - Änderung: Walled Garden ist jetzt HARD (Basis-Policy für Gate#1+Gate#2 + später Quota/Expiry) und nicht mehr nur "Premium vorbereitet".

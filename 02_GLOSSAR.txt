@@ -4,37 +4,67 @@ GLOSSAR / BEGRIFFE
 ================================================================================
 
 AAA: Authentication, Authorization, Accounting.
-Accounting: Protokollierung von Sessions (Start/Stop/Bytes/IP).
-AdGuardHome: DNS Filter/Blocker, liefert "Custom IP" für Blockpage.
+Accounting: Protokollierung von Sessions (Start/Stop/Bytes/IP); Grundlage für Quota/Expiry.
+Accounting Collector: Dienst/Job der Kernel-Counter (pro pppX) periodisch liest und Deltas batchweise in SQL schreibt.
+AdGuardHome: DNS Filter/Blocker; liefert "Custom IP" für Blockpage; DNS-Endpunkt für DNS-Zwang (10.77.0.1:53).
+Apply / Policy Apply: Aktives Durchsetzen der Policy für eine Verbindung (tc + nft sets) auf Basis des SQL-Truth.
 CA: Certificate Authority (Root/Intermediate für MITM).
 Calling-Station-ID: Identifier im RADIUS, oft MAC/LineID; bei L2TP unzuverlässig.
+Claim: Zuordnung einer PREPROVISIONED VPN-Connection zu customer_id per Claim-Token.
+claim_deadline: Optionales hartes Ende für Claim (wenn definiert), ansonsten wirkt Gate #1 über trial_until.
+claim_token_hash: Hash des Claim-Tokens in der DB (Token selbst liegt auf dem Gerät).
+Connection / VPN-Connection: Subaccount pro Gerät (eigene Credentials + feste IP + Limits + Status).
+Customer: Kundenkonto im Panel/SQL, kann mehrere VPN-Connections besitzen (1 Kunde -> n Verbindungen).
+Customerwide (kundenweit): Gilt für alle Connections eines Customers (z.B. Gate #2 Email Verify).
+Decision Record: Textdatei im decisions/ Ordner, die eine bindende Architekturentscheidung festhält (D001..D008).
 DPD: Dead Peer Detection (strongSwan).
 ESP: Encapsulating Security Payload (IPsec, Proto 50).
+Expiry: Ablaufdatum einer Verbindung; nach Expiry kann DISABLED oder Restricted gesetzt werden (je Policy).
 FQDN: Fully Qualified Domain Name, z.B. vpn.example.tld.
-Full-Tunnel: Standard-Route der Clients geht über VPN.
+FLUSH+REBUILD: Deterministischer Reconcile-Ansatz: nft set wird geleert und exakt aus SQL/Runtime neu aufgebaut.
+Full-Tunnel: Standard-Route der Clients geht über VPN; gesamter Traffic über den Server.
+Gate #1 (Claim): Onboarding-Sperre nach Trial-Ende; ohne Claim nur Walled Garden (Portal/DNS/NTP).
+Gate #2 (Email Verify): Nach Claim Internet frei; nach verify_deadline ohne Verify wieder Walled Garden.
+Gate #2 kundenweit: Wenn email_verified_at NULL und verify_deadline überschritten, bleiben ALLE claimed Connections
+des Customers im Restricted Mode, bis verifiziert (Decision D008).
+Ghost Session: “tote” Session, die in Accounting/State noch offen wirkt (z.B. WLAN weg), aber real nicht mehr lebt.
 IKEv1: Internet Key Exchange Version 1 (XP kompatibel, Legacy).
 IFB: Intermediate Functional Block (Linux Ingress Shaping via tc).
+Interim Accounting: Periodische Accounting-Updates (z.B. alle 300s); Basis für Stale-Detection.
 IPCP: IP Control Protocol (PPP IP-Zuweisung).
+ip-up / ip-down: pppd Hooks; zentrale Integrationspunkte (Mapping, tc, policy apply, accounting flush).
 L2TP: Layer 2 Tunneling Protocol (UDP 1701).
 LCP: Link Control Protocol (PPP Keepalive/Echo).
-MITM Blockpage: HTTPS Sperrseite durch eigenes Zertifikat pro Domain.
-MSS Clamping: Setzen der TCP MSS in SYN, um Fragmentierungsprobleme zu vermeiden.
+Legacy Provider: OpenSSL-Mechanismus, um Legacy-Algorithmen (z.B. SHA1/3DES) auf Debian 13 nutzbar zu halten.
+Mapping (pppX -> connection_id): Runtime-Zuordnung eines PPP-Interfaces zu einer Connection-ID (SQL-Truth).
+MITM Blockpage: HTTPS Sperrseite durch eigenes Zertifikat pro Domain (SNI), erzeugt durch interne CA.
+MSS Clamping: Setzen der TCP MSS in SYN, um Fragmentierungsprobleme zu vermeiden (MTU/Kapselung).
 NAT-T: NAT Traversal (IPsec über UDP 4500).
-NSS: Mozilla Network Security Services, Zertifikatsspeicher (cert9.db).
-OpenResty: Nginx mit Lua, geeignet für dynamische TLS-Logik.
-Panel: Weboberfläche für User/Admin (intern, nur über VPN erreichbar).
+NSS: Mozilla Network Security Services, Zertifikatsspeicher (cert8.db/cert9.db).
+On-demand Janitor: Cleanup, der beim Login versucht stale Sessions zu schließen, um SimUse Lockouts zu verhindern.
+OpenResty: Nginx mit Lua, geeignet für dynamische TLS-Logik (MITM) + Panel/Portal-Frontend.
+Panel: Weboberfläche für User/Admin (intern, nur über VPN erreichbar; User-Login IP-bound).
 pppX: Virtuelles Interface pro Clientverbindung (ppp0, ppp1, ...).
 PSK: Pre-Shared Key (IPsec Shared Secret).
 QoS/Shaping: Bandbreitensteuerung, Latenzschutz (tc, CAKE/fq_codel).
+Quota: Datenbudget (total/used); bei Erreichen wird Restricted Mode erzwungen (statt Reject).
 rDNS/PTR: Reverse DNS Eintrag beim Provider.
-Service-IP: 10.77.0.1/32 auf lo, interner Dienst-Anker.
+Reconcile: Periodischer Abgleich (<=5min), der driftfrei den tatsächlichen Enforcement-State (nft sets/tc) aus
+SQL/Runtime wiederherstellt; deterministisch (FLUSH+REBUILD).
+Restricted Mode: Zustand, in dem Internet gesperrt ist und nur erlaubte Ziele/Dienste erreichbar sind (Walled Garden).
+restricted_effective: Policy-Flag (Resultat aus Gates/Quota/Manual), das den Restricted Mode erzwingt.
+restricted_reason: Klarer Grundcode/Grundtext, warum restricted aktiv ist (Support/UX/Logs).
+Service-IP: 10.77.0.1/32 auf lo, interner Dienst-Anker (DNS/Panel/Portal/NTP).
+Simultaneous-Use=1 (SimUse): Pro Subaccount nur eine aktive Session; harte Regel (pro Gerät genau eine Session).
+Spool (durable spool): Lokale Ablage für Accounting-Deltas, falls DB down ist; wird später nachgeschrieben.
+Stale Session: Offene radacct Session ohne echte PPP-Session; wird durch Janitor geschlossen (Threshold).
 Stealth: Auf WAN nur notwendige Ports sichtbar; SSH/Web nicht.
-Walled Garden: Für gesperrte User nur Portal/DNS erlauben, alles andere blocken.
-XFRM: Linux IPsec Transform Layer (IPsec Kontext im Kernel).
-Gate #1 (Claim): Onboarding-Sperre nach Trial-Ende; Internet nur nach Claim frei.
-Gate #2 (Email Verify): Nach Claim Internet frei; nach verify_deadline ohne Verify wieder Walled Garden.
-Claim: Zuordnung einer PREPROVISIONED VPN-Connection zu customer_id per Claim-Token.
+trial_until: Zeitpunkt, ab dem Gate #1 (Claim) greift, falls noch nicht claimed.
 verify_deadline: Deadline, ab der ohne email_verified_at Gate #2 greift.
+Walled Garden: Für gesperrte User nur Portal/DNS/NTP erlauben, alles andere blocken.
+XFRM: Linux IPsec Transform Layer (IPsec Kontext im Kernel); Basis für “L2TP nur via IPsec”.
+DNAT53: DNS-Zwang via nft nat prerouting; TCP+UDP 53 wird auf 10.77.0.1:53 umgeleitet.
+run-state (/run/vpn-sessions): Temporärer Runtime-State (tmpfs), enthält pppX.env Mapping; nach reboot leer.
 
 ================================================================================
 ENDE 02_GLOSSAR.txt

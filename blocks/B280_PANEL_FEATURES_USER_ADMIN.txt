@@ -2,27 +2,36 @@ vpn_masterkonzept/blocks/B280_PANEL_FEATURES_USER_ADMIN.txt
 ================================================================================
 BLOCK-ID: B280
 TITLE: Panel Features (User/Admin)
-VERSION: v1.0
+VERSION: v1.3
 STATUS: ACTIVE
 PRIORITY: MUST
 OWNER-INTENT: Self-service, weniger Support, klare Trennung.
 ================================================================================
 
 1) ZWECK
-- User Panel:
-  - status, stats, quota, expiry
-  - password change per connection
-  - allowed login IP management
-- Admin Panel:
-  - customer management, create/revoke connections
-  - speed profile, quota, expiry
-  - maintenance banner
-  - abuse tools / walled garden toggles
+- Es gibt eine Panel-Webapp (vpn.status) mit Rollen:
+  - Role USER: status, stats, quota, expiry, password change (per connection), allowlist management
+  - Role ADMIN: customer management, create/revoke connections, speed profile, quota, expiry, maintenance banner, abuse tools / walled garden toggles
+- Ziel: Self-service, weniger Support, klare Trennung über Rollen (kein separates /admin Panel notwendig).
 
 2) GRENZEN
-- User darf keine admin-only UIs.
-- Panel login only via VPN IP allowlist.
+- User darf keine admin-only Funktionen (Role-based ACL).
+- Panel-Login ist IP-bound über interne zugewiesene VPN-IP (nicht WAN-IP):
+  - Login nur erlaubt, wenn aktuelle VPN-IP in der Login-Allowlist des Customers enthalten ist.
+  - Allowlist kann pro Customer gesteuert werden:
+    - Mode "ALL": alle dem Customer zugeordneten VPN-IPs dürfen einloggen
+    - Mode "SELECT": nur ausgewählte VPN-IPs dürfen einloggen (pro Connection Checkbox)
+- Claim (VPN-Client hinzufügen) ist an Login gebunden:
+  - Claim Token kann nur im eingeloggten Zustand genutzt werden.
+  - Erster Claim: muss aus der Ziel-Connection selbst erfolgen (Request VPN-IP == fixed_ip der Ziel-Connection).
+  - Weitere Claims: dürfen aus einer bereits login-berechtigten Customer-Connection erfolgen (Request VPN-IP ∈ Allowlist); neue Connection muss nicht aktiv sein.
 - Restricted Mode (B150) kann Panel-Rechte einschränken (z.B. nur Status/Claim/Verify), unabhängig von den normalen User-Features.
+- Wenn restricted_effective=true:
+  - Panel zeigt restricted_reason + klare Handlung (Claim / Verify / Quota / Expiry).
+  - Panel bleibt erreichbar, auch wenn Internet gesperrt ist (Walled Garden).
+- Panel-Statusänderungen, die Policy beeinflussen (Claim/Verify/Quota/Expiry/Speed), MÜSSEN serverseitig ein Apply triggern (B166), damit Wirkung sofort greift.
+- Safety-Net: Falls ein Trigger ausfällt, korrigiert Reconcile (B166) den Zustand spätestens innerhalb <= 5 Minuten.
+
 
 3) ABHÄNGIGKEITEN
 - Requires: B050, B220
@@ -54,8 +63,13 @@ OWNER-INTENT: Self-service, weniger Support, klare Trennung.
 
 9) TESTS
 - Create user+2 connections -> both show in panel, stats correct.
+- Claim #1: User verbindet über unclaimed Connection-IP -> Claim Token + (Request IP == fixed_ip) -> Connection wird zugeordnet.
+- Claim #2: User ist über erlaubte bestehende Connection eingeloggt -> Claim Token für neue Connection -> Zuordnung klappt, auch wenn neue Connection nicht aktiv ist; Allowlist kann neue IP optional NICHT zum Login zulassen.
 
 10) CHANGELOG
+-  v1.3:     Panel-Event-Apply + Reconcile Safety-Net dokumentiert (B166): Policy-Änderungen triggern Apply sofort; Drift wird spätestens <=5 Minuten durch Reconcile korrigiert.
+- v1.2: Panel-Verhalten bei Restricted Mode präzisiert: reason anzeigen + CTA; Panel bleibt erreichbar während Internet-Walled-Garden aktiv ist.
+- v1.1: Panel als eine Webapp mit Rollen (USER/ADMIN) präzisiert. IP-bound Login (Allowlist Mode ALL/SELECT) konkretisiert. Claim-Regeln ergänzt: erster Claim nur aus Ziel-Connection; weitere Claims aus bereits allowlisted Connection möglich; neue Connection kann optional vom Panel-Login ausgeschlossen bleiben.
 - v1.0: Initial
 
 ================================================================================

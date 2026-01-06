@@ -1,0 +1,124 @@
+BLOCK: B168_STALE_SESSION_JANITOR
+VERSION: v1.2
+STATUS: ACTIVE
+OWNER: Marco + ChatGPT
+LAST-UPDATE: 2026-01-05
+
+================================================================================
+1) ZWECK
+================================================================================
+- Verhindert Lockouts durch "stale" RADIUS Accounting-Sessions:
+  - radacct.stop_time bleibt NULL (z.B. Crash/Restart/DB-Hiccup/Stop-Accounting verloren)
+- Ohne Cleanup blockiert Simultaneous-Use=1 (B050) fälschlich neue Logins.
+- Dieser Block ergänzt DPD/LCP (Tunnel/PPP-Layer) um einen DB/Accounting-Layer Safety-Net.
+
+================================================================================
+2) ABGRENZUNG
+================================================================================
+- DPD/LCP (B170) räumt Ghosts auf Tunnel/PPP-Ebene.
+- B168 räumt Ghosts auf Accounting/DB-Ebene auf.
+- B168 ersetzt DPD/LCP nicht, sondern ergänzt sie.
+
+================================================================================
+3) VORAUSSETZUNG: INTERIM UPDATES
+================================================================================
+- FreeRADIUS muss Interim Updates schreiben, damit acctupdatetime frisch ist.
+- Vorgabe:
+  - Acct-Interim-Interval = 300s
+
+================================================================================
+4) DEFINITIONEN (KANONISCH)
+================================================================================
+DB-Sicht "aktiv":
+- stop_time IS NULL
+- UND acctupdatetime ist frisch
+
+DB-Sicht "stale":
+- stop_time IS NULL
+- UND NOW() - acctupdatetime > STALE_THRESHOLD
+
+Vorgabe:
+- STALE_THRESHOLD = 900s (3 * 300s)
+
+================================================================================
+5) JANITOR / SWEEPER (SYSTEMD TIMER)
+================================================================================
+- Ein periodischer Janitor läuft alle 5 Minuten.
+- Aufgabe:
+  - identifiziert stale radacct Einträge
+  - setzt stop_time, um Simultaneous-Use wieder freizugeben
+  - markiert optional acctterminatecause (für Diagnose)
+
+Intervall:
+- Janitor-Intervall = 5 Minuten
+
+================================================================================
+5.1) ON-DEMAND CLEANUP (SINGLE TARGET, LOGIN-PATH)
+================================================================================
+- Zusätzlich zum globalen systemd Timer (alle 5 Minuten) wird ein On-Demand Cleanup vorgesehen,
+  der pro Login-Versuch für genau einen subaccount_login ausgeführt werden kann.
+- Zweck: Lockout-Fenster minimieren (Reconnect soll sofort möglich sein), auch wenn stop_time NULL
+  durch Crash/Restart/Stop-Accounting-Verlust stehen geblieben ist.
+
+Konzept-Aufruf (CLI):
+- vpn-stale-session-janitor --subaccount-login=<PPP_USERNAME>
+
+Verhalten:
+- BEST EFFORT: Wenn DB down -> Cleanup kann nicht laufen (Fail-Closed blockiert ohnehin neue Logins).
+- SAFETY bleibt STRICT: Niemals schließen, wenn Runtime-Mapping (/run/vpn-sessions/*) für diese Session/Connection existiert (siehe 6).
+- Der globale Timer bleibt als Backstop/Repair-Schleife bestehen.
+- Die konkrete Platzierung/Reihenfolge im FreeRADIUS Login-Pfad (inkl. 2-stufigem Retry) ist in B169 fest definiert.
+- Rate-Limit/Cache/Timeout Parameter für On-Demand Aufrufe sind in B169 kanonisch definiert.
+
+
+================================================================================
+6) SAFETY CHECK (EMPFOHLEN, DEFAULT: JA)
+================================================================================
+- Bevor der Janitor eine Session "schließt", wird geprüft:
+  - existiert die Session/Connection aktuell im Runtime-Mapping (/run/vpn-sessions/*) (B165)?
+- Wenn JA:
+  - nicht schließen (vermeidet false positives)
+- Wenn NEIN:
+  - schließen (stop_time setzen)
+
+Match-Kriterium: Mapping enthält CONNECTION_ID; Janitor schließt nur, wenn keine aktive Mapping-Datei mit derselben CONNECTION_ID existiert.
+
+================================================================================
+7) WAS GENAU MACHT "SCHLIESSEN"?
+================================================================================
+- Setze stop_time = NOW()
+- Optional (empfohlen):
+  - acctterminatecause = 'Stale-Session-Janitor'
+- Zweck:
+  - Simultaneous-Use=1 kann wieder neue Logins zulassen
+  - Diagnose ist nachvollziehbar
+
+================================================================================
+8) FEHLERVERHALTEN
+================================================================================
+- Wenn DB down:
+  - Janitor kann nicht arbeiten (tempfail)
+  - Fail-Closed verhindert ohnehin neue Logins (B050)
+  - Nach DB recovery räumt Janitor beim nächsten Lauf auf
+
+================================================================================
+9) TESTS
+================================================================================
+- Stale Detection Test:
+  - stop_time NULL + acctupdatetime älter als 900s -> wird als stale erkannt.
+- Safety Check Test:
+  - stale nach DB-Kriterium, aber Mapping in /run/vpn-sessions vorhanden -> darf NICHT geschlossen werden.
+- Lockout Prevention Test:
+  - stale Session wird geschlossen -> neuer Login mit gleichem subaccount_login ist wieder möglich.
+- DB Down Test:
+  - DB down -> Janitor kann nicht schließen, aber neue Logins sind fail-closed; nach DB up -> Janitor räumt.
+- On-Demand Reconnect Test: stale radacct (stop_time NULL) blockiert Simultaneous-Use -> On-Demand Cleanup (--subaccount-login) schließt stale -> Login wird danach sofort möglich.
+- On-Demand Safety Test: Session ist live (Mapping in /run/vpn-sessions vorhanden) -> On-Demand Cleanup darf NICHT schließen, auch wenn DB-Kriterium "stale" täuschen würde.
+
+================================================================================
+10) CHANGELOG
+================================================================================
+- v1.2: Referenz auf B169 ergänzt (konkreter RADIUS Login-Flow inkl. Retry-Logik für On-Demand Cleanup).
+- v1.1: On-Demand Single-Target Cleanup ergänzt (--subaccount-login), um Lockout-Fenster bei Simultaneous-Use=1 zu minimieren; Tests erweitert.
+- v1.0: initial (Interim 300s, threshold 900s, janitor 5min, safety check /run/vpn-sessions)
+================================================================================

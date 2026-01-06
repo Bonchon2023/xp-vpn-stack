@@ -1,0 +1,226 @@
+BLOCK: B166_POLICY_APPLY_RECONCILE
+VERSION: v1.2
+STATUS: ACTIVE
+OWNER: Marco + ChatGPT
+LAST-UPDATE: 2026-01-05
+
+================================================================================
+1) ZWECK
+================================================================================
+- Definiert die komplette Policy-Apply / Restricted-Sync-Kette.
+- Ziel: Kein Drift zwischen SQL (Source of Truth) und Kernel-Enforcement (nftables/tc).
+- Änderungen (Claim/Verify/Quota/Expiry/Speed) müssen sofort wirken.
+- Safety-Net: Reconcile repariert Drift spätestens innerhalb <= 5 Minuten.
+
+================================================================================
+2) GRUNDREGELN
+================================================================================
+- SQL ist Source of Truth (B050).
+- Enforcement passiert im Kernel:
+  - Restricted Mode über nftables Set (z.B. restricted_v4) (B150).
+  - Speed/QoS über tc pro pppX.
+- Kein SQL pro Paket: DB-Reads/Writes sind Control-Plane (Events/Timer), nicht Datenpfad.
+- Fail-Closed für neue VPN-Logins bleibt unverändert (B050): DB down => deny/reject für ALLE.
+- Die konkrete Restricted-Allowlist (Ports/Protokolle inkl. DNS TCP + ICMP) ist in B150 "Restricted Allowlist" kanonisch definiert.
+
+================================================================================
+3) DRY: ZENTRALES TOOL (EINZIGE IMPLEMENTIERUNG)
+================================================================================
+- Alle Trigger (ip-up, Panel Events, Reconcile Timer) rufen ausschließlich ein zentrales Tool auf:
+  - /usr/local/bin/vpn-policy-apply
+- Keine Logik-Duplikate in Hooks oder Panel-Code.
+- Das Tool ist idempotent: wiederholtes Anwenden erzeugt stets den gleichen Zustand.
+
+================================================================================
+4) SESSION-MAPPING (VORAUSSETZUNG)
+================================================================================
+- Runtime-Apply ist nur für aktive Sessions möglich.
+- Aktive Sessions werden über Mapping-Files aus B165 ermittelt:
+  - /run/vpn-sessions/<ppp_if>.env (volatile)
+  - Enthält mindestens: CONNECTION_ID, PPP_IF, CLIENT_IP, SESSION_ID
+- Offline Connections haben kein Mapping => es gibt nichts am Kernel zu ändern; Policy greift beim nächsten ip-up.
+- Reconcile purgt stale /run/vpn-sessions Mappings deterministisch (PPP_IF muss im Kernel existieren), damit /run als Safety-Quelle zuverlässig bleibt.
+
+================================================================================
+5) MODI DES TOOLS
+================================================================================
+Modus A: Single Target (STRICT)
+- Aufruf: vpn-policy-apply --connection-id=<id>
+- Verwendet von: ip-up Hook + Panel Events (wenn einzelne Connection betroffen ist)
+
+Modus B: Reconcile All (BEST EFFORT)
+- Aufruf: vpn-policy-apply --reconcile-all
+- Verwendet von: systemd timer (alle 5 Minuten)
+
+Optional Modus C: Customer Scope (STRICT)
+- Aufruf: vpn-policy-apply --customer-id=<id>
+- Verwendet von: Gate#2 kundenweit (Verify overdue/done), damit nicht viele Einzelaufrufe nötig sind
+
+================================================================================
+6) APPLY-LOGIK (SINGLE TARGET)
+================================================================================
+Ablauf: vpn-policy-apply --connection-id=<id>
+
+1) SQL lesen (Control-Plane)
+- Lade effective Policy für diese connection_id:
+  - restricted_effective (bool)
+  - restricted_reason (string; z.B. GATE1_UNCLAIMED / GATE2_VERIFY / QUOTA_EXPIRED / PLAN_EXPIRED / MANUAL)
+  - speed_profile / rate-limit (falls aktiv)
+
+2) Online/Offline feststellen (Mapping)
+- Suche aktive Session in /run/vpn-sessions/ anhand CONNECTION_ID=<id>
+- FALL ONLINE:
+  - CLIENT_IP + PPP_IF verfügbar => Kernel-Enforcement wird gesetzt
+- FALL OFFLINE:
+  - keine Kernel-Änderung möglich/nötig -> "offline noop" (Exit 0)
+
+3) Kernel-Enforcement setzen (ONLINE)
+- nftables Set:
+  - restricted_effective=true  => CLIENT_IP in restricted_v4 hinzufügen
+  - restricted_effective=false => CLIENT_IP aus restricted_v4 entfernen
+- tc:
+  - speed_profile auf PPP_IF anwenden (tc qdisc/filters replace)
+  - falls kein speed limit: definierte Default/cleanup anwenden
+
+================================================================================
+7) APPLY-LOGIK (CUSTOMER SCOPE, OPTIONAL)
+================================================================================
+Ablauf: vpn-policy-apply --customer-id=<id>
+- Ziel: Gate#2 wirkt kundenweit auf alle CLAIMED Connections des Customers.
+- SQL:
+  - Ermittelt alle CLAIMED connection_ids des customers + deren effective policy
+- Runtime:
+  - Nur aktive Sessions (mit Mapping) werden im Kernel geändert
+  - Offline Connections werden nicht im Kernel "vorgehalten" (wirkt beim nächsten ip-up)
+
+================================================================================
+8) RECONCILE (SAFETY-NET, OPTION B)
+================================================================================
+Ablauf: vpn-policy-apply --reconcile-all  (BEST EFFORT)
+
+1) Ist-Liste (nur aktive Sessions)
+- Enumeriere /run/vpn-sessions/*.env
+- Erzeuge Liste: (connection_id, client_ip, ppp_if)
+
+0.1) /run Mapping Hygiene (deterministisch)
+- Problem: /run/vpn-sessions kann stale Mapping-Files enthalten (z.B. ip-down nicht gelaufen).
+- Regel: Ein Mapping ist nur gültig, wenn das referenzierte PPP_IF tatsächlich existiert.
+
+Ablauf:
+- Für jedes /run/vpn-sessions/<ppp_if>.env:
+  - Prüfe, ob /sys/class/net/<PPP_IF>/ existiert.
+  - Wenn NICHT existent:
+    - Mapping-File löschen (stale mapping purge)
+    - optional loggen (INFO)
+- Danach erst Ist-Liste aufbauen (nur noch valide Mappings).
+
+
+2) Batch SQL Query (performant, kein N+1)
+- Lade effective policy für alle aktiven connection_ids in einem Batch:
+  - SELECT ... WHERE id IN (...)
+
+3) Apply für jede aktive Session (BEST EFFORT)
+- Setze nft/tc pro Session entsprechend der SQL policy
+- Fehler einzelner Sessions werden geloggt, Reconcile läuft weiter
+
+4) Restricted-Set Rebuild (deterministisch, EXAKT)
+Ziel:
+- restricted_v4 soll EXAKT den Sollzustand abbilden:
+  desired_restricted_ips = { CLIENT_IP aller aktiven Sessions, bei denen restricted_effective=true }
+
+Ablauf:
+- Baue aus Schritt (1)+(2) die Sollmenge:
+  - Für jede aktive Session:
+    - wenn SQL restricted_effective=true -> CLIENT_IP in desired_restricted_ips aufnehmen
+- Setze Kernel-Zustand deterministisch auf Soll:
+  - restricted_v4 FLUSH (Inhalt leeren)
+  - desired_restricted_ips vollständig als Elemente hinzufügen
+Ergebnis:
+- Keine Drift möglich: stale IPs verschwinden garantiert
+- Unlock/Verify/Quota wirkt spätestens <=5 Minuten, auch wenn Event verpasst wurde
+Hinweis:
+- Offline Connections werden NICHT im Set vorgehalten (kein Mapping => keine aktive IP). Wirkung erfolgt beim nächsten ip-up (Single Target).
+
+5) Timing
+- Reconcile läuft alle 5 Minuten => Drift wird spätestens innerhalb <= 5 Minuten korrigiert
+
+================================================================================
+9) TRIGGER-KETTE (WER RUFT WAS AUF?)
+================================================================================
+Trigger 1: ip-up Hook (pppd)
+- MUSS: vpn-policy-apply --connection-id=<id>
+- Zweck: sofortige Wirkung beim Connect (restricted/tc ohne Zeitfenster)
+
+Trigger 2: ip-down Hook (pppd)
+- SOLL: final accounting flush (B165/B050)
+- SOLL: cleanup enforcement (stale vermeiden), aber Reconcile kann es notfalls reparieren
+
+Trigger 3: Panel Events
+- MUSS apply triggern bei:
+  - Claim done/revoked -> --connection-id
+  - Verify done/overdue -> bevorzugt --customer-id (kundenweit), alternativ mehrere --connection-id
+  - Quota reset/refill -> --connection-id
+  - Expiry extend -> --connection-id
+  - Speed change -> --connection-id
+
+Trigger 4: Reconcile Timer (systemd, 5 Minuten)
+- MUSS: vpn-policy-apply --reconcile-all
+- Zweck: Drift-Reparatur + stale cleanup + self-healing
+- Wiring (PPP Hooks + systemd Timer/Services) ist in B167 verbindlich definiert.
+
+================================================================================
+10) STRICT vs BEST EFFORT (ENTSCHEIDUNG)
+================================================================================
+- Single Target (ip-up, Panel Event, optional customer scope) = STRICT:
+  - nft/tc Fehler => harter Fehler
+- Reconcile All = BEST EFFORT:
+  - korrigiert so viel wie möglich; einzelne Fehler verhindern nicht die Korrektur anderer Sessions
+  - kann "partial" melden (Exit 1), aber beendet erfolgreich, nachdem es gearbeitet hat
+
+================================================================================
+11) EXIT-CODES (STANDARD)
+================================================================================
+- 0 = OK (Applied / Noop offline / Reconcile OK)
+- 1 = PARTIAL_OK (nur --reconcile-all: einige Sessions nicht applied; Reconcile hat trotzdem gearbeitet)
+- 2 = TEMPFAIL_SQL (SQL/DB nicht erreichbar)
+- 3 = INVALID_ARGS / INPUT_ERROR
+- 4 = RUNTIME_APPLY_ERROR (nft/tc/tool/permission/syntax)
+- 5 = TEMPFAIL_LOCKED (optional: lock aktiv, reconcile läuft schon)
+- 6 = STATE_MAPPING_ERROR (Mapping-Datei beschädigt/unvollständig)
+- 7 = INTERNAL_ERROR (unerwarteter Fehler)
+
+Offline ist KEIN Fehler:
+- --connection-id=<id> ohne aktives Mapping => Exit 0 + INFO "offline noop"
+
+================================================================================
+12) DB-DOWN KONSISTENZ (ZU FAIL-CLOSED)
+================================================================================
+- DB down:
+  - AAA (neue VPN-Logins): Fail-Closed (deny/reject für ALLE)
+  - vpn-policy-apply: TEMPFAIL_SQL (Exit 2), keine Änderung möglich
+  - Bestehende Sessions bleiben enforced, wie Kernel gerade steht
+- DB recovery:
+  - Panel Events können wieder apply auslösen
+  - Reconcile korrigiert Zustand spätestens innerhalb <=5 Minuten
+
+================================================================================
+13) TESTS (MINIMUM)
+================================================================================
+- Connect Apply Test: PPP connect -> ip-up ruft single apply -> restricted/tc sofort gesetzt.
+- Panel Event Test: Quota reset oder Verify done -> apply -> restricted_v4 sofort angepasst.
+- Missed Event Drift Test: Panel Änderung ohne apply -> Reconcile korrigiert <=5 Minuten.
+- Stale Cleanup Test: Disconnect ohne cleanup -> Reconcile entfernt stale IP aus restricted_v4.
+- SQL Down Test: apply/reconcile -> Exit 2; keine neuen VPN-Logins (Fail-Closed). Nach DB up -> Reconcile korrigiert.
+- Strict vs Best Effort Test:
+  - Single apply: nft Fehler -> Exit 4
+  - Reconcile: ein Session-Fehler -> Exit 1, andere Sessions werden korrigiert
+- Stale /run Mapping Purge Test: /run enthält pppX.env aber /sys/class/net/pppX fehlt -> Reconcile löscht Mapping -> verhindert false "live" Safety-Blockade.
+- Restricted Set Rebuild Test: restricted_v4 enthält manuell/stale IPs -> Reconcile flush+rebuild -> Set enthält exakt desired_restricted_ips (aktive+restricted=true), sonst nichts.
+
+================================================================================
+14) CHANGELOG
+================================================================================
+- v1.2: Reconcile Step 4 auf deterministischen restricted_v4 Rebuild umgestellt (flush+rebuild nach desired_restricted_ips), inkl. Test.
+- v1.1: Reconcile ergänzt um deterministischen Purge stale /run/vpn-sessions Mappings (PPP_IF Existenzcheck), inkl. Test.
+- v1.0: initial (event-driven apply + 5min reconcile; DRY tool; strict vs best effort; exit-codes)
+================================================================================

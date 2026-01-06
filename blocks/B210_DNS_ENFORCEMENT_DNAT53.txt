@@ -2,20 +2,21 @@ vpn_masterkonzept/blocks/B210_DNS_ENFORCEMENT_DNAT53.txt
 ================================================================================
 BLOCK-ID: B210
 TITLE: DNS Enforcement (DNAT 53)
-VERSION: v1.0
+VERSION: v1.4
 STATUS: ACTIVE
-PRIORITY: OPTIONAL
+PRIORITY: MUST
 OWNER-INTENT: "Idiotensicher" DNS egal was User einträgt.
 ================================================================================
 
 1) ZWECK
 - Redirect TCP/UDP 53 from ppp* to 10.77.0.1:53.
+- Gilt für ALLE ppp* Clients (User/Admin/restricted), damit DNS immer über AdGuardHome läuft.
 
 2) GRENZEN
 - Aktivieren erst wenn DNS stack stabil.
 
 3) ABHÄNGIGKEITEN
-- Requires: B200, B120
+- Requires: B200, B120, B150
 
 4) INPUTS
 - nft nat prerouting for interfaces ppp*
@@ -25,17 +26,25 @@ OWNER-INTENT: "Idiotensicher" DNS egal was User einträgt.
 
 6) MUST (wenn aktiv)
 - Both UDP and TCP 53
+- Hook/Order: nft nat prerouting (DNAT) auf iifname "ppp*" muss vor filter/forward Enforcement greifen.
+- Scope Klarstellung: DNAT betrifft nur eingehenden Client-Traffic auf iifname "ppp*". Server-eigene DNS Queries (OUTPUT) sind nicht Teil dieses DNAT und werden ueber lokale Resolver-Config gesteuert (z.B. resolv.conf -> 127.0.0.1/Unbound/AdGuard).
 
 7) OPTIONAL
-- Log attempts to use external DNS.
+- Kein nftables syslog logging fuer "external DNS attempts" (Noise/Logspam). DNS-Transparenz erfolgt ueber AdGuardHome Logs; optional spaeter nur Counters, falls Bedarf.
 
 8) FEHLERBILDER
 - Some apps use DoH -> not covered by DNS enforcement (later policy decision).
+- IPv6: Dieser Block ist IPv4-only. Konzept-Policy: IPv6 ist serverseitig deaktiviert/gedroppt (Stealth). Falls IPv6 jemals aktiviert wird, muss DNS-Enforcement fuer IPv6 explizit ergaenzt werden (oder IPv6 DNS/Traffic generell droppen), sonst potentieller DNS-Leak ueber v6.
 
 9) TESTS
 - Client set DNS 8.8.8.8 -> still uses 10.77.0.1.
+- TCP DNS Test: Client erzeugt DNS über tcp/53 (z.B. große Antwort / erzwungen) -> wird ebenfalls zu 10.77.0.1 umgebogen.
 
 10) CHANGELOG
+- v1.4: IPv6 Klarstellung ergaenzt: B210 ist IPv4-only; IPv6 ist per Policy deaktiviert/gedroppt, sonst waere v6 DNS Enforcement notwendig.
+- v1.3: Scope Klarstellung: DNAT nur fuer ppp* Client-Traffic (PREROUTING); Server-DNS (OUTPUT) via lokaler Resolver-Konfig, nicht via DNAT.
+- v1.2: OPTIONAL nft syslog logging fuer externe DNS-Versuche deaktiviert/begruendet; DNS-Transparenz ueber AdGuardHome, optional spaeter Counters statt Logspam.
+- v1.1: Präzisierung: gilt für alle ppp* Clients (auch restricted); Hook/Order (nat prerouting vor filter) ergänzt; TCP-DNS Test ergänzt.
 - v1.0: Initial
 
 ================================================================================

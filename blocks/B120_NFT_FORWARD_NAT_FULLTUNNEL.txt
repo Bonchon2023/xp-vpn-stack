@@ -2,7 +2,7 @@ vpn_masterkonzept/blocks/B120_NFT_FORWARD_NAT_FULLTUNNEL.txt
 ================================================================================
 BLOCK-ID: B120
 TITLE: nftables Forward + NAT (Full-Tunnel)
-VERSION: v1.0
+VERSION: v1.1
 STATUS: ACTIVE
 PRIORITY: MUST
 OWNER-INTENT: Full-Tunnel Routing/NAT sauber und deterministisch.
@@ -14,10 +14,18 @@ OWNER-INTENT: Full-Tunnel Routing/NAT sauber und deterministisch.
 2) GRENZEN
 - Kein Forward zwischen User-Clients (handled in B130).
 - Restricted Mode (B150) kann Forward zusätzlich reduzieren (Portal-Only).
+- Wichtig: Restricted Enforcement (B150) muss im forward chain vor dem allgemeinen Forward-Allow (dieser Block) evaluiert werden (sonst Umgehung möglich).
+- Konkret: Für saddr∈restricted_v4 (B150) ist im forward chain nur Verkehr zu 10.77.0.1 erlaubt:
+  - DNS: 53/udp + 53/tcp
+  - Web/Portal: 80/tcp + 443/tcp
+  - NTP: 123/udp
+  - ICMP echo zu 10.77.0.1 (Diagnose)
+  - Alles andere (insb. Forward->ens13) muss droppen.
+- DNS-Enforcement (B210): DNAT für 53/udp + 53/tcp auf 10.77.0.1 muss in nft nat prerouting auf iifname "ppp*" greifen (vor filter/forward), damit Clients keinen externen DNS nutzen können.
 
 3) ABHÄNGIGKEITEN
 - Requires: B060, B100
-- Influences: B130, B140, B150
+- Influences: B130, B140, B150, B210
 
 4) INPUTS
 - VPN source ranges
@@ -47,6 +55,7 @@ OWNER-INTENT: Full-Tunnel Routing/NAT sauber und deterministisch.
 - IP check: public IP = server IP.
 
 10) CHANGELOG
+-    v1.1:     Restricted Mode Reihenfolge + konkrete Allowlist (DNS udp+tcp 53, Web 80/443, NTP 123/udp, ICMP zu 10.77.0.1) ergänzt; Hinweis zu DNS-Enforcement Hook/Order (B210) ergänzt.
 - v1.0: Initial
 
 ================================================================================

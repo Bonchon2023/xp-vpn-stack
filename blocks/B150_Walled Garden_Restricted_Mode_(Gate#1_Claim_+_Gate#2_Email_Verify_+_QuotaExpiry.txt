@@ -2,7 +2,7 @@ vpn_masterkonzept/blocks/B150_Walled Garden / Restricted Mode (Gate#1 Claim + Ga
 ================================================================================
 BLOCK-ID: B150
 TITLE: Walled Garden / Restricted Mode (Gate#1 Claim + Gate#2 Email Verify + Quota/Expiry)
-VERSION: v1.1
+VERSION: v1.4
 STATUS: ACTIVE
 PRIORITY: MUST
 OWNER-INTENT: Statt "Internet kaputt" eine klare Portal-Seite zeigen (HARD Enforcement für Gate#1/Gate#2 + Quota/Expiry).
@@ -17,15 +17,59 @@ OWNER-INTENT: Statt "Internet kaputt" eine klare Portal-Seite zeigen (HARD Enfor
   - Gate #1 (CLAIM): Nach Trial-Ende (Connection noch nicht geclaimed) -> nur Portal/DNS erlauben, Rest blocken.
   - Gate #2 (EMAIL VERIFY): Nach Verify-Deadline ohne Email-Verify -> nur Portal/DNS erlauben, Rest blocken.
 
-2) GRENZEN
+2) AKTIVIERUNG (WIE "RESTRICTED" TECHNISCH GREIFT)
+- Restricted Mode wird pro zugewiesener VPN-IP enforced (nicht pro User-Agent / nicht per URL).
+- Quelle der Entscheidung ist SQL (B050): restricted_effective + restricted_reason.
+- Enforcement Mechanismus:
+  - nftables nutzt ein Set (z.B. restricted_v4) mit allen aktuell restricted Client-IPs.
+  - Wenn Client-IP im Set ist:
+    - nur 10.77.0.1:80/443/53/123 erlauben
+    - alles andere blocken (Full-Tunnel bleibt, aber Walled Garden)
+
+3.x) Restricted Allowlist (KANONISCH, SERVICE-IP ONLY)
+Wenn saddr ∈ restricted_v4 gilt:
+- ALLOW -> 10.77.0.1:
+  - DNS: udp/53 + tcp/53
+  - WEB: tcp/80 + tcp/443
+  - NTP: udp/123
+  - ICMP: echo-request/echo-reply nur zu 10.77.0.1 (Diagnose)
+- DROP:
+  - alles andere (insb. forward nach WAN/ens13 und zu anderen VPN-Clients)
+Hinweis:
+- DNS muss TCP+UDP erlauben (große Antworten/EDNS/Retry).
+- NTP ist für XP/Cert/TLS Stabilität erforderlich.
+- DNS-Zwang (B210) ist kompatibel: DNAT muss udp+tcp 53 umfassen und auf ppp* in nat prerouting greifen; Restricted erlaubt DNS (udp+tcp 53) ausschließlich zu 10.77.0.1.
+
+- Sync/Apply:
+  - Beim Connect (ip-up) MUSS ein Sync erfolgen: Client-IP wird anhand SQL in restricted_v4 hinzugefügt/entfernt.
+  - Bei Statusänderungen über Panel (Claim/Verify/Quota/Expiry) MUSS ein Sync erfolgen, damit Wirkung sofort greift.
+- Reconcile Safety-Net (Option B):
+  - Zusätzlich MUSS ein periodischer Reconcile laufen (z.B. alle 5 Minuten), der den Restricted-Zustand aus SQL deterministisch neu aufbaut.
+  - Ziel: Drift-Reparatur (wenn Hook/Panel-Trigger ausfällt), stale IPs entfernen, konsistenter Ist-Zustand.
+  - Reconcile ist idempotent: wiederholtes Anwenden führt immer zum gleichen Ergebnis.
+
+2.1) nftables Hook-Placement + Reihenfolge (KANONISCH)
+- Restricted Mode MUSS im nftables "forward"-Pfad vor dem normalen Full-Tunnel Forward (B120) ausgewertet werden.
+- Begründung: Wenn B120 (Forward->WAN allow) vor dem Restricted-Check kommt, kann ein restricted Client trotzdem ins Internet.
+
+Kanonische Reihenfolge im forward chain (High-Level):
+1) ct state established,related accept
+2) Peer-Isolation Drop (B130) (user->user drop)
+3) Restricted Enforcement (B150):
+   - Wenn saddr in restricted_v4:
+     - allow only to 10.77.0.1:80/443 + 53/tcp+udp + 123/udp + ICMP
+     - drop alles andere (insb. Forward nach ens13 / WAN)
+4) Normaler Full-Tunnel Forward + NAT (B120) für nicht-restricted Clients
+
+3) GRENZEN
 - Primärmechanik: Firewall allowlist (kein DNS cache chaos).
 - DNS-Portal optional, aber nicht default.
 
-3) ABHÄNGIGKEITEN
-- Requires: B050, B120, B220, B280, B155
+4) ABHÄNGIGKEITEN
+- Requires: B050, B120, B220, B280, B155, B210
 - Influences: Support volume, UX, Abuse/Compliance enforcement
 
-4) INPUTS
+5) INPUTS
 - Decision source: SQL (gate flags + quota/expiry flags) -> enforcement via scripts/hook
 - Gate/State Inputs (konzeptionell):
   - Gate #1: trial_until + status PREPROVISIONED/CLAIMED + customer_id NULL/SET
@@ -34,29 +78,38 @@ OWNER-INTENT: Statt "Internet kaputt" eine klare Portal-Seite zeigen (HARD Enfor
   - 10.77.0.1:80/443
   - 10.77.0.1:53
   - udp/123 to 10.77.0.1
+  - tcp/53 to 10.77.0.1
+  - ICMP echo to 10.77.0.1
 
-5) OUTPUTS
+6) OUTPUTS
 - For blocked users:
   - allow only above
   - drop everything else to WAN
 
-6) MUST (immer, da HARD Enforcement)
+7) MUST (immer, da HARD Enforcement)
 - Must be immediate (no DNS TTL issue)
 - Must show portal page with reason + next step
 
-7) OPTIONAL
+8) OPTIONAL
 - DNS-Portal: only if TTL extremely low + flushdns after unlock.
 
-8) FEHLERBILDER
+9) FEHLERBILDER
 - User unlocked but still stuck:
   - if DNS portal used: local cache -> fix by flushdns
   - if firewall: rule not removed -> script bug
 
-9) TESTS
+10) TESTS
 - Toggle expiry -> user gets portal instantly.
 - Toggle back -> internet works immediately.
+- Verify done -> restricted Set wird entfernt -> Internet sofort frei.
+- Quota reset/renew -> restricted Set wird entfernt -> Internet sofort frei.
+- Ordering Test: Client-IP in restricted_v4 -> darf NICHT über B120 ins WAN forwarden; nur 10.77.0.1:80/443/53/123 ist möglich.
+- Restricted Allowlist Test: restricted client kann DNS (udp+tcp 53) + Web (80/443) + NTP (123) + ICMP zu 10.77.0.1, aber NICHT ins WAN.
 
-10) CHANGELOG
+11) CHANGELOG
+-    v1.4:     Restricted Allowlist präzisiert (DNS udp+tcp 53, NTP 123/udp, ICMP echo nur zu 10.77.0.1) + Reihenfolge im forward chain festgenagelt; Tests ergänzt.
+- v1.3: Reconcile Safety-Net ergänzt (Option B): periodischer Rebuild/Sync des restricted nft set aus SQL (Drift-Reparatur, stale cleanup); Referenz auf B166.
+- v1.2: Aktivierung definiert: restricted wird via nftables Set pro Client-IP enforced; Sync bei Connect + bei Panel-Statusänderungen (SQL-first via B050).
 - v1.1: Expanded to HARD Restricted Mode for Gate#1 Claim + Gate#2 Email Verify + Quota/Expiry; Requires updated (B155,B280); Priority MUST.
 - v1.0: Initial
 

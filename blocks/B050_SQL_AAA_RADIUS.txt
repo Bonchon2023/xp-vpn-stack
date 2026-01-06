@@ -2,7 +2,7 @@ vpn_masterkonzept/blocks/B050_SQL_AAA_RADIUS.txt
 ================================================================================
 BLOCK-ID: B050
 TITLE: SQL AAA / FreeRADIUS / Accounting
-VERSION: v1.0
+VERSION: v1.10
 STATUS: ACTIVE
 PRIORITY: MUST
 OWNER-INTENT: SQL als Source of Truth, RADIUS als Enforcement + Logging.
@@ -39,31 +39,92 @@ OWNER-INTENT: SQL als Source of Truth, RADIUS als Enforcement + Logging.
   - Start/Stop
   - Bytes in/out
   - Assigned IP
-  - Username (connection-id)
+  - Username (PPP Username == subaccount_login == Connection-Login)
 
 6) HARTE REGELN (MUST)
 - Sub-Accounts pro Gerät zwingend (damit feste IPs eindeutig sind).
+- PPP Username (RADIUS User-Name) MUSS identisch sein mit vpn_connections.subaccount_login (Option 1).
+- subaccount_login MUSS eindeutig sein (UNIQUE) für aktive Verbindungen, damit ip-up die CONNECTION_ID deterministisch per SQL Lookup ermitteln kann (siehe B167).
+- Keine Parallel-Sessions: Pro subaccount_login / connection_id ist maximal 1 gleichzeitige PPP-Session erlaubt (pro Gerät genau 1 Verbindung).
+- Enforcement erfolgt in FreeRADIUS über Simultaneous-Use=1 (radacct-basiert):
+  - Wenn bereits eine aktive Session existiert (radacct stop_time IS NULL), MUSS ein weiterer Login für denselben subaccount_login abgelehnt werden.
+- Stale-Sessions werden aktiv vermieden/abgeräumt (siehe B170 DPD/LCP):
+  - Wenn eine Session „hängt“, muss sie durch DPD/LCP/Timeout zuverlässig beendet werden, damit Simultaneous-Use nicht dauerhaft blockiert.
+- Stale radacct Sessions dürfen Simultaneous-Use nicht dauerhaft blockieren: DB-Janitor/Sweeper ist in B168 definiert (Interim 300s, Threshold 900s, Timer 5min, Safety-Check /run/vpn-sessions).
 - Accounting ist Pflicht und muss persistent gespeichert werden.
 - DB liegt lokal auf derselben Maschine (Latenz/Failure minimieren).
+- "Restricted State" MUSS aus SQL deterministisch ableitbar sein (Single Source of Truth).
+- Restricted wird NICHT über RADIUS reject umgesetzt (reject bleibt nur für DISABLED/BANNED/Missbrauch).
+- Restricted Quellen (effective):
+  - Gate#1 (Connection noch nicht CLAIMED) -> restricted (B155/B150)
+  - Gate#2 (Customer email_verified_at NULL + verify_deadline überschritten) -> restricted für alle CLAIMED Connections dieses Customers (kundenweit)
+  - Quota <= 0 (pro Connection) -> restricted
+  - Expiry überschritten (pro Connection) -> restricted
+  - Optional: manual_restricted (pro Connection) -> restricted (Admin-Tool)
+- Auswertung (Precedence):
+  1) DISABLED/BANNED/Missbrauch -> RADIUS reject (kein VPN)
+  2) Sonst: ACCEPT + restricted_effective (true/false) + restricted_reason (string)
+- restricted_reason MUSS eindeutig sein (z.B. GATE1_UNCLAIMED / GATE2_VERIFY / QUOTA_EXPIRED / PLAN_EXPIRED / MANUAL).
+- Quota-Accounting darf NICHT per Paket/Traffic DB-Reads erzeugen:
+  - Usage wird über pppX Kernel-Counter als Deltas gesammelt und batchweise geschrieben.
+- Session-Mapping pppX -> connection_id + Collector-Lifecycle sind in B165 definiert.
+- Enforcement-Drift ist unzulässig: Policy Apply + Reconcile Safety-Net sind in B166 definiert (DRY Tool, strict single-target, best-effort reconcile, Exit-Codes).
+- Reconnect ohne Lockout: Vor der Simultaneous-Use Prüfung wird ein On-Demand Stale-Cleanup für diesen subaccount_login ausgeführt (B168 --subaccount-login), damit stale radacct Einträge (stop_time NULL) nicht unnötig blockieren.
+- RADIUS Login-Flow (On-Demand Cleanup vor Simultaneous-Use inkl. deterministischem Retry) ist in B169 verbindlich definiert.
 
 7) OPTIONEN (SHOULD/OPTIONAL)
-- Local cache für speed/quota decisions (falls DB Down Fail-Policy nötig).
+- Local cache für speed/quota decisions (Performance/Entkopplung), aber NICHT als DB-Down-Fallback: bei DB-Down gilt Fail-Closed (siehe 8).
+- Durable Accounting-Spool (Quota Usage Deltas):
+  - Collector liest pppX rx/tx counters, berechnet deltas und schreibt sie batchweise in SQL.
+  - Bei DB-Down werden deltas in /var/lib/vpn-accounting/ gespult (persistentes Journal) und später nachgetragen.
+  - Intervall: 300s (konfigurierbar).
+  - Dies ist KEIN Auth-Fallback: DB-Down bleibt Fail-Closed für neue VPN-Logins (siehe 8).
 - API layer statt direkter SQL reads in Hooks (später), aber DB local reicht.
 
 8) FEHLERBILDER & DIAGNOSE
-- DB down -> Auth kann hängen -> Fail-Policy definieren:
-  - Default: Fail-Closed (User) / optional Fail-Safe (Admin).
-- Accounting Stop fehlt (Laptop sleep) -> Session cleanup via DPD/LCP + timeouts.
+- DB down / SQL not reachable -> Auth/Authorization darf NICHT "hängen":
+  - Fail-Policy = FAIL-CLOSED für ALLE (User + Admin).
+  - Verhalten: RADIUS antwortet deterministisch mit DENY/REJECT (keine neuen VPN-Logins).
+  - Keine Break-Glass Accounts via RADIUS, keine Fallback-Allowlist bei DB-Down.
+  - Recovery/Access erfolgt out-of-band (SSH/Console/Provider), nicht über VPN.
+- DB down Auswirkungen auf Accounting/Quota:
+  - Accounting läuft weiter (Collector liest Kernel-Counter), aber SQL-Updates können nicht committen.
+  - Deltas werden in /var/lib/vpn-accounting/ (durable spool) zwischengespeichert und bei DB-Recovery nachgetragen.
+  - Quota-Enforcement kann während DB-Down verzögert sein, da restricted_effective aus SQL kommt; nach Recovery wird usage nachgetragen und Policy/Restricted kann synchronisiert werden.
 
 9) TESTS
-- Erstelle Kunde + 2 Verbindungen -> beide können parallel rein.
+- Erstelle Kunde + 2 Verbindungen (2 Sub-Accounts/Devices) -> beide können gleichzeitig rein (verschiedene subaccount_login).
 - radacct zeigt Start/Stop/Bytes korrekt.
 - Expiry überschritten -> Verbindung geht in Restricted Mode (B150) statt RADIUS reject (Portal-Only).
 - Für Gate#1/Gate#2/Quota/Expiry wird grundsätzlich kein RADIUS reject verwendet, sondern "ACCEPT + restricted state/flag" (Enforcement über B150).
-- RADIUS reject bleibt reserviert für DISABLED/BAN/Missbrauch-Sperre.
-- DISABLED/BAN -> RADIUS reject greift sofort.
+- RADIUS reject bleibt reserviert für DISABLED/BANNED/Missbrauch-Sperre.
+- "Restricted Mode / Portal-Only" (Gates/Quota/Expiry) ist kein Reject, sondern ACCEPT + restricted flag/policy (B150).
+- DISABLED/BANNED -> RADIUS reject greift sofort.
+- Quota <= 0 -> Verbindung bleibt ACCEPT, aber restricted_effective=true (B150 Enforcement greift).
+- Expiry überschritten -> Verbindung bleibt ACCEPT, aber restricted_effective=true (B150 Enforcement greift).
+- Gate#2 overdue -> alle CLAIMED Connections des Customers werden restricted (kundenweit).
+- DB Down Test: MySQL stoppen / SQL unreachable -> neue VPN-Logins werden für ALLE denied (Fail-Closed), RADIUS antwortet schnell (kein Hängen).
+- DB Recovery Test: MySQL wieder online -> neue VPN-Logins funktionieren wieder normal.
+- Accounting Spool Test (DB Down): DB stoppen -> Collector schreibt deltas ins durable spool; nach 10+ Minuten DB starten -> Collector trägt deltas batchweise in SQL nach (keine Usage-Lücken).
+- Accounting Spool Persistence Test: DB down + Collector restart/reboot -> spool bleibt erhalten; nach DB recovery werden deltas weiterhin korrekt nachgetragen.
+- ip-up Lookup Test: PPP Username == subaccount_login -> ip-up findet exakt 1 CONNECTION_ID und schreibt Mapping /run/vpn-sessions/<ppp_if>.env; danach vpn-policy-apply wird ausgeführt.
+- ip-up Ambiguity Test: doppelte subaccount_login (oder mehrere ACTIVE Treffer) -> ip-up MUSS fehlschlagen (kein Mapping, kein apply) und Fehler wird diagnostizierbar geloggt.
+- Parallel-Session Reject Test: 2. Login-Versuch mit gleichem subaccount_login während radacct stop_time IS NULL ist -> MUSS abgelehnt werden (Simultaneous-Use=1).
+- Stale-Session Recovery Test: Simuliere „hängende“ Session (kein sauberer Disconnect) -> DPD/LCP beendet Session; danach ist neuer Login wieder möglich (radacct stop_time gesetzt).
+- Janitor Test (B168): stale radacct (stop_time NULL + acctupdatetime > 900s) wird geschlossen -> Simultaneous-Use block ist weg; Safety-Check verhindert false positives, wenn /run/vpn-sessions Mapping existiert.
+- Immediate Reconnect Test: Crash erzeugt stale radacct (stop_time NULL) -> On-Demand Cleanup (B168) läuft beim Login-Versuch -> Login wird sofort wieder möglich, ohne Parallel-Sessions zu erlauben.
 
 10) CHANGELOG
+- v1.10: Verbindliche Referenz auf B169 ergänzt (RADIUS Login-Flow On-Demand Cleanup vor Simultaneous-Use inkl. Retry).
+- v1.9: B168 (stale radacct janitor) als MUST referenziert; Testfall für Janitor ergänzt (Lockout-Vermeidung bei Simultaneous-Use=1).
+- v1.8: Keine Parallel-Sessions festgelegt (1 Session pro subaccount_login/connection_id); Enforcement via FreeRADIUS Simultaneous-Use=1 (radacct stop_time IS NULL); Tests angepasst/ergänzt.
+- v1.7: PPP Username == vpn_connections.subaccount_login (UNIQUE) als MUST; ip-up SQL Lookup für CONNECTION_ID in B167 verbindlich.
+- v1.6: Enforcement-Apply/Reconcile formal referenziert (B166): DRY Tool vpn-policy-apply, Option B Reconcile (<=5min), strict vs best-effort, Exit-Codes.
+- v1.5: Referenz ergänzt: Session-Mapping & Collector-Lifecycle sind als eigener Block B165 definiert (pppX -> connection_id, global collector 300s).
+- v1.4: Durable Accounting-Spool ergänzt (/var/lib/vpn-accounting/, 300s): Usage-Deltas werden bei DB-Down persistent zwischengespeichert und nach DB-Recovery in SQL nachgetragen; kein Auth-Fallback (Fail-Closed bleibt bindend).
+- v1.3: Fail-Policy bei DB-Down festgelegt: Fail-Closed für ALLE (User+Admin), RADIUS darf nicht hängen; Recovery ausschließlich out-of-band (SSH/Console/Provider).
+- v1.2: Restricted State/Flag Modell konkretisiert (SQL-first): Quellen (Gate#1/Gate#2/Quota/Expiry/Manual), Precedence (reject nur DISABLED/BANNED), restricted_reason vereinheitlicht.
+- v1.1: Reject-Policy klargezogen: Terminologie BAN -> BANNED vereinheitlicht. Trennung explizit gemacht: DISABLED/BANNED/Missbrauch = RADIUS reject; Gates/Quota/Expiry = ACCEPT + restricted state/flag (Enforcement über B150).
 - v1.0: Initial
 
 ================================================================================

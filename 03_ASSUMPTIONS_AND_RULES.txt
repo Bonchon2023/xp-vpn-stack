@@ -1,32 +1,61 @@
 vpn_masterkonzept/03_ASSUMPTIONS_AND_RULES.txt
 ================================================================================
-ASSUMPTIONS & RULES (bindend)
+ASSUMPTIONS & RULES (bindend) — v2.0
 ================================================================================
 
 A) Systemannahmen
 - Debian 13 minimal.
-- WAN Interface: ens13 (bei Abweichung: in B060 + B100 anpassen).
-- IPv6 deaktiviert (Provider + OS).
-- Alles läuft auf EINER Box (VPN-Exit, DB, Panel, DNS). Wenn später getrennt:
-  neue Version + neue Latenz/Failure-Analyse.
+- WAN Interface: ens13 (bei Abweichung: in B060 + B100 + nftables/ethtool Defaults anpassen).
+- IPv6 deaktiviert (Provider + OS), um Leaks/Überraschungen zu vermeiden.
+- Alles läuft auf EINER Box (VPN-Exit, DB, Panel, DNS, NTP). Wenn später getrennt:
+  neue Version + neue Latenz/Failure-Analyse + neue Security-Exposure-Analyse.
+- Service-IP ist fix: 10.77.0.1/32 auf lo ist der Bind-Anker für interne Dienste (DNS/Panel/Portal/NTP).
+- Zwei VPN-Netze sind fix:
+  - User-Netz:  10.77.10.0/24
+  - Admin-Netz: 10.77.20.0/24
+- Pro Gerät = eigener Subaccount (1 Kunde -> n Verbindungen). Pro Subaccount feste IP (Policy/Stats/QoS/Quota).
 
 B) Sicherheitsannahmen
-- XP ist potenziell kompromittiert -> Outbound Abuse Blocks sind Pflicht.
-- User sollen sich nicht gegenseitig sehen -> Peer-Isolation Pflicht.
-- Server darf von außen nicht wie "Admin-Server" wirken -> WAN minimal offen.
+- XP ist potenziell kompromittiert -> Outbound Abuse Blocks sind Pflicht (min. SMTP + SMB/NetBIOS).
+- User sollen sich nicht gegenseitig sehen -> Peer-Isolation Pflicht (User↔User DROP).
+- Server darf von außen nicht wie "Admin-Server" wirken -> WAN minimal offen:
+  UDP 500/4500 + ESP; keine Web/SSH/DB/AdGuard UI auf WAN.
+- L2TP darf nicht "blank" im Internet stehen -> UDP 1701 nur via IPsec/XFRM.
+- Fail-Closed ist Pflicht:
+  Wenn AAA/SQL/Policy nicht sauber evaluierbar ist, wird kein Zugriff gewährt (kein Break-Glass via VPN).
+- DNS ist Sicherheits- und Support-Kern:
+  DNS-ZWANG ist IMMER aktiv (MUST): DNAT TCP+UDP 53 von iif ppp* -> 10.77.0.1:53 (AdGuardHome).
+  Egal was der Client einträgt: DNS läuft immer über den Server.
 
 C) Änderungsregeln
 - Jede Änderung:
   1) neue Masterversion
   2) betroffene Blocks aktualisieren + Block-Changelog
   3) Master-Changelog aktualisieren
-- Keine stillen Änderungen, keine “wir machen das später”-Verschiebungen
-  ohne expliziten Entscheid.
+- Keine stillen Änderungen, kein “wir machen das später”, kein Umbau ohne Decision Record wenn es
+  eine Architekturentscheidung ist (decisions/D00x).
+- Keine Neuinterpretation: Begriffe/Regeln bleiben in ihrem Sinn stabil. Wenn sich Sinn ändert:
+  explizit als Decision + Anpassung in Glossar/Blocks dokumentieren.
+- “Zeilenfest”-Dateien werden nicht “frei umformuliert”. Aufbau/Format bleibt stabil, nur Inhalte werden
+  versioniert angepasst.
 
 D) Qualitätsregeln / Abnahme
-- Jede MUST-Anforderung erhält Acceptance Criteria in Block.
-- Jeder Block hat Failure Modes + Diagnosepfad.
-- Setup-Tool ist Teil des Produkts (kein “User klickt sich das zusammen”).
+- Jede MUST-Anforderung erhält Acceptance Criteria im Block (prüfbar, nicht “Gefühl”).
+- Jeder Block hat Failure Modes + Diagnosepfad (Symptom → Ursache → Fix).
+- Setup-Tool ist Teil des Produkts (kein “User klickt sich das zusammen”):
+  - NAT-T Registry Fix (XP)
+  - Zeitstrategie (Pre-Connect/ Post-Connect NTP)
+  - CA Import (Windows Store + MyPal NSS)
+  - Verbindung/Status/Diag Shortcuts
+- “Restricted statt Reject” ist bindend:
+  Gate/Quota/Verify/Manual -> ACCEPT + restricted_effective + restricted_reason.
+  Reject nur für DISABLED/BANNED/Missbrauch.
+- Deterministische Durchsetzung ist bindend:
+  - ip-up/ip-down erzeugen Runtime-Mapping (/run/vpn-sessions/pppX.env)
+  - vpn-policy-apply setzt tc + nft restricted sets
+  - Reconcile (<=5min) macht FLUSH+REBUILD (Drift-Schutz)
+- Simultaneous-Use=1 ist bindend UND muss lockout-sicher sein:
+  Stale Sessions werden aktiv gelöst (Janitor + On-demand Cleanup im Login-Flow), nicht ignoriert.
 
 ================================================================================
 ENDE 03_ASSUMPTIONS_AND_RULES.txt

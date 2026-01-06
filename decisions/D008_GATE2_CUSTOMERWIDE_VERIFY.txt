@@ -1,0 +1,40 @@
+vpn_masterkonzept/decisions/D008_GATE2_CUSTOMERWIDE_VERIFY.txt
+================================================================================
+DECISION-ID: D008
+TITLE: Gate #2 (Email Verify) gilt kundenweit (nicht pro Connection)
+DATE: (von dir eintragen)
+STATUS: ACCEPTED
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+================================================================================
+
+CONTEXT
+- Gate #2 zwingt Email-Verifikation nach verify_deadline.
+- Es existieren mehrere Connections pro Customer (Sub-Accounts pro Gerät).
+- Ziel: verifizierbare Kontakt-Email pro Kunde als Abuse/Compliance-Anker.
+
+DECISION
+- Gate #2 wird kundenweit erzwungen:
+  - Wenn email_verified_at IS NULL und verify_deadline überschritten ist,
+    dann gilt Restricted Mode (B150) für ALLE CLAIMED Connections dieses Customers.
+- Es gibt keine "eine Connection verified, andere nicht" Ausnahme.
+
+RATIONALE
+- Eine verifizierte Kontakt-Email muss pro Customer gelten, nicht pro Gerät.
+- Im Abuse-/Supportfall ist eine teilweise Verifikation unlogisch und umgehbar.
+
+CONSEQUENCES
+- Positive Auswirkungen:
+  - Klare Compliance/Abuse-Regel pro Kunde.
+  - Weniger Supportfälle und keine Sonderlogik pro Connection.
+- Negative Auswirkungen / Risiken:
+  - Ein Customer mit mehreren Geräten wird komplett eingeschränkt, wenn Verify fehlt.
+- Mitigations:
+  - Panel zeigt klaren Status + Verify-Call-to-Action (B280).
+  - Verify kann jederzeit nachgeholt werden, dann sofort wieder Internet frei (B155).
+
+LINKED BLOCKS
+- B155, B150, B280, B050
+
+CHANGELOG
+- v1.0: initial
+================================================================================

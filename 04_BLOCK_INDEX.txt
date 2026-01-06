@@ -1,6 +1,6 @@
 vpn_masterkonzept/04_BLOCK_INDEX.txt
 ================================================================================
-BLOCK INDEX (MASTER v1.8)
+BLOCK INDEX (MASTER v2.0)
 ================================================================================
 
 [B010] META / Scope & Constraints
@@ -74,8 +74,8 @@ BLOCK INDEX (MASTER v1.8)
 - Status: ACTIVE | Priority: MUST
 - Requires: B120
 
-[B150] Walled Garden (HARD: Gate#1 Claim + Gate#2 Email Verify + Quota/Expiry)
-- Datei: blocks/B150_WALLED_GARDEN_QUOTA_EXPIRY.txt
+[B150] Walled Garden / Restricted Mode (Gate#1 Claim + Gate#2 Email Verify + Quota/Expiry)
+- Datei: blocks/B150_Walled Garden_Restricted_Mode_(Gate#1_Claim_+_Gate#2_Email_Verify_+_QuotaExpiry.txt
 - Status: ACTIVE | Priority: MUST
 - Requires: B050, B120, B220, B280, B155
 
@@ -90,6 +90,31 @@ BLOCK INDEX (MASTER v1.8)
 - Status: ACTIVE | Priority: SHOULD
 - Requires: B050, B040
 
+[B165] Accounting Collector / Session Mapping (pppX -> connection_id)
+- Datei: blocks/B165_ACCOUNTING_COLLECTOR_SESSION_MAPPING.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B050, B167
+
+[B166] Policy Apply + Reconcile (deterministisch, Drift-Schutz)
+- Datei: blocks/B166_POLICY_APPLY_RECONCILE.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B050, B150, B120, B160, B165
+
+[B167] Wiring Hooks + systemd (ip-up/ip-down, boot/reconcile, timers)
+- Datei: blocks/B167_WIRING_HOOKS_SYSTEMD.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B040, B050, B166, B165
+
+[B168] Stale Session Janitor (SimUse Lockout vermeiden)
+- Datei: blocks/B168_STALE_SESSION_JANITOR.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B050, B165, B167
+
+[B169] RADIUS Login Flow (On-demand Janitor + Retry)
+- Datei: blocks/B169_RADIUS_LOGIN_FLOW_ONDEMAND_JANITOR.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B050, B168
+
 [B170] Session Stability DPD/LCP
 - Datei: blocks/B170_SESSION_STABILITY_DPD_LCP.txt
 - Status: ACTIVE | Priority: MUST
@@ -102,17 +127,17 @@ BLOCK INDEX (MASTER v1.8)
 
 [B190] Offload Tuning Default (VM)
 - Datei: blocks/B190_OFFLOAD_TUNING_DEFAULT.txt
-- Status: ACTIVE | Priority: SHOULD
+- Status: ACTIVE | Priority: MUST
 - Requires: B060
 
 [B200] DNS Stack Unbound + AdGuard
 - Datei: blocks/B200_DNS_UNBOUND_ADGUARD.txt
-- Status: ACTIVE | Priority: SHOULD
+- Status: ACTIVE | Priority: MUST
 - Requires: B060, B220
 
 [B210] DNS Enforcement DNAT53
 - Datei: blocks/B210_DNS_ENFORCEMENT_DNAT53.txt
-- Status: ACTIVE | Priority: OPTIONAL
+- Status: ACTIVE | Priority: MUST
 - Requires: B200, B120
 
 [B220] Webstack OpenResty + PHP-FPM + DB
@@ -128,7 +153,7 @@ BLOCK INDEX (MASTER v1.8)
 [B240] Client Setup Tool XP/Vista
 - Datei: blocks/B240_CLIENT_SETUP_TOOL_XP.txt
 - Status: ACTIVE | Priority: MUST
-- Requires: B080, B260, B250, B270
+- Requires: B080, B260, B250, B270, B155
 
 [B250] MyPal NSS Cert Import
 - Datei: blocks/B250_MYPAL_NSS_CERTIMPORT.txt

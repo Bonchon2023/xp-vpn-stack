@@ -1,0 +1,125 @@
+BLOCK: B169_RADIUS_LOGIN_FLOW_ONDEMAND_JANITOR
+VERSION: v1.2
+STATUS: ACTIVE
+OWNER: Marco + ChatGPT
+LAST-UPDATE: 2026-01-05
+
+================================================================================
+1) ZWECK
+================================================================================
+- Fest definiert, wo der On-Demand Stale-Cleanup (B168) im FreeRADIUS Login-Pfad läuft.
+- Ziel: Reconnect ohne Lockout bei Simultaneous-Use=1 (B050), auch wenn radacct stop_time NULL hängen blieb.
+
+================================================================================
+2) GRUNDSATZ (KANONISCH)
+================================================================================
+- PPP Username (RADIUS User-Name) == vpn_connections.subaccount_login (B050).
+- Keine Parallel-Sessions: Simultaneous-Use=1 (B050).
+- Stale-Cleanup existiert in zwei Formen (B168):
+  A) Global Timer (5min) als Backstop
+  B) On-Demand pro Loginversuch (Single Target), um Lockout-Fenster zu vermeiden
+
+================================================================================
+3) PLATZIERUNG IM RADIUS FLOW (KONZEPT)
+================================================================================
+- On-Demand Cleanup MUSS im Login-Pfad laufen, bevor final abgelehnt wird.
+- Begründung: Wenn Simultaneous-Use zuerst rejectet, kommt der User gar nicht bis ip-up (zu spät).
+
+Konzept-Platzierung:
+- Phase: authorize (vor authenticate) ODER direkt vor der Simultaneous-Use Prüfung.
+- Wichtig: On-Demand Cleanup ist "pre-check" Logik, nicht Accounting.
+
+================================================================================
+4) DETERMINISTISCHE REIHENFOLGE (2-STUFEN-MODELL)
+================================================================================
+Ziel: Minimale Lockouts, ohne Parallel-Sessions zu erlauben.
+
+STUFE 1 (pre-check):
+1) Normalize Username (trim, lowercase falls so geführt; nur falls ihr das global so wollt)
+2) On-Demand Cleanup (BEST EFFORT):
+   - vpn-stale-session-janitor --subaccount-login=<User-Name>
+   - Safety Check bleibt STRICT (B168): niemals schließen, wenn /run/vpn-sessions eine aktive CONNECTION_ID zeigt
+
+3) Simultaneous-Use Check (STRICT):
+   - Wenn aktive Session existiert (radacct stop_time IS NULL) -> "blocked"
+   - Definition "blocked" (KANONISCH): blocked == radacct stop_time IS NULL (keine Parallel-Sessions bleibt absolut).
+   - acctupdatetime wird NICHT zur Block-Definition verwendet; Stale wird stattdessen über B168 (Threshold) geschlossen und über /run/vpn-sessions (Safety) abgesichert.
+
+
+STUFE 2 (retry nur wenn blocked):
+4) Wenn "blocked":
+   - On-Demand Cleanup ein zweites Mal ausführen (BEST EFFORT)
+   - Danach Simultaneous-Use Check exakt einmal erneut ausführen (STRICT)
+
+5) Entscheidung:
+   - Wenn nach Retry weiterhin "blocked" -> REJECT (keine Parallel-Sessions bleibt absolut)
+   - Wenn nicht blocked -> weiter zu authenticate -> ACCEPT
+
+Warum 2-stufig?
+- fängt Race/Timing ab: z.B. Interim Updates verzögert / DB-Jitter / Stop-Accounting verspätet
+- bleibt deterministisch (max. 2 Cleanup Runs, max. 2 Checks)
+
+================================================================================
+5) FEHLERVERHALTEN (BEST EFFORT + STRICT)
+================================================================================
+BEST EFFORT (Cleanup):
+- Wenn Cleanup nicht laufen kann (z.B. DB down):
+  - Cleanup schlägt fehl/skippt, aber Simultaneous-Use entscheidet weiterhin.
+- Hinweis: Bei DB down gilt Fail-Closed (B050), d.h. Logins scheitern ohnehin.
+- Wenn DB down: Cleanup kann nicht laufen; Auth ist Fail-Closed (kein Accept).
+
+STRICT (Simultaneous-Use):
+- Simultaneous-Use=1 wird niemals "weich" gemacht.
+- Kein Bypass, keine parallelen Sessions – auch nicht "kurz".
+
+================================================================================
+6) SCHUTZ VOR MISSBRAUCH (RATE-LIMIT / CACHE / TIMEOUT)
+================================================================================
+- On-Demand Cleanup darf nicht zu einem DoS-Vektor oder DB-Lasttreiber werden.
+
+Parameter (KANONISCH):
+- CLEANUP_RATELIMIT_WINDOW = 10s (pro subaccount_login max. 1 Cleanup Lauf)
+- CLEANUP_RESULT_TTL = 30s (kurzlebiger Cache pro subaccount_login)
+- CLEANUP_TIMEOUT = 1s (hartes Timeout pro Cleanup Aufruf)
+
+Verhalten:
+- Wenn ein Cleanup für denselben subaccount_login innerhalb der letzten 10s bereits lief:
+  - Cleanup wird übersprungen (skip), Simultaneous-Use Check läuft trotzdem (STRICT).
+- Wenn ein Cache-Eintrag (<=30s) existiert, dass "kein stale" gefunden wurde:
+  - Cleanup wird übersprungen (skip), um DB unnötig zu schonen.
+- Wenn Cache zeigt "stale geschlossen":
+  - Cleanup wird nicht erneut ausgeführt (skip), stattdessen direkt Simultaneous-Use Check.
+- Cleanup läuft immer BEST EFFORT:
+  - Timeout/DB-Error => Cleanup failt/skippt; Simultaneous-Use bleibt STRICT.
+
+================================================================================
+7) BEZUG ZU ANDEREN BLOECKEN
+================================================================================
+- B050: AAA/SQL + Simultaneous-Use=1 + Fail-Closed
+- B168: On-Demand Janitor + Safety Check (/run/vpn-sessions)
+- B167: Wiring (systemd timers) + PPP Username Quelle für ip-up (PEERNAME etc.)
+
+================================================================================
+8) TESTS (LOGIK)
+================================================================================
+- Reconnect nach Crash:
+  - stale radacct stop_time NULL blockt initial
+  - On-Demand Cleanup schließt stale
+  - Simultaneous-Use lässt Login durch
+
+- Live Session Schutz:
+  - active PPP mapping in /run/vpn-sessions vorhanden
+  - Cleanup darf NICHT schließen
+  - Simultaneous-Use blockt korrekt -> REJECT
+
+- Retry-Mechanismus:
+  - 1. Check blockt -> Cleanup2 -> 2. Check lässt durch (Race behoben)
+  - wenn weiterhin blockt -> REJECT (keine Parallel-Sessions)
+
+================================================================================
+9) CHANGELOG
+================================================================================
+- v1.2: "blocked" kanonisch definiert: radacct stop_time IS NULL; acctupdatetime nicht als Block-Kriterium, Stale-Cleanup via B168 + Safety /run/vpn-sessions.
+- v1.1: Kanonische Rate-Limit/Cache/Timeout Parameter ergänzt (10s/30s/1s) zur DB-Schonung und DoS-Vermeidung im On-Demand Cleanup.
+- v1.0: initial (2-stufiger Pre-Check + Retry Flow; BEST EFFORT Cleanup + STRICT Simultaneous-Use)
+================================================================================
