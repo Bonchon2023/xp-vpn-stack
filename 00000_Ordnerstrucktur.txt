@@ -3,6 +3,7 @@ vpn_masterkonzept/
 ├─ 0000_Erklärung.txt
 ├─ 000_MASTER-KONZEPT v2.0 (ZEILENFEST).txt
 ├─ 00_MASTER_v2.0.txt
+├─ 0_MASTERKONZEPT_V2_ANALYSE.md
 ├─ 01_CHANGELOG.txt
 ├─ 02_GLOSSAR.txt
 ├─ 03_ASSUMPTIONS_AND_RULES.txt
@@ -56,4 +57,5 @@ vpn_masterkonzept/
 ├─ templates/
 │  ├─ BLOCK_TEMPLATE.txt
 │  └─ DECISION_RECORD_TEMPLATE.txt
+├─ LICENSE
 └─ README.md
