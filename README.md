@@ -153,4 +153,4 @@ See `B290_PHASE_PLAN_ROLLOUT` and the MASTER file for the authoritative phase pl
 
 ## License
 
-Add your chosen license here (MIT/Apache-2.0/GPL/etc.).
+This project is licensed under the [MIT License](LICENSE).
