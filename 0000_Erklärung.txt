@@ -19,6 +19,10 @@ Abhängigkeiten (Graph in Textform)
 
 “Aktive Entscheidungen” (z.B. OpenResty fix, SQL-first fix)
 
+Tasks-Hybrid:
+- 0_MASTERKONZEPT_V2_ANALYSE.md ist die Abarbeitungs-Datei.
+- tasks/T/ enthält Task-Dateien / Prüfkonzepte (T01–T15), die wir in der Analyse referenzieren.
+
 Verweis auf Changelog + Glossar
 
 Block-Index (04_BLOCK_INDEX.txt)
@@ -32,7 +36,7 @@ Format je Block:
 - Abhängigkeiten: Bxxx, Byyy, ...
 - Liefert: (Outputs)
 - Nutzt: (Inputs)
-- Letzte Änderung: v2.0 / YYYY-MM-DD
+- Letzte Änderung: v2.0.1 / YYYY-MM-DD
 
 
 Block-Datei Standard (templates/BLOCK_TEMPLATE.txt)

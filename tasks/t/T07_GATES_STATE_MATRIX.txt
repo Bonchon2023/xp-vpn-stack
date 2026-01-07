@@ -1,0 +1,55 @@
+# tasks/T/T07_GATES_STATE_MATRIX.txt
+Version: v0.1
+Datum: 2026-01-06
+Priority: MUST
+Owner-Intent: Gate#1 Claim und Gate#2 Verify müssen deterministisch ableitbar sein.
+
+## 1) Zweck
+- Vollständige State-Matrix definieren:
+  Inputs (DB fields + time) -> Outputs (restricted_effective, restricted_reason, reject/disabled)
+- customerwide verify enforcement konsistent abbilden.
+
+## 2) Scope / Nicht-Ziele
+- Keine nft rules (T06).
+- Keine Panel UI flows (T08) außer als Referenz.
+
+## 3) Inputs (Truth Sources)
+- blocks/B155_ONBOARDING_GATES_STATE_MACHINE.txt
+- blocks/B150_Walled Garden_Restricted_Mode_(...) .txt
+- decisions/D008_GATE2_CUSTOMERWIDE_VERIFY.txt (falls das der verbindliche Decision-Stand ist)
+- D004_RESTRICTED_VS_REJECT_POLICY
+
+## 4) Outputs (Deliverables)
+- `docs/gates_state_matrix.md`
+  - Tabelle: State/Condition -> Enforcement
+  - Definition „restricted_effective“ (computed) + „restricted_reason“
+  - Definition der Deadlines: trial_until, claim_deadline, verify_deadline
+- Optional:
+  - SQL views/queries: „restricted candidates“, „expired candidates“
+
+## 5) Dependencies
+- T01 (DB schema muss die Felder tragen)
+- D004 (reject vs restricted)
+- D008 / customerwide verify decision (falls nicht final: als offene Entscheidung)
+
+## 6) Risiken / Randfälle
+- Clock skew (XP): verify_deadline/trial_until können falsch wirken -> NTP/Time-Strategie relevant.
+- Zwischenzustände: claimed_at gesetzt, customer_id fehlt (muss durch schema/constraints verhindert werden).
+- customerwide verify: ein device verified? oder customer verified? -> muss eindeutig sein.
+
+## 7) Tests / Acceptance Criteria (messbar)
+MUST:
+- Für jede Matrix-Zeile existiert mind. 1 Testcase (Input-State -> erwartetes Output-Enforcement).
+- Gate#1:
+  - trial abgelaufen + nicht claimed -> restricted
+- Gate#2 (customerwide):
+  - verify_deadline abgelaufen + customer nicht verified -> alle claimed connections restricted (wie definiert)
+- DISABLED:
+  - führt zu reject (wenn D004 so entscheidet) oder zu hard restricted (wenn so entschieden).
+
+## 8) Offene Punkte / Entscheidungen
+- customerwide verify: welche Felder sind customer-level vs connection-level?
+- Ab wann wird DISABLED gesetzt (claim_deadline überschritten? abuse? manual admin action?) — nur wenn im Konzept festgelegt.
+
+## 9) Changelog
+- v0.1 (2026-01-06): Task-Datei angelegt.

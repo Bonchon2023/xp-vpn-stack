@@ -1,0 +1,53 @@
+# tasks/T/T09_SIMUSE_STALE_E2E_TESTS.txt
+Version: v0.1
+Datum: 2026-01-06
+Priority: MUST
+Owner-Intent: SimUse=1 darf keine dauerhaften Lockouts erzeugen; stale sessions müssen self-heal.
+
+## 1) Zweck
+End-to-End Testplan für:
+- Simultaneous-Use=1 pro subaccount
+- stale session detection
+- on-demand janitor im login flow
+
+## 2) Scope / Nicht-Ziele
+- Keine Implementation des janitor scripts; nur Abnahmekatalog.
+- Keine UI.
+
+## 3) Inputs (Truth Sources)
+- blocks/B168_STALE_SESSION_JANITOR.txt
+- blocks/B169_RADIUS_LOGIN_FLOW_ONDEMAND_JANITOR.txt
+- blocks/B170_SESSION_STABILITY_DPD_LCP.txt
+- T02 (radacct semantics)
+- T07 (state matrix / enforcement)
+
+## 4) Outputs (Deliverables)
+- `tests/e2e_simuse_stale.md`
+  - Testfälle, Steps, erwartete DB states, erwartete RADIUS outcomes
+- `docs/stale_session_expected_behavior.md` (kurz, rules-of-thumb)
+
+## 5) Dependencies
+- T02 (Accounting must work)
+- T07 (enforcement logic clarified)
+
+## 6) Risiken / Randfälle
+- Ghost sessions: client disconnected, server thinks session alive.
+- No interim updates: stale detection fails.
+- DPD/LCP echo tuning mismatch.
+
+## 7) Tests / Acceptance Criteria (messbar)
+MUST:
+- Parallel login block works (SimUse=1) – deterministic.
+- Ghost session scenario:
+  - stale detected within defined window
+  - session cleared
+  - reconnect success without manual intervention
+- on-demand janitor:
+  - login triggers cleanup and allows login after bounded time.
+
+## 8) Offene Punkte / Entscheidungen
+- Thresholds (stale timeout): fixed values vs config.
+- How to detect stale if interim missing: fallback heuristics?
+
+## 9) Changelog
+- v0.1 (2026-01-06): Task-Datei angelegt.

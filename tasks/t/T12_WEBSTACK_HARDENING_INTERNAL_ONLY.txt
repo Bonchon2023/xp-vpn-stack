@@ -1,0 +1,54 @@
+# tasks/T/T12_WEBSTACK_HARDENING_INTERNAL_ONLY.txt
+Version: v0.1
+Datum: 2026-01-06
+Priority: MUST
+Owner-Intent: Webstack darf WAN-Stealth nicht brechen; admin-only endpoints müssen scopen.
+
+## 1) Zweck
+Hardening + interne-only Erreichbarkeit für:
+- OpenResty / PHP-FPM
+- DB/MySQL
+- phpMyAdmin (admin-only)
+
+## 2) Scope / Nicht-Ziele
+- Keine Feature-Entwicklung des Panels.
+- Keine TLS CA/MITM blockpage (das ist späterer Scope, falls relevant).
+
+## 3) Inputs (Truth Sources)
+- blocks/B220_WEBSTACK_OPENRESTY_PHPFPM_DB.txt
+- blocks/B300_SECURITY_STEALTH_GUIDELINES.txt
+- D002_RESOURCE_BUDGETS (Retention, logs, limits)
+- D005_PANEL_SCOPE_USER_ACCESS
+- T06 (nft scopes), T08 (panel security model)
+
+## 4) Outputs (Deliverables)
+- `docs/webstack_hardening.md`
+  - internal bind addresses (service-ip)
+  - pma admin-only rule
+  - headers, timeouts, upload limits, directory permissions
+  - logging strategy (handshake with T15)
+- `tests/webstack_scope_tests.md`
+
+## 5) Dependencies
+- T06 (firewall scopes)
+- T08 (authz)
+- D002 budgets (optional but recommended)
+
+## 6) Risiken / Randfälle
+- accidental WAN exposure
+- pma exposure within user net
+- file upload attack surface (if panel allows uploads later)
+
+## 7) Tests / Acceptance Criteria (messbar)
+MUST:
+- From WAN: webstack unreachable.
+- From user net: only allowed endpoints reachable.
+- From admin net: admin endpoints reachable; DB not reachable from user net.
+- Regression: restricted mode still can reach portal/status if required.
+
+## 8) Offene Punkte / Entscheidungen
+- Is pma needed at all in v2? (If yes, admin-only)
+- Which endpoints user can access (D005)
+
+## 9) Changelog
+- v0.1 (2026-01-06): Task-Datei angelegt.

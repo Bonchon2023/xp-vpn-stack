@@ -1,6 +1,6 @@
 vpn_masterkonzept/04_BLOCK_INDEX.txt
 ================================================================================
-BLOCK INDEX (MASTER v2.0)
+BLOCK INDEX (MASTER v2.0.1)
 ================================================================================
 
 [B010] META / Scope & Constraints
@@ -75,7 +75,7 @@ BLOCK INDEX (MASTER v2.0)
 - Requires: B120
 
 [B150] Walled Garden / Restricted Mode (Gate#1 Claim + Gate#2 Email Verify + Quota/Expiry)
-- Datei: blocks/B150_Walled Garden_Restricted_Mode_(Gate#1_Claim_+_Gate#2_Email_Verify_+_QuotaExpiry.txt
+- Datei: blocks/B150_Walled Garden_Restricted_Mode_(Gate#1_Claim_+_Gate#2_Email_Verify_+_QuotaExpiry).txt
 - Status: ACTIVE | Priority: MUST
 - Requires: B050, B120, B220, B280, B155
 

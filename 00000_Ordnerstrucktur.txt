@@ -1,8 +1,8 @@
 vpn_masterkonzept/
 ├─ 00000_Ordnerstrucktur.txt
 ├─ 0000_Erklärung.txt
-├─ 000_MASTER-KONZEPT v2.0 (ZEILENFEST).txt
-├─ 00_MASTER_v2.0.txt
+├─ 000_MASTER-KONZEPT v2.0.1 (ZEILENFEST).txt
+├─ 00_MASTER_v2.0.1.txt
 ├─ 0_MASTERKONZEPT_V2_ANALYSE.md
 ├─ 01_CHANGELOG.txt
 ├─ 02_GLOSSAR.txt
@@ -23,7 +23,7 @@ vpn_masterkonzept/
 │  ├─ B120_NFT_FORWARD_NAT_FULLTUNNEL.txt
 │  ├─ B130_NFT_PEER_ISOLATION.txt
 │  ├─ B140_NFT_OUTBOUND_ABUSE_BLOCKS.txt
-│  ├─ B150_Walled Garden_Restricted_Mode_(Gate#1_Claim_+_Gate#2_Email_Verify_+_QuotaExpiry.txt
+│  ├─ B150_Walled Garden_Restricted_Mode_(Gate#1_Claim_+_Gate#2_Email_Verify_+_QuotaExpiry).txt
 │  ├─ B155_ONBOARDING_GATES_STATE_MACHINE.txt
 │  ├─ B160_TC_QOS_PER_PPP.txt
 │  ├─ B165_ACCOUNTING_COLLECTOR_SESSION_MAPPING.txt
@@ -54,6 +54,23 @@ vpn_masterkonzept/
 │  ├─ D006_NTP_MANDATORY_XP.txt
 │  ├─ D007_SUBACCOUNTS_PER_DEVICE.txt
 │  └─ D008_GATE2_CUSTOMERWIDE_VERIFY.txt
+├─ tasks/
+│  └─ T/
+│     ├─ T01_DB_SCHEMA_CORE.txt
+│     ├─ T02_RADIUS_SCHEMA_MAPPING.txt
+│     ├─ T03_POLICY_LOCKING_CONCURRENCY.txt
+│     ├─ T04_DOH_DOT_SCOPE_DECISION.txt
+│     ├─ T05_ACCOUNTING_SPOOL_POLICY.txt
+│     ├─ T06_NFT_SERVICE_IP_SCOPES.txt
+│     ├─ T07_GATES_STATE_MATRIX.txt
+│     ├─ T08_PANEL_SECURITY_MODEL.txt
+│     ├─ T09_SIMUSE_STALE_E2E_TESTS.txt
+│     ├─ T10_DNS_FAILURE_MODES_HEALTHCHECKS.txt
+│     ├─ T11_DIAG_ENDPOINT_SPEC.txt
+│     ├─ T12_WEBSTACK_HARDENING_INTERNAL_ONLY.txt
+│     ├─ T13_MTU_MSS_OFFLOAD_DEFAULTS_TESTS.txt
+│     ├─ T14_BACKUP_RESTORE_DR_RUNBOOK.txt
+│     └─ T15_LOGGING_MONITORING_RETENTION_ALERTS.txt
 ├─ templates/
 │  ├─ BLOCK_TEMPLATE.txt
 │  └─ DECISION_RECORD_TEMPLATE.txt

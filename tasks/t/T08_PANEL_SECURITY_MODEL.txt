@@ -1,0 +1,60 @@
+# tasks/T/T08_PANEL_SECURITY_MODEL.txt
+Version: v0.1
+Datum: 2026-01-06
+Priority: MUST
+Owner-Intent: Panel ist Zentrale; AuthN/AuthZ/CSRF/RateLimit/Audit müssen festgelegt sein.
+
+## 1) Zweck
+Panel Security Model:
+- Sessions/Auth
+- CSRF
+- Rate limiting / lockout
+- Audit log
+- Rollenmodell (User vs Admin)
+- Scope (nur über VPN; admin ggf. admin-netz)
+
+## 2) Scope / Nicht-Ziele
+- Keine UI/Design-Screens.
+- Keine konkrete Implementation als Code.
+
+## 3) Inputs (Truth Sources)
+- blocks/B280_PANEL_FEATURES_USER_ADMIN.txt
+- blocks/B300_SECURITY_STEALTH_GUIDELINES.txt
+- D005_PANEL_SCOPE_USER_ACCESS
+- D003_PASSWORD_STORAGE_MODEL (für login/credential flows)
+
+## 4) Outputs (Deliverables)
+- `docs/panel_security_model.md`
+  - AuthN (login, session lifetime, logout)
+  - AuthZ Matrix (Actions vs Role)
+  - CSRF rules
+  - Rate-limit spec (login, verify, api)
+  - Audit events list (who/what/when)
+- `tests/panel_security_tests.md` (negative tests)
+
+## 5) Dependencies
+- T01 (user/connection data foundation)
+- D005 (who can access what endpoints)
+- D003 (password model decisions)
+
+## 6) Risiken / Randfälle
+- Brute force & credential stuffing
+- CSRF state-changing requests
+- IDOR (Insecure direct object references): user sees other user connections
+- Session fixation
+
+## 7) Tests / Acceptance Criteria (messbar)
+MUST:
+- Rate limit triggers after N failed logins (N festlegen in spec).
+- CSRF token required for state-changing actions.
+- AuthZ:
+  - User cannot perform admin actions even by direct URL.
+  - User sees only assigned connections.
+- Audit log writes on key actions.
+
+## 8) Offene Punkte / Entscheidungen
+- Admin 2FA ja/nein (XP compatibility?).
+- Session TTL values (security vs usability).
+
+## 9) Changelog
+- v0.1 (2026-01-06): Task-Datei angelegt.

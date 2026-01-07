@@ -1,0 +1,52 @@
+# tasks/T/T04_DOH_DOT_SCOPE_DECISION.txt
+Version: v0.1
+Datum: 2026-01-06
+Priority: SHOULD (wird MUST, wenn D001 so entscheidet)
+Owner-Intent: DNS-Zwang-Claim sauber machen: DoH/DoT Scope bewusst festlegen.
+
+## 1) Zweck
+Decision + Spezifikation:
+- Ist DoH/DoT-Abwehr Teil von v2 (MUST/SHOULD) oder explizit Non-Goal?
+
+## 2) Scope / Nicht-Ziele
+- Keine DPI/MITM-„alles aufbrechen“ ohne explizite Freigabe.
+- Kein automatisches Blocken von beliebigem HTTPS ohne Kollisions-Analyse.
+
+## 3) Inputs (Truth Sources)
+- blocks/B210_DNS_ENFORCEMENT_DNAT53.txt (DoH „not covered“)
+- blocks/B200_DNS_UNBOUND_ADGUARD.txt (DNS stack)
+- 03_ASSUMPTIONS_AND_RULES.txt (Policy/Scope)
+
+## 4) Outputs (Deliverables)
+- Decision Record: `decisions/D001_DOH_DOT_SCOPE.md` (oder nach deinem Template)
+  - Option A: Non-Goal (dokumentierte Limitation)
+  - Option B: Partial (DoT 853 blocken, DoH monitor)
+  - Option C: Hard (DoH block/allowlist) — nur wenn bewusst gewollt
+- Wenn Option B/C:
+  - `docs/doh_dot_policy.md` (konkrete Regeln, Logging, Risiken)
+
+## 5) Dependencies
+- D001 muss final entschieden sein, bevor Implementation/Monitoring gebaut wird.
+
+## 6) Risiken / Randfälle
+- DoH über 443 ist schwer zu blocken ohne Kollateralschäden (normales HTTPS).
+- Apps können DNS hardcoden; reine DNAT53 reicht nicht.
+
+## 7) Tests / Acceptance Criteria (messbar)
+Wenn Non-Goal:
+- Dokumentationspflicht erfüllt: klare Limitation + Hinweis im Panel/Docs.
+
+Wenn DoT block:
+- Port 853 outbound test: blockiert.
+- Klassisches DNS funktioniert weiterhin über 53 (DNAT53).
+
+Wenn DoH monitor/block:
+- Definierte Test-Endpoints werden erkannt/geloggt oder geblockt (nach Policy).
+- False-Positive Risiko dokumentiert.
+
+## 8) Offene Punkte / Entscheidungen
+- D001 final: Non-Goal/SHOULD/MUST
+- Was ist „erlaubt“: nur DNS via 53 erzwingen oder „DNS vollständig erzwingen“ inkl. DoH?
+
+## 9) Changelog
+- v0.1 (2026-01-06): Task-Datei angelegt.

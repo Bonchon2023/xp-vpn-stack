@@ -12,9 +12,12 @@ This repository is a **specification** (not an installer script yet).
 It is structured as:
 
 - **MASTER (zeilenfest)**: canonical, versioned master concept
+- **0_MASTERKONZEPT_V2_ANALYSE.md**: Arbeits- und Abarbeitungsdatei (Hybrid), verweist auf Blocks/Decisions/Tasks
 - **blocks/**: implementation blocks (B010–B300) defining the system precisely
 - **decisions/**: decision records (ADR) explaining *why* choices were made
+- **tasks/**: Task-/Prüfdateien (T01–T15) als konkrete ToDos, Tests, Matrizen und offene Punkte
 - **templates/**: templates for adding future blocks/decisions consistently
+
 
 The intended outcome is a reproducible server setup where the VPN software provides the tunnel, while **Linux enforces the policies** (nftables / tc / service binding).
 
@@ -113,14 +116,17 @@ This is built for selling/supporting XP systems with minimal support overhead an
 
 ## Repository structure (authoritative)
 
+- `00000_Ordnerstrucktur.txt` : aktuelle Ordner-/Dateistruktur (Single Source of Truth für den Tree)
 - `000_MASTER-KONZEPT vX.X (ZEILENFEST).txt` : canonical “zeilenfest” spec
 - `00_MASTER_vX.X.txt` : readable master summary + block map
+- `0_MASTERKONZEPT_V2_ANALYSE.md` : Abarbeitungs-/Arbeitsdatei (Hybrid: führt durch Blocks/Decisions/Tasks)
 - `01_CHANGELOG.txt` : version history / deltas
 - `02_GLOSSAR.txt` : glossary
 - `03_ASSUMPTIONS_AND_RULES.txt` : bindende Annahmen & Regeln
 - `04_BLOCK_INDEX.txt` : block index (B010–B300)
 - `blocks/` : implementation blocks
 - `decisions/` : ADR decision records
+- `tasks/` : Task-Dateien / Prüfkonzepte (`tasks/T/` mit T01–T15)
 - `templates/` : templates for consistent future changes
 
 ---
@@ -136,7 +142,7 @@ See `B290_PHASE_PLAN_ROLLOUT` and the MASTER file for the authoritative phase pl
 
 ## Status
 
-- Spec baseline: **MASTER v2.0**
+- - Spec baseline: **MASTER v2.0.1**
 - Blocks: B010–B300 present (incl. v2.0 additions B165–B169)
 - Decision records: present (incl. D008 customerwide Gate#2)
 - Templates: present

@@ -1,0 +1,48 @@
+# tasks/T/T13_MTU_MSS_OFFLOAD_DEFAULTS_TESTS.txt
+Version: v0.1
+Datum: 2026-01-06
+Priority: SHOULD (→ MUST sobald Stabilitätsphase startet)
+Owner-Intent: Stabilität für XP/Vista: keine random hangs, fragmentierung, schlechte performance.
+
+## 1) Zweck
+Konkrete Defaults + Testplan für:
+- MTU / MSS clamping
+- offload settings (ethtool)
+- NAT-T/fragmentation edge cases
+
+## 2) Scope / Nicht-Ziele
+- Keine allgemeine Performance-Tuning-Orgie; nur stabile Defaults.
+- Keine tc QoS (B160) — separate Task.
+
+## 3) Inputs (Truth Sources)
+- blocks/B090_MTU_MSS_STABILITY.txt
+- blocks/B190_OFFLOAD_TUNING_DEFAULT.txt
+- blocks/B170_SESSION_STABILITY_DPD_LCP.txt
+
+## 4) Outputs (Deliverables)
+- `docs/mtu_mss_offload_defaults.md`
+  - default MTU/MSS values
+  - fallback recipe if issues observed
+  - offload toggles (on/off) decision + rationale
+- `tests/mtu_mss_offload_stability.md`
+
+## 5) Dependencies
+- Basis-VPN connectivity must be working.
+
+## 6) Risiken / Randfälle
+- Fragmentation causes sporadic TLS/DNS issues.
+- XP stacks can behave differently; needs real-world tests.
+
+## 7) Tests / Acceptance Criteria (messbar)
+MUST (once activated):
+- Large transfer test passes (download/upload large file).
+- No hangs under sustained traffic.
+- TLS websites reachable reliably.
+- Reconnect stable.
+
+## 8) Offene Punkte / Entscheidungen
+- Default MTU: pick based on concept + test results (documented).
+- Offload defaults: which toggles default OFF/ON?
+
+## 9) Changelog
+- v0.1 (2026-01-06): Task-Datei angelegt.

@@ -1,0 +1,66 @@
+# tasks/T/T01_DB_SCHEMA_CORE.txt
+Version: v0.1
+Datum: 2026-01-06
+Priority: MUST
+Owner-Intent: Blocker beseitigen: Ohne verbindliches SQL-Schema sind Gates/Panel/AAA nicht deterministisch.
+
+## 1) Zweck
+Verbindliches DB-Schema (SQL-first) für:
+- `customers`
+- `vpn_connections`
+inkl. Datentypen, Constraints, Indizes, FKs, CHECKs, Defaults.
+
+## 2) Scope / Nicht-Ziele
+Nicht Teil dieser Task:
+- FreeRADIUS rad* Tabellen (T02)
+- Panel-Implementierung (T08/T12)
+- nftables/tc Umsetzung (T06/T03)
+
+## 3) Inputs (Truth Sources)
+- blocks/B155_ONBOARDING_GATES_STATE_MACHINE.txt (Pflichtfelder/States konzeptionell)
+- 02_GLOSSAR.txt (Begriffe: Customer, Connection, Claim, Verify, Restricted, Disabled)
+- 03_ASSUMPTIONS_AND_RULES.txt (Assumptions, die Schema beeinflussen könnten)
+- blocks/D007_SUBACCOUNTS_PER_DEVICE.txt (Subaccount per Gerät – falls dort festgelegt)
+
+## 4) Outputs (Deliverables)
+- `schema/0001_core.sql` (versioniert)
+  - `customers` (mind. id, email, email_verified_at, verify_deadline?, created_at, updated_at)
+  - `vpn_connections` (mind. id, username/subaccount_login, password storage fields, fixed_ip, status, customer_id, trial_until, claim_deadline, verify_deadline, claim_token_hash, claimed_at, created_at, updated_at)
+- `schema/README.md` (Reihenfolge/Anwendung, kurz)
+- `tests/db_schema_smoke.md` (kurzer Test-Plan: create DB, apply DDL, negative tests)
+
+## 5) Dependencies
+- Keine (Startpunkt).
+
+## 6) Risiken / Randfälle
+- Status-/State Drift: status-Werte ohne CHECK führen zu unvorhersehbarem Verhalten.
+- Doppel-IP / Doppel-Username: ohne UNIQUE entstehen Konflikte, Lockouts, falsche Zuordnung.
+- NULL customer_id: in falschem Zustand möglich → Gate-Logik bricht.
+- Zeitfelder (trial_until/verify_deadline) müssen konsistent genutzt werden (UTC vs local).
+
+## 7) Tests / Acceptance Criteria (messbar)
+MUST:
+- DDL lässt sich auf leere DB anwenden (reproduzierbar).
+- Constraints:
+  - UNIQUE: `vpn_connections.username` (oder subaccount_login)
+  - UNIQUE: `vpn_connections.fixed_ip`
+  - CHECK: `vpn_connections.status` ∈ {PREPROVISIONED, CLAIMED, DISABLED}
+  - FK: `vpn_connections.customer_id` -> `customers.id` (nullable nur in PREPROVISIONED)
+- Negative Tests:
+  - Insert mit doppelter fixed_ip muss fehlschlagen.
+  - Insert mit ungültigem status muss fehlschlagen.
+  - Insert CLAIMED mit customer_id NULL muss fehlschlagen (oder muss durch CHECK/Trigger ausgeschlossen sein, je Design).
+SHOULD:
+- Indizes für typische Queries (Panel/Apply/Reconcile):
+  - vpn_connections(customer_id)
+  - vpn_connections(status)
+  - vpn_connections(fixed_ip)
+  - vpn_connections(username)
+
+## 8) Offene Punkte / Entscheidungen
+- D003_PASSWORD_STORAGE_MODEL: Welche Felder exakt (cleartext vs hash) sind XP/RADIUS-kompatibel?
+- Welche status-States sind final? (mindestens PREPROVISIONED/CLAIMED/DISABLED; ggf. weitere nur wenn im Konzept festgelegt)
+- customerwide verify: verify_deadline pro customer oder pro connection (D008 bzw. Konzeptdetails)
+
+## 9) Changelog
+- v0.1 (2026-01-06): Task-Datei angelegt.

@@ -1,0 +1,59 @@
+# tasks/T/T02_RADIUS_SCHEMA_MAPPING.txt
+Version: v0.1
+Datum: 2026-01-06
+Priority: MUST
+Owner-Intent: AAA/Accounting SQL-first verbindlich machen (radcheck/radreply/radacct + Mapping).
+
+## 1) Zweck
+- FreeRADIUS SQL Schema bereitstellen/integrieren (radcheck, radreply, radacct).
+- Attribut-Mapping definieren: Wie `vpn_connections` in RADIUS-User/Replies übersetzt wird.
+- Reject/Accept Regeln festnageln (DISABLED = reject, Restricted = policy/nft/tc — je Decision).
+
+## 2) Scope / Nicht-Ziele
+- Keine komplette FreeRADIUS server config als Patch (sites-enabled etc.) — nur Spezifikation/Artefakte.
+- Kein Collector/Spool (T05).
+
+## 3) Inputs (Truth Sources)
+- blocks/B050_SQL_AAA_RADIUS.txt (SQL-first, Accounting-Konzept)
+- blocks/B168_STALE_SESSION_JANITOR.txt / B169_RADIUS_LOGIN_FLOW_ONDEMAND_JANITOR.txt (Stale/SimUse Anforderungen)
+- Decision Log:
+  - D003_PASSWORD_STORAGE_MODEL
+  - D004_RESTRICTED_VS_REJECT_POLICY
+
+## 4) Outputs (Deliverables)
+- `schema/0002_radius.sql` (Standard FreeRADIUS SQL Schema + Anpassungen falls nötig)
+- `docs/radius_attribute_mapping.md`
+  - Username = vpn_connections.username (oder subaccount_login)
+  - Password storage method (Decision D003)
+  - Reply Attributes (z.B. Framed-IP-Address, Framed-Route falls genutzt)
+  - Simultaneous-Use=1 Policy (konkret dokumentiert, wenn im Konzept MUST)
+  - Accounting (Interim-Updates) Requirements für Janitor/Usage
+- `tests/radius_accept_reject_accounting.md` (Testplan)
+
+## 5) Dependencies
+- T01 (Core DB Schema)
+- D003 (Password Storage)
+- D004 (Restricted vs Reject Policy)
+
+## 6) Risiken / Randfälle
+- XP/Legacy Auth-Kompatibilität: falsches Password-Attribut → Einwahl bricht.
+- Accounting unzuverlässig: fehlende Interim updates → Janitor kann stale sessions nicht sauber erkennen.
+- SimUse=1 ohne Janitor: riskante Lockouts.
+
+## 7) Tests / Acceptance Criteria (messbar)
+MUST:
+- User in DB -> RADIUS Access-Accept (Testaccount).
+- DISABLED -> RADIUS Access-Reject (wenn D004 das so festlegt).
+- radacct: Start/Stop wird geschrieben; Interim updates (wenn required) sichtbar.
+- SimUse=1 Verhalten:
+  - 2. Login parallel wird blockiert (oder definierter Mechanismus).
+SHOULD:
+- On-demand janitor flow testbar (B169): stale session wird vor Reject bereinigt.
+
+## 8) Offene Punkte / Entscheidungen
+- D003: Password storage fields & RADIUS attribute choice.
+- D004: Welche Zustände sind Reject vs Restricted-only?
+- Interim-Update Intervall: fest oder konfigurierbar?
+
+## 9) Changelog
+- v0.1 (2026-01-06): Task-Datei angelegt.

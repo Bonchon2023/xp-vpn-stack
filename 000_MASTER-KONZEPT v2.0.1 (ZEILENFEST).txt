@@ -1,5 +1,5 @@
 0001| ==================================================================================================
-0002| MASTER-KONZEPT v2.0 (ZEILENFEST)
+0002| MASTER-KONZEPT v2.0.1 (ZEILENFEST)
 0003| XP/Vista Full-Tunnel VPN auf Debian 13 (from scratch) — L2TP/IPsec (strongSwan + xl2tpd + pppd)
 0004| Policies in Linux: nftables + tc + SQL/RADIUS + interner Webstack + DNS-Stack + MITM-Blockpage
 0005| ==================================================================================================
@@ -12,8 +12,8 @@
 0012| 1.5| Peer-Isolation: verkaufte Geräte sehen sich untereinander nicht (User↔User strikt DROP).
 0013| 1.6| Zwei logisch getrennte VPN-Bereiche: User (verkaufte Geräte) vs Admin (deine Geräte).
 0014| 1.7| Bandbreitenkontrolle pro Verbindung (pppX) + manuelle Drosselung + Quota/Expiry möglich.
-0015| 1.8| DNS-Stack (Unbound + AdGuardHome) + DNS-ZWANG IMMER (MUST): DNS wird per DNAT 53 (TCP+UDP)
-0016|     | auf 10.77.0.1:53 erzwungen und kann clientseitig nicht umgangen werden.
+0015| 1.8| DNS-Stack (Unbound + AdGuardHome) + DNS-ZWANG IMMER (MUST): klassisches DNS (Port 53, TCP+UDP)
+0016|     | wird per DNAT auf 10.77.0.1:53 erzwungen. DoH/DoT wird in dieser Runde nicht behandelt (PARKED)
 0017| 1.9| Interner Webstack (OpenResty + PHP-FPM + MariaDB + phpMyAdmin) für:
 0018|     | - User-Panel (Login nur über VPN; IP-Abgleich/Whitelist im Panel)
 0019|     | - Statusseite (vpn.status)
@@ -370,5 +370,5 @@
 0370|     | - darf Admin UIs (pma/adguard ui) und SSH, aber alles explizit freigeschaltet.
 0371| 
 0372| ==================================================================================================
-0373| ENDE MASTER-KONZEPT v2.0 (ZEILENFEST)
+0373| ENDE MASTER-KONZEPT v2.0.1 (ZEILENFEST)
 0374| ==================================================================================================

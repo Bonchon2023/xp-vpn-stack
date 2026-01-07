@@ -1,6 +1,6 @@
 vpn_masterkonzept/03_ASSUMPTIONS_AND_RULES.txt
 ================================================================================
-ASSUMPTIONS & RULES (bindend) — v2.0
+ASSUMPTIONS & RULES (bindend) — v2.0.1
 ================================================================================
 
 A) Systemannahmen
@@ -24,8 +24,8 @@ B) Sicherheitsannahmen
 - Fail-Closed ist Pflicht:
   Wenn AAA/SQL/Policy nicht sauber evaluierbar ist, wird kein Zugriff gewährt (kein Break-Glass via VPN).
 - DNS ist Sicherheits- und Support-Kern:
-  DNS-ZWANG ist IMMER aktiv (MUST): DNAT TCP+UDP 53 von iif ppp* -> 10.77.0.1:53 (AdGuardHome).
-  Egal was der Client einträgt: DNS läuft immer über den Server.
+  DNS-ZWANG ist IMMER aktiv (MUST): klassisches DNS (Port 53, TCP+UDP) wird per DNAT von iif ppp* -> 10.77.0.1:53 (AdGuardHome) erzwungen.
+  DoH/DoT wird in dieser Runde nicht behandelt (PARKED).
 
 C) Änderungsregeln
 - Jede Änderung:
