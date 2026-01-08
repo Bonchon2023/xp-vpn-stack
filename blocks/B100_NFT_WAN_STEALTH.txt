@@ -2,7 +2,7 @@ vpn_masterkonzept/blocks/B100_NFT_WAN_STEALTH.txt
 ================================================================================
 BLOCK-ID: B100
 TITLE: nftables WAN Minimal Exposure (Stealth)
-VERSION: v1.0
+VERSION: v1.1
 STATUS: ACTIVE
 PRIORITY: MUST
 OWNER-INTENT: Von außen nur VPN sichtbar.
@@ -33,6 +33,8 @@ OWNER-INTENT: Von außen nur VPN sichtbar.
 6) MUST
 - Default policy drop.
 - stateful return allowed.
+- Scope MUSS strikt auf WAN-Interface ens13 begrenzt werden (iifname "ens13").
+- Diese Regeln dürfen VPN-Input (iifname "ppp*") nicht beeinflussen (Service-IP/Panel/DNS/NTP läuft über VPN input, nicht WAN).
 
 7) OPTIONEN
 - Rate-limit log for scans.
@@ -44,6 +46,7 @@ OWNER-INTENT: Von außen nur VPN sichtbar.
 - nmap von außen: nur 500/4500, ESP sichtbar.
 
 10) CHANGELOG
+- v1.1: Scope-Präzisierung: WAN-Stealth-Regeln gelten strikt nur auf iifname "ens13" und dürfen VPN-Input (ppp*) nicht beeinflussen.
 - v1.0: Initial
 
 ================================================================================

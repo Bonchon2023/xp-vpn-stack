@@ -2,7 +2,7 @@ vpn_masterkonzept/blocks/B290_PHASE_PLAN_ROLLOUT.txt
 ================================================================================
 BLOCK-ID: B290
 TITLE: Rollout / Phasenplan
-VERSION: v1.0
+VERSION: v1.1
 STATUS: ACTIVE
 PRIORITY: MUST
 OWNER-INTENT: Reihenfolge, damit nichts instabil "oben drauf" kommt.
@@ -35,7 +35,7 @@ PH3: Webpanel Core
 - user login IP-bound
 - stats from accounting
 - diag endpoint
-- Onboarding Gates aktiv (B155): Gate#1 Claim + Gate#2 Email Verify (Deadlines/State Machine)
+- Onboarding (B155): Verify-Wall nach Login (PENDING -> Code/Resend/Support), Panel-Innenleben erst nach Verify; Claim nur nach Verify und nur per Claim-Token (keine VPN-Client-Credentials nötig).
 - Enforcement via Restricted Mode / Walled Garden (B150):
   - Portal-Only Allowlist (Panel/Status/Diag + DNS optional)
   - Trigger durch B155/B050 (restricted flag/state) – kein RADIUS reject für Gates
@@ -64,6 +64,7 @@ PH7: Premium
 - Jede Phase hat Tests; fail -> stop and fix.
 
 6) CHANGELOG
+- v1.1: Rollout-Text für PH3 auf neues Onboarding aktualisiert (Verify-Wall + Claim-Token; keine Gate#1/Gate#2 Deadlines als Onboarding-Mechanik).
 - v1.0: Initial
 
 ================================================================================

@@ -2,7 +2,7 @@ vpn_masterkonzept/blocks/B050_SQL_AAA_RADIUS.txt
 ================================================================================
 BLOCK-ID: B050
 TITLE: SQL AAA / FreeRADIUS / Accounting
-VERSION: v1.10
+VERSION: v1.16
 STATUS: ACTIVE
 PRIORITY: MUST
 OWNER-INTENT: SQL als Source of Truth, RADIUS als Enforcement + Logging.
@@ -16,7 +16,7 @@ OWNER-INTENT: SQL als Source of Truth, RADIUS als Enforcement + Logging.
 - Keine Migration später: DB ist ab Start master.
 
 3) ABHÄNGIGKEITEN
-- Requires: B040
+- Requires: B040, B055, B056, B270
 - Influences: B160, B150, B280, B270
 
 4) INPUTS
@@ -48,6 +48,9 @@ OWNER-INTENT: SQL als Source of Truth, RADIUS als Enforcement + Logging.
 - Keine Parallel-Sessions: Pro subaccount_login / connection_id ist maximal 1 gleichzeitige PPP-Session erlaubt (pro Gerät genau 1 Verbindung).
 - Enforcement erfolgt in FreeRADIUS über Simultaneous-Use=1 (radacct-basiert):
   - Wenn bereits eine aktive Session existiert (radacct stop_time IS NULL), MUSS ein weiterer Login für denselben subaccount_login abgelehnt werden.
+- WICHTIG (Stabilität): Simultaneous-Use=1 (radacct) ist nicht atomar gegen Parallel-Logins/Race.
+- Zusätzlich MUSS ein atomarer Session-Lock/Lifecycle umgesetzt werden (siehe B056 + B168/B169 + B310).
+  - Ziel: "genau 1 aktive Session pro subaccount_login" auch bei gleichzeitigen Login-Versuchen deterministisch erzwingen.
 - Stale-Sessions werden aktiv vermieden/abgeräumt (siehe B170 DPD/LCP):
   - Wenn eine Session „hängt“, muss sie durch DPD/LCP/Timeout zuverlässig beendet werden, damit Simultaneous-Use nicht dauerhaft blockiert.
 - Stale radacct Sessions dürfen Simultaneous-Use nicht dauerhaft blockieren: DB-Janitor/Sweeper ist in B168 definiert (Interim 300s, Threshold 900s, Timer 5min, Safety-Check /run/vpn-sessions).
@@ -56,15 +59,16 @@ OWNER-INTENT: SQL als Source of Truth, RADIUS als Enforcement + Logging.
 - "Restricted State" MUSS aus SQL deterministisch ableitbar sein (Single Source of Truth).
 - Restricted wird NICHT über RADIUS reject umgesetzt (reject bleibt nur für DISABLED/BANNED/Missbrauch).
 - Restricted Quellen (effective):
-  - Gate#1 (Connection noch nicht CLAIMED) -> restricted (B155/B150)
-  - Gate#2 (Customer email_verified_at NULL + verify_deadline überschritten) -> restricted für alle CLAIMED Connections dieses Customers (kundenweit)
   - Quota <= 0 (pro Connection) -> restricted
   - Expiry überschritten (pro Connection) -> restricted
   - Optional: manual_restricted (pro Connection) -> restricted (Admin-Tool)
+  - UNCLAIMED_OVERDUE (customer_id IS NULL AND now > unclaimed_grace_until) -> restricted
+- Hinweis: Onboarding/Email-Verify ist App-Layer (Verify-Wall, B155/B280) und kein Restricted-Trigger mehr.
 - Auswertung (Precedence):
   1) DISABLED/BANNED/Missbrauch -> RADIUS reject (kein VPN)
   2) Sonst: ACCEPT + restricted_effective (true/false) + restricted_reason (string)
-- restricted_reason MUSS eindeutig sein (z.B. GATE1_UNCLAIMED / GATE2_VERIFY / QUOTA_EXPIRED / PLAN_EXPIRED / MANUAL).
+- restricted_reason MUSS eindeutig sein (z.B. QUOTA / EXPIRY / MANUAL / UNCLAIMED_OVERDUE).
+- Hinweis: restricted_reason ist ein berechneter Reason-Code (Reply/Logging/Panel-Anzeige); er muss nicht zwingend als DB-Feld persistiert werden, solange er deterministisch aus SQL ableitbar ist.
 - Quota-Accounting darf NICHT per Paket/Traffic DB-Reads erzeugen:
   - Usage wird über pppX Kernel-Counter als Deltas gesammelt und batchweise geschrieben.
 - Session-Mapping pppX -> connection_id + Collector-Lifecycle sind in B165 definiert.
@@ -96,13 +100,12 @@ OWNER-INTENT: SQL als Source of Truth, RADIUS als Enforcement + Logging.
 - Erstelle Kunde + 2 Verbindungen (2 Sub-Accounts/Devices) -> beide können gleichzeitig rein (verschiedene subaccount_login).
 - radacct zeigt Start/Stop/Bytes korrekt.
 - Expiry überschritten -> Verbindung geht in Restricted Mode (B150) statt RADIUS reject (Portal-Only).
-- Für Gate#1/Gate#2/Quota/Expiry wird grundsätzlich kein RADIUS reject verwendet, sondern "ACCEPT + restricted state/flag" (Enforcement über B150).
+- "Restricted Mode / Portal-Only" (Quota/Expiry/Manual/UNCLAIMED_OVERDUE) wird grundsätzlich kein RADIUS reject verwendet, sondern "ACCEPT + restricted state/flag" (Enforcement über B150).
 - RADIUS reject bleibt reserviert für DISABLED/BANNED/Missbrauch-Sperre.
-- "Restricted Mode / Portal-Only" (Gates/Quota/Expiry) ist kein Reject, sondern ACCEPT + restricted flag/policy (B150).
 - DISABLED/BANNED -> RADIUS reject greift sofort.
 - Quota <= 0 -> Verbindung bleibt ACCEPT, aber restricted_effective=true (B150 Enforcement greift).
 - Expiry überschritten -> Verbindung bleibt ACCEPT, aber restricted_effective=true (B150 Enforcement greift).
-- Gate#2 overdue -> alle CLAIMED Connections des Customers werden restricted (kundenweit).
+- Email-Verify ist kein Restricted-Case mehr: PENDING wird im Panel per Verify-Wall blockiert (B155/B280), unabhängig von nftables.
 - DB Down Test: MySQL stoppen / SQL unreachable -> neue VPN-Logins werden für ALLE denied (Fail-Closed), RADIUS antwortet schnell (kein Hängen).
 - DB Recovery Test: MySQL wieder online -> neue VPN-Logins funktionieren wieder normal.
 - Accounting Spool Test (DB Down): DB stoppen -> Collector schreibt deltas ins durable spool; nach 10+ Minuten DB starten -> Collector trägt deltas batchweise in SQL nach (keine Usage-Lücken).
@@ -115,6 +118,12 @@ OWNER-INTENT: SQL als Source of Truth, RADIUS als Enforcement + Logging.
 - Immediate Reconnect Test: Crash erzeugt stale radacct (stop_time NULL) -> On-Demand Cleanup (B168) läuft beim Login-Versuch -> Login wird sofort wieder möglich, ohne Parallel-Sessions zu erlauben.
 
 10) CHANGELOG
+- v1.16 (2026-01-07): Task-Wortlaut entfernt: atomarer Session-Lock verweist jetzt auf B056 + B168/B169 + B310 (inhaltlich unverändert).
+- v1.15 (2026-01-07): Task-Referenz entfernt. DB-Schema/Mapping sind jetzt Block-basiert in B055/B056 (keine inhaltliche Änderung).
+- v1.14: Schema-Bindung explizit gemacht (Requires T01 für Feldnamen/Constraints). Klarstellung ergänzt: restricted_reason ist computed (deterministisch), nicht zwingend ein persistiertes DB-Feld.
+- v1.13: SimUse-Stabilität präzisiert (radacct SimUse=1 nicht atomar -> zusätzlicher Session-Lock/Lifecycle als MUST referenziert); doppelte MUST-Regelzeilen bereinigt; Tests-Dopplungen reduziert (kein inhaltlicher Change).
+- v1.12: Restricted-Quelle erweitert um UNCLAIMED_OVERDUE (nach 30d via unclaimed_grace_until). Test-Wording aktualisiert (keine Gates mehr; Quota/Expiry/Manual/UNCLAIMED_OVERDUE).
+- v1.11: Gate#1/Gate#2 als Restricted-Quellen entfernt. Restricted gilt nur für Quota/Expiry/Manual (Kernel-Enforcement via B150). Email-Verify läuft als Verify-Wall App-Layer (B155/B280).
 - v1.10: Verbindliche Referenz auf B169 ergänzt (RADIUS Login-Flow On-Demand Cleanup vor Simultaneous-Use inkl. Retry).
 - v1.9: B168 (stale radacct janitor) als MUST referenziert; Testfall für Janitor ergänzt (Lockout-Vermeidung bei Simultaneous-Use=1).
 - v1.8: Keine Parallel-Sessions festgelegt (1 Session pro subaccount_login/connection_id); Enforcement via FreeRADIUS Simultaneous-Use=1 (radacct stop_time IS NULL); Tests angepasst/ergänzt.

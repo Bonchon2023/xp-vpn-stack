@@ -1,0 +1,135 @@
+vpn_masterkonzept/blocks/B310_TESTS_ACCEPTANCE_CATALOG.txt
+================================================================================
+BLOCK-ID: B310
+TITLE: Tests / Acceptance Criteria (E2E-Katalog)
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: Abnahmekatalog für Stabilität (SimUse, DNS, /diag, Webstack, MTU/MSS/Offload) — messbar, reproduzierbar.
+================================================================================
+
+1) QUELLE / HERKUNFT
+- Migrated/Consolidated from:
+  - tasks/t/T09_SIMUSE_STALE_E2E_TESTS.txt (v0.2)
+  - tasks/t/T10_DNS_FAILURE_MODES_HEALTHCHECKS.txt (v0.1)
+  - tasks/t/T11_DIAG_ENDPOINT_SPEC.txt (v0.1)
+  - tasks/t/T12_WEBSTACK_HARDENING_INTERNAL_ONLY.txt (v0.2)
+  - tasks/t/T13_MTU_MSS_OFFLOAD_DEFAULTS_TESTS.txt (v0.1)
+
+================================================================================
+2) SIMUSE + STALE SESSIONS (aus T09)
+================================================================================
+
+Version: v0.2
+Priority: MUST
+
+## 1) SimUse atomic guard tests
+- Two parallel logins for same vpn_connection/token:
+  - Expect exactly one ACCEPT, one REJECT/TEMPFAIL (policy-defined)
+- Lock row exists in active_session_locks after ACCEPT
+- Lock released on Accounting-Stop
+- Lock expires by janitor after expires_at
+
+## 2) Stale sessions tests
+- Simulate missing Accounting-Stop:
+  - Lock expires -> next login succeeds
+- Janitor clears stale radacct entries and stale locks deterministically
+
+## 3) E2E validation
+- Run 50 parallel connect attempts:
+  - No double-ACCEPT for same vpn_connection
+  - No DB deadlocks
+  - Mean time stable
+
+## 4) Changelog (Task-Historie)
+...
+
+================================================================================
+3) DNS FAILURE MODES + HEALTHCHECKS (aus T10)
+================================================================================
+
+Version: v0.1
+Priority: MUST
+
+## 1) Failure modes
+- AdGuard down -> what happens?
+- Unbound down -> what happens?
+- Upstream DNS failure -> what happens?
+
+## 2) Healthchecks
+- local resolver health probe
+- panel shows degraded state
+- enforcement still forces port 53 to service IP
+
+## 3) Changelog (Task-Historie)
+...
+
+================================================================================
+4) /diag SPEZIFIKATION + TESTS (aus T11)
+================================================================================
+
+Version: v0.1
+Priority: MUST
+
+## 1) Endpoint
+- GET /diag returns JSON with:
+  - vpn stack health
+  - dns health
+  - radius health
+  - nftables rules present
+  - tc qdisc state
+
+## 2) Security
+- Only accessible inside VPN/admin scope
+- No sensitive secrets returned
+
+## 3) Tests
+- /diag returns 200 when healthy
+- /diag returns degraded with clear reason codes
+
+## 4) Changelog (Task-Historie)
+...
+
+================================================================================
+5) WEBSTACK HARDENING / INTERNAL-ONLY TESTS (aus T12)
+================================================================================
+
+Version: v0.2
+Priority: MUST
+
+## 1) Binding scope
+- OpenResty only listens on service-IP and/or VPN nets
+- No WAN port open except VPN ports
+
+## 2) Tests
+- Port scan from WAN: no panel ports reachable
+- From admin net: panel reachable
+
+## 3) Changelog (Task-Historie)
+...
+
+================================================================================
+6) MTU/MSS/OFFLOAD DEFAULTS + TESTS (aus T13)
+================================================================================
+
+Version: v0.1
+Priority: SHOULD
+
+## 1) MTU/MSS tests
+- Verify no PMTU blackhole
+- MSS clamp effective on PPP interfaces
+
+## 2) Offload defaults
+- Default offload settings applied
+- Validate no checksum issues
+
+## 3) Changelog (Task-Historie)
+...
+
+================================================================================
+7) CHANGELOG
+================================================================================
+- v1.0 (2026-01-07): Neu angelegt. T09–T13 in einen Block konsolidiert (ohne inhaltliche Änderungen, nur Bündelung).
+================================================================================
+END BLOCK B310
+================================================================================

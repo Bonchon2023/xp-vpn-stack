@@ -1,0 +1,54 @@
+vpn_masterkonzept/blocks/B320_BACKUP_RESTORE_DR_RUNBOOK.txt
+================================================================================
+BLOCK-ID: B320
+TITLE: Backup / Restore / DR Runbook
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: Disaster Recovery ohne Raten: scratch -> restore -> verify (DB, config, secrets, spool).
+================================================================================
+
+1) QUELLE / HERKUNFT
+- Migrated from: tasks/t/T14_BACKUP_RESTORE_DR_RUNBOOK.txt (Datum 2026-01-07)
+
+================================================================================
+2) INHALT (aus T14, unverändert übertragen)
+================================================================================
+
+Version: v0.2
+Priority: MUST
+
+## 1) Backup scope
+- DB dump (schema + data)
+- Config files (strongSwan, xl2tpd, pppd, freeradius, nftables, tc scripts)
+- Secrets (PSK, tokens, CA)
+- Spool directory (accounting spool)
+
+## 2) Rotation
+- Daily + weekly
+- Retention windows
+
+## 3) Restore procedure
+- Fresh install
+- Restore configs
+- Restore DB
+- Verify services order
+- Validate nftables rules + routing
+- Validate RADIUS auth
+- Validate DNS enforcement
+
+## 4) Verification checklist
+- One client full tunnel
+- DNS forced to AdGuard
+- No WAN exposure of panel
+
+## 5) Changelog (Task-Historie)
+...
+
+================================================================================
+3) CHANGELOG
+================================================================================
+- v1.0 (2026-01-07): Neu angelegt. Inhalt aus T14_BACKUP_RESTORE_DR_RUNBOOK in Block-Form übernommen (ohne inhaltliche Änderung).
+================================================================================
+END BLOCK B320
+================================================================================

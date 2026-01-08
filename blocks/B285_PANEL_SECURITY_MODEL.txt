@@ -1,0 +1,263 @@
+vpn_masterkonzept/blocks/B285_PANEL_SECURITY_MODEL.txt
+================================================================================
+BLOCK-ID: B285
+TITLE: Panel Security Model (AuthN/AuthZ/CSRF/RateLimit/Audit/Scopes)
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: Panel ist die Zentrale. Zugriff muss sicher, deterministisch und XP-tauglich sein – ohne WAN-Exposure, mit klaren Scopes, RateLimits und Audit.
+================================================================================
+
+1) ZWECK (WAS wird gelöst?)
+- Definiert das vollständige Security-Modell der Panel-Webapp (vpn.status) inkl.:
+  - AuthN (Login, Sessions, Passwort, Verify-Wall)
+  - AuthZ (Rollen + Objekt-Scope: Customer/Connections)
+  - CSRF-Strategie
+  - Rate limiting / Lockout (Login, Verify, Resend, Claim)
+  - Audit Logging (Wer hat was getan?)
+  - Netzwerk-/Scope-Definition: Panel ist nur über VPN erreichbar; Admin-Funktionen nur über Admin-Netz.
+
+2) GRENZEN (WAS wird explizit NICHT gelöst?)
+- Kein UI/Design-Layout (das ist B280 / Panel UX).
+- Keine Implementierungsdetails von OpenResty/PHP-FPM Hardening (das ist B220 + optional ergänzend später).
+- Keine TLS/CA/MITM-Mechanik im Detail (B230); hier nur die Security-Anforderungen an HTTPS/Cookies.
+- Keine DoH/DoT Policy (das ist eigener Decision/Block; DNS-Leaks werden im Netzwerk-Teil behandelt).
+- Kein User-Management “Feature-Katalog” (B280), sondern Security-Regeln/Schichten.
+
+3) ABHÄNGIGKEITEN
+- Requires:
+  - B050 (SQL als Source of Truth; Status/Flags/Restricted)
+  - B220 (Webstack intern; Service-Bindings; DB lokal)
+  - B280 (Panel Features/Flows: Allowlist Login, Verify-Wall, Claim)
+  - docs/nft_service_ip_scopes.txt (Input-Scopes: wer darf welche Ports/Paths erreichen)
+- Influences:
+  - B150 (Restricted Mode muss Panel/Verify/Claim erreichbar lassen)
+  - B166 (Apply/Reconcile Trigger bei Policy-relevanten Panel-Aktionen)
+  - B330 (Logging/Retention/Alerts)
+
+4) INPUTS (Konzept-Daten/Signale)
+- VPN-IP des Requests (Quelle) = entscheidend für:
+  - Panel Login Allowlist (IP-bound Login)
+  - Session-Binding an VPN-IP
+  - Admin-Scope (Admin-Netz 10.77.20.0/24)
+- Customer-Status aus SQL:
+  - PENDING (email_verified_at NULL) / ACTIVE (email_verified_at gesetzt) / DISABLED/BANNED (falls vorhanden)
+- Connection-Status/Flags aus SQL:
+  - restricted_effective (Quota/Expiry/Manual/UNCLAIMED_OVERDUE)
+  - fixed_ip pro Connection
+- Claim Token (App-Layer) und Verify-Code (App-Layer)
+
+5) OUTPUTS (Sicherheitsgarantien)
+- Kein WAN-Login möglich (Panel ist intern-only; Scopes enforced).
+- Saubere Trennung:
+  - User sieht nur eigene Daten/Connections.
+  - Admin kann alles (aber nur aus Admin-Netz).
+- CSRF-sichere State-Changing Requests.
+- RateLimit/Lockout verhindert Bruteforce/Spam (Login/Verify/Resend/Claim).
+- Audit Log ist vollständig für Security-relevante Aktionen.
+
+6) HARTE REGELN (MUST)
+
+6.1 Netzwerk-Scope / Erreichbarkeit (Defense in Depth)
+- Panel ist ausschließlich über VPN erreichbar (Service-IP 10.77.0.1 und/oder interne Domain vpn.status).
+- WAN darf keine Panel-Endpunkte exponieren (auch nicht „versehentlich“).
+- Input-Scopes sind verbindlich:
+  - User-Netz: 10.77.10.0/24
+  - Admin-Netz: 10.77.20.0/24
+  - Restricted: darf Panel-Minimum erreichen (siehe 6.6)
+- Admin-only Dienste müssen zusätzlich scoped sein (mindestens Source-IP-basiert; idealerweise plus App-AuthZ):
+  - Admin-Funktionen: nur aus 10.77.20.0/24 erreichbar (Netz-Scope).
+  - Selbst wenn ein User eine URL errät, muss es am Netz-Scope und an AuthZ scheitern.
+
+6.2 AuthN (Login, Passwörter, Sessions)
+- Session-basierte AuthN (XP-tauglich; keine modernen Browser-Features voraussetzen).
+- Passwörter:
+  - Speicherung nur gehasht (PHP password_hash), bevorzugt Argon2id; falls nicht verfügbar: bcrypt.
+  - Keine Klartextpasswörter in Logs, niemals.
+- Login-Fehlermeldungen:
+  - Keine User-Enumeration (Fehlertext ist neutral: „Login fehlgeschlagen“).
+- Session Cookie:
+  - HttpOnly = ON
+  - Secure = ON (bei HTTPS)
+  - SameSite = Lax als Default; Strict nur wenn alle Flows ohne Cross-Site Redirect auskommen.
+  - Session-ID kryptographisch stark (mind. 128 Bit Entropie).
+- Session TTL:
+  - Inaktivität: Default 30 Minuten (konfigurierbar).
+  - Absolute TTL: Default 24 Stunden (konfigurierbar).
+- Session-Binding:
+  - Jede Session ist an die aktuelle VPN-Client-IP gebunden (Request-VPN-IP muss gleich bleiben).
+  - Bei IP-Wechsel: Session invalidieren → erneuter Login.
+- Logout invalidiert Session serverseitig.
+
+6.3 IP-bound Login (Allowlist) – zwingend
+- Login ist nur erlaubt, wenn die Request-VPN-IP im Customer-Allowlist-Modus gültig ist:
+  - Mode ALL: alle dem Customer zugeordneten fixed_ip dürfen login
+  - Mode SELECT: nur explizit freigeschaltete Connections (Checkbox pro Connection)
+- Diese Prüfung passiert:
+  - vor Session-Erstellung
+  - und zusätzlich als „Guard“ bei jeder Request (Session-Binding + Allowlist Recheck optional, siehe 7).
+
+6.4 Verify-Wall (App-Layer Guard)
+- Wenn Customer PENDING (email_verified_at NULL):
+  - Nach erfolgreichem Login sieht der User ausschließlich Verify-Wall:
+    - Code eingeben
+    - Code neu senden
+    - Support-Hinweis
+  - Kein Zugriff auf Panel-Innenleben (Connections/Stats/Actions) bis Verify erfolgreich.
+- Verify ist App-Layer und KEIN Kernel-Policy-Trigger (kein nftables Apply nötig).
+
+6.5 Claim (App-Layer) – Security-Regeln
+- Claim Token darf nur im eingeloggten Zustand genutzt werden.
+- Claim ist nur erlaubt, wenn Customer ACTIVE (email_verified_at gesetzt).
+- First-Claim ist IP-bound:
+  - Request VPN-IP == fixed_ip der Ziel-Connection
+- Weitere Claims:
+  - dürfen aus einer bereits login-berechtigten Customer-Connection erfolgen (Request VPN-IP ∈ Allowlist)
+- Claim Token Speicherung:
+  - Tokens werden serverseitig nur gehasht gespeichert (wie Passwort-Reset Tokens).
+  - Token hat Ablaufzeit (Default: 30 Tage ab Erzeugung, konfigurierbar).
+  - Fehlversuche werden rate-limited (siehe 6.7).
+
+6.6 Restricted/Bootstrap Reachability (MUST für Walled Garden)
+- Wenn restricted_effective=true (Kernel Restricted, B150):
+  - Panel muss weiterhin erreichbar sein.
+  - Minimum-Endpunkte, die erreichbar sein müssen:
+    - /login
+    - /logout
+    - /verify
+    - /verify/resend
+    - /claim
+    - /status (minimaler Panel-Status: restricted_reason + Handlungsanweisung)
+- Begründung:
+  - Restricted Mode darf Internet sperren, aber nicht die Selbstheilung (Verify/Claim) blockieren.
+- Diese Reachability ist doppelt enforced:
+  - Netz-Scope/Allowlist (docs/nft_service_ip_scopes.txt)
+  - App-Guards (AuthN/AuthZ/State)
+
+6.7 Rate Limiting / Lockout (konkret, XP-tauglich)
+Ziele:
+- Bruteforce verhindern, aber legitime Nutzer nicht “für immer” aussperren.
+- Parameter sind DEFAULT und dürfen später feinjustiert werden, aber RateLimit MUSS existieren.
+
+DEFAULT-Policy:
+A) Login-Fails (pro Customer + pro Source-IP):
+- Window: 15 Minuten
+- Max Fails: 10
+- Lockout: 15 Minuten (nur Login; Verify/Resend/Claim separat)
+- Nach Lockout: Fehler bleibt neutral („Login fehlgeschlagen“), kein Detail.
+
+B) Verify-Code Eingabe (pro Customer):
+- Window: 30 Minuten
+- Max Fails: 10
+- Lockout: 30 Minuten (Verify-Endpoints)
+- Codes sind Single-Use (nach Erfolg invalidiert) und kurzlebig (z.B. 10 Minuten gültig).
+
+C) Verify Resend (pro Customer):
+- Cooldown: 60 Sekunden zwischen Resend-Versuchen
+- Max Resends: 10 pro 24 Stunden
+- Bei Überschreitung: Support-Hinweis anzeigen.
+
+D) Claim Token Fails (pro Token + pro Customer):
+- Window: 30 Minuten
+- Max Fails: 10
+- Lockout: 30 Minuten für Claim-Endpoint
+
+E) Admin-sensible Aktionen (optional strenger):
+- Admin-only Endpoints können zusätzlich ein engeres RateLimit haben (z.B. 30 req/min pro Admin-IP).
+
+6.8 CSRF (State-Changing Requests)
+- Alle state-changing Requests (POST/PUT/DELETE) benötigen CSRF-Schutz.
+- CSRF-Pattern (MUST):
+  - Synchronizer Token Pattern (Token im Session-Store, in Form-Feld/Header)
+  - Token Rotation mindestens pro Session; optional pro Form.
+- SameSite Cookie ist Ergänzung, aber ersetzt CSRF nicht.
+- File-Uploads (falls vorhanden) ebenfalls CSRF-geschützt.
+
+6.9 AuthZ (Rollen + Objekt-Scope)
+- Rollen:
+  - USER: nur eigener Customer-Scope
+  - ADMIN: globale Sicht (alle Customers/Connections), aber nur aus Admin-Netz
+- Objekt-Scope Regeln:
+  - USER darf ausschließlich:
+    - eigene Customer-Daten
+    - eigene Connections (zugeordnet per customer_id)
+    - eigene Stats/Audit-Sicht (optional)
+  - USER darf keine fremden connection_id/customer_id per Parameter “erraten” (immer serverseitiger Scope-Check).
+  - ADMIN darf alles, aber Aktionen müssen auditiert werden (6.10).
+- “Dangerous Actions” (Admin):
+  - Quota/Expiry/Manual Restricted/Speed/Disable/Grace Reset/Unclaim
+  - benötigen zwingend: AuthN + Admin-Netz + AuthZ + Audit Log.
+
+6.10 Audit Logging (Security-relevant, unveränderlich)
+- Für folgende Aktionen MUSS ein Audit-Event geschrieben werden (mindestens):
+  - Login success / login fail / lockout trigger / logout
+  - Verify code sent / verify success / verify fail / verify lockout
+  - Claim success / claim fail / claim lockout
+  - Admin: create/revoke connection, change speed profile, quota, expiry, manual restricted, disable/enable, grace reset, unclaim
+- Audit Event Minimum-Felder:
+  - timestamp (UTC)
+  - actor_role (USER/ADMIN)
+  - actor_customer_id (nullable für Admin-Service-User)
+  - target_customer_id / target_connection_id (nullable je nach Event)
+  - source_vpn_ip
+  - user_agent (optional; vorsichtig loggen)
+  - action_code (ENUM/String)
+  - result (SUCCESS/FAIL)
+  - correlation_id / request_id (optional, aber empfohlen)
+- Retention/Rotation/Alerting wird in B330 definiert, aber Audit ist “write always”.
+
+7) OPTIONEN (SHOULD/OPTIONAL)
+- Optional: “Allowlist Recheck pro Request”
+  - Bei jeder Request prüfen: ist die Session-IP weiterhin allowlisted?
+  - Vorteil: Entzug greift sofort.
+  - Nachteil: mehr DB Reads; kann gecached werden.
+- Optional: Admin “Break-glass” (nur lokal/SSH) – wenn später benötigt, MUSS als Decision dokumentiert werden.
+- Optional: 2FA für Admin
+  - Nur wenn XP-tauglich (z.B. TOTP via App) und sauber scoped.
+  - Default: NICHT aktiv, solange nicht entschieden.
+
+8) FEHLERBILDER & DIAGNOSE
+- User kann nicht einloggen trotz VPN:
+  - Ursache: Allowlist Mode SELECT, IP nicht aktiviert → Fix: Admin/Customer Allowlist anpassen.
+- Login geht, aber Panel zeigt nur Verify-Wall:
+  - Ursache: Customer ist PENDING → Fix: Verify-Code korrekt eingeben / Resend / Support.
+- Admin sieht /admin nicht:
+  - Ursache: nicht aus Admin-Netz 10.77.20.0/24 → Fix: über Admin-Connection einloggen.
+- CSRF-Fehler:
+  - Ursache: Token fehlt/abgelaufen/Session invalid → Fix: neu laden, ggf. relogin.
+- Token-Bruteforce/Spam:
+  - Ursache: RateLimit greift → Diagnose: Audit Log + RateLimit Counters prüfen.
+
+9) TESTS / ACCEPTANCE CRITERIA (messbar)
+- WAN Scope Test:
+  - Von WAN: Panel endpoints nicht erreichbar (Connection refused / dropped).
+- User Login Allowlist Test:
+  - User-IP allowlisted -> Login ok
+  - User-IP nicht allowlisted -> Login denied (neutral error)
+- PENDING Verify-Wall Test:
+  - PENDING user: Login ok -> nur Verify-Wall erreichbar; Innenleben blockiert.
+  - Verify success -> Innenleben sichtbar.
+- Admin Scope Test:
+  - Admin von 10.77.20.0/24 -> /admin erreichbar (nach AuthN)
+  - User-Netz -> /admin netzseitig blockiert und/oder AuthZ denies
+- Session Binding Test:
+  - Cookie von anderer VPN-IP -> Session invalid
+- CSRF Test:
+  - POST ohne CSRF -> 403
+  - POST mit CSRF -> success
+- RateLimit Tests:
+  - Login: >10 fails/15min -> Lockout 15min
+  - Verify: >10 fails/30min -> Lockout 30min
+  - Resend: >10/24h -> Resend block + Support hint
+  - Claim: >10 fails/30min -> Claim lockout 30min
+- Audit Test:
+  - Jede oben definierte Aktion erzeugt Audit-Event mit korrekten Mindestfeldern.
+- Restricted/Bootstrap Reachability Test:
+  - Connection ist UNCLAIMED_OVERDUE (Kernel Restricted):
+    - /login, /verify, /verify/resend, /claim, /status erreichbar
+    - Nach erfolgreichem Claim: UNCLAIMED_OVERDUE fällt weg und Connection wechselt in FULL (sofern kein QUOTA/EXPIRY/MANUAL aktiv).
+
+10) CHANGELOG (Block-intern)
+- v1.0 (2026-01-07): Neu angelegt als Block B285. Inhalt konsolidiert: Panel AuthN/AuthZ/CSRF/RateLimit/Audit/Scopes + Restricted-Bootstrap Reachability.
+
+================================================================================

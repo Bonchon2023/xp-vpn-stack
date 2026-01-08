@@ -3,6 +3,36 @@ vpn_masterkonzept/01_CHANGELOG.txt
 MASTER CHANGELOG
 ================================================================================
 
+v2.1.0 (2026-01-08)
+- Master bump: v2.1.0
+- Onboarding-Model aktualisiert:
+  - Gate #1/#2 entfernt -> Verify-Wall + Claim-Token (B155)
+  - Verify ist App-Layer (Panel UI), kein Kernel-Restricted-Trigger
+  - UNCLAIMED Grace + UNCLAIMED_OVERDUE als Restricted-Quelle (Portal-Only) bis Claim/Grace-Reset
+- Concurrency/Stability nachgezogen:
+  - atomic SimUse-Guard via active_session_locks (DB-Schema in B055/B056)
+  - vpn_connections.restricted_effective (indexed) für High-Perf Reconcile (B166)
+- Service-IP Scopes: T06 abgelöst durch docs/nft_service_ip_scopes.txt; Referenzen in B120/B200/B210 konsolidiert
+- Panel Security Model als eigener Block: B285_PANEL_SECURITY_MODEL.txt
+
+
+- v2.1.0 (2026-01-07): Master-Konsolidierung (Tasks entfernt, Blocks kanonisch).
+  - Neu/Kanonisiert:
+    - B055_DB_SCHEMA_CORE.txt (vormals T01) als Block (SQL Schema-Core, inkl. active_session_locks).
+    - B056_RADIUS_SCHEMA_MAPPING.txt (vormals T02) als Block (RADIUS<->SQL Mapping).
+    - B285_PANEL_SECURITY_MODEL.txt als Block (Panel-AuthZ/Session/CSRF/Hardening Modell).
+    - B310_TESTS_ACCEPTANCE_CATALOG.txt als Block (vormals T09 + Tests-Katalog).
+    - B320_BACKUP_RESTORE_DR_RUNBOOK.txt als Block (vormals T14).
+    - B330_LOGGING_MONITORING_RETENTION_ALERTS.txt als Block (vormals T15).
+  - Entfernt aus der Doku-Struktur (Konzept bleibt enthalten, aber nicht mehr als Tasks):
+    - tasks/T/… (T01–T15) wird als Ordner nicht mehr benötigt, da Inhalte in Blocks/Docs/Decisions gespiegelt sind.
+  - Doku/Index aktualisiert:
+    - 04_BLOCK_INDEX.txt auf Master v2.1.0 aktualisiert (inkl. B285 + B055/B056 + B310/B320/B330).
+    - 00000_Ordnerstrucktur.txt aktualisiert (Tasks/T als optional/legacy markiert).
+    - README.md + 0000_Erklärung.txt aktualisiert (Tasks-Entfernung + Legacy-Hinweise).
+  - nft Service-IP Scopes:
+    - docs/nft_service_ip_scopes.txt bleibt kanonisch (T06 bleibt entfernt).
+
 v2.0.1
 - Klarstellung (Scope/Ehrlichkeit): DNS-Zwang per DNAT53 erzwingt klassisches DNS (Port 53, TCP+UDP).
   DoH/DoT wird in dieser Runde bewusst nicht behandelt (PARKED). Keine funktionale Änderung am Konzept, nur Präzisierung.

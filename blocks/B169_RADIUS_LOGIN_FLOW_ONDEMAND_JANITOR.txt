@@ -1,8 +1,8 @@
 BLOCK: B169_RADIUS_LOGIN_FLOW_ONDEMAND_JANITOR
-VERSION: v1.2
+VERSION: v1.5
 STATUS: ACTIVE
 OWNER: Marco + ChatGPT
-LAST-UPDATE: 2026-01-05
+LAST-UPDATE: 2026-01-07
 
 ================================================================================
 1) ZWECK
@@ -93,6 +93,26 @@ Verhalten:
   - Timeout/DB-Error => Cleanup failt/skippt; Simultaneous-Use bleibt STRICT.
 
 ================================================================================
+6.5) 6.5) INTEGRATION: ATOMARER SESSION-LOCK (active_session_locks, B055/B056)
+================================================================================
+Ziel:
+- On-Demand Cleanup (B169/B168) reduziert Lockouts durch stale radacct.
+- Zusätzlich verhindert active_session_locks (B055/B056) atomar Parallel-Logins/Races im authorize-flow.
+
+Regeln (KANONISCH):
+- On-Demand Cleanup bleibt "pre-check" BEST EFFORT (wie oben).
+- active_session_locks ist der atomare Guard:
+  - authorize: Lock PENDING anlegen (für die zugehörige vpn_connection/connection_id)
+    - Safety/Runtime: ob eine connection_id aktiv ist, wird über /run/vpn-sessions/*.env geprüft (Definition siehe B165).
+  - wenn final REJECT (z.B. weiterhin "blocked") -> PENDING Lock MUSS wieder entfernt werden (keine Lock-Leichen)
+  - accounting-start: Lock -> ACTIVE
+  - accounting-stop: Lock löschen
+
+Hinweis:
+- "blocked" im Sinne von B169 bleibt radacct stop_time IS NULL (KANONISCH).
+- active_session_locks ergänzt das Modell gegen Parallel-Login-Races; es ersetzt nicht die stale-radacct-Logik.
+
+================================================================================
 7) BEZUG ZU ANDEREN BLOECKEN
 ================================================================================
 - B050: AAA/SQL + Simultaneous-Use=1 + Fail-Closed
@@ -119,6 +139,9 @@ Verhalten:
 ================================================================================
 9) CHANGELOG
 ================================================================================
+- v1.5 (2026-01-07): Referenzen in 6.5 von T01/T02 auf B055/B056 umgestellt (kein Logikänderung, nur Quellen-Umzug).
+- v1.4: Querverweis ergänzt: Runtime-Aktivitätsdefinition für connection_id (über /run/vpn-sessions/*.env) explizit auf B165 referenziert; Header (LAST-UPDATE) aktualisiert. Keine Logikänderung.
+- v1.3: Integrationssektion ergänzt: active_session_locks (T01/T02) als atomarer Guard gegen Parallel-Logins; bei finalem REJECT muss ein PENDING-Lock entfernt werden (keine Lock-Leichen). B169 "blocked" Definition (radacct stop_time IS NULL) bleibt unverändert kanonisch.
 - v1.2: "blocked" kanonisch definiert: radacct stop_time IS NULL; acctupdatetime nicht als Block-Kriterium, Stale-Cleanup via B168 + Safety /run/vpn-sessions.
 - v1.1: Kanonische Rate-Limit/Cache/Timeout Parameter ergänzt (10s/30s/1s) zur DB-Schonung und DoS-Vermeidung im On-Demand Cleanup.
 - v1.0: initial (2-stufiger Pre-Check + Retry Flow; BEST EFFORT Cleanup + STRICT Simultaneous-Use)

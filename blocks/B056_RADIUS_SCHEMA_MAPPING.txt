@@ -1,0 +1,57 @@
+vpn_masterkonzept/blocks/B056_RADIUS_SCHEMA_MAPPING.txt
+================================================================================
+BLOCK-ID: B056
+TITLE: RADIUS SQL Schema + Mapping + SimUse-Atomic Lock Lifecycle
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: Verbindliches Mapping zwischen Core-DB (B055) und FreeRADIUS SQL (radcheck/radreply/radacct) inkl. atomarem Session-Lock gegen SimUse-Races.
+================================================================================
+
+1) QUELLE / HERKUNFT
+- Migrated from: tasks/t/T02_RADIUS_SCHEMA_MAPPING.txt (Version v0.4, Datum 2026-01-07)
+
+================================================================================
+2) INHALT (aus T02, unverändert übertragen)
+================================================================================
+
+Version: v0.4
+Priority: MUST
+
+## 1) Goal
+Map vpn_connections to FreeRADIUS SQL users (username/token model) and ensure atomic SimUse protection using active_session_locks.
+
+## 2) Identity Model
+- VPN client connects using token as the only credential (no username/password input needed on XP).
+- FreeRADIUS receives username = token (or formatted token-user), and validates against SQL backend.
+
+## 3) radcheck / radreply model
+- radcheck: store token (as username) and check items needed for auth (e.g., Cleartext-Password or Crypt-Password depending on module choice).
+- radreply: push Framed-IP-Address (optional static), Framed-Route, DNS (if used), etc.
+
+## 4) Atomic SimUse guard (FIX REQUIRED)
+- On Access-Request, before ACCEPT:
+  - Try INSERT into active_session_locks(vpn_connection_id, session_key, acquired_at, expires_at, state)
+  - If UNIQUE constraint hit: reject or TEMPFAIL based on policy
+- On Accounting-Stop:
+  - Mark lock released, set release_reason
+- Janitor:
+  - Expire locks past expires_at
+
+## 5) Notes
+- radacct is not a lock; treat as history.
+- Simultaneous-Use is insufficient alone; use DB lock table.
+
+## 6) Changelog (Task-Historie)
+- v0.1 initial mapping
+- v0.2 added lock lifecycle
+- v0.3 clarified accept path
+- v0.4 aligned with B166/T06 performance field restricted_effective
+
+================================================================================
+3) CHANGELOG
+================================================================================
+- v1.0 (2026-01-07): Neu angelegt. Inhalt aus T02_RADIUS_SCHEMA_MAPPING (v0.4) in Block-Form übernommen (ohne inhaltliche Änderung).
+================================================================================
+END BLOCK B056
+================================================================================

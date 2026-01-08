@@ -23,10 +23,10 @@ Expiry: Ablaufdatum einer Verbindung; nach Expiry kann DISABLED oder Restricted 
 FQDN: Fully Qualified Domain Name, z.B. vpn.example.tld.
 FLUSH+REBUILD: Deterministischer Reconcile-Ansatz: nft set wird geleert und exakt aus SQL/Runtime neu aufgebaut.
 Full-Tunnel: Standard-Route der Clients geht über VPN; gesamter Traffic über den Server.
-Gate #1 (Claim): Onboarding-Sperre nach Trial-Ende; ohne Claim nur Walled Garden (Portal/DNS/NTP).
-Gate #2 (Email Verify): Nach Claim Internet frei; nach verify_deadline ohne Verify wieder Walled Garden.
-Gate #2 kundenweit: Wenn email_verified_at NULL und verify_deadline überschritten, bleiben ALLE claimed Connections
-des Customers im Restricted Mode, bis verifiziert (Decision D008).
+Verify-Wall: App-Layer Onboarding-Sperre im Panel. Bis Email-Code bestätigt ist, ist der Panelzugriff auf die Verify-Seite begrenzt (kein Claim/keine Client-Verwaltung).
+UNCLAIMED / Grace: Zustand einer vorprovisionierten VPN-Connection, die noch keinem Customer zugeordnet ist. Während Grace ist Internet möglich (Full-Tunnel), damit Panel-Login/Verify/Claim durchgeführt werden kann.
+UNCLAIMED_OVERDUE: Grace-Zeitraum abgelaufen (z.B. 30 Tage) und Connection ist weiterhin unclaimed -> Kernel-Restricted Mode (Walled Garden: nur Panel/DNS/NTP).
+Gate (DEPRECATED): Historischer Begriff. Früher = nftables-Onboarding-Restricted. Im aktuellen Konzept NICHT mehr verwenden.
 Ghost Session: “tote” Session, die in Accounting/State noch offen wirkt (z.B. WLAN weg), aber real nicht mehr lebt.
 IKEv1: Internet Key Exchange Version 1 (XP kompatibel, Legacy).
 IFB: Intermediate Functional Block (Linux Ingress Shaping via tc).
@@ -52,15 +52,15 @@ rDNS/PTR: Reverse DNS Eintrag beim Provider.
 Reconcile: Periodischer Abgleich (<=5min), der driftfrei den tatsächlichen Enforcement-State (nft sets/tc) aus
 SQL/Runtime wiederherstellt; deterministisch (FLUSH+REBUILD).
 Restricted Mode: Zustand, in dem Internet gesperrt ist und nur erlaubte Ziele/Dienste erreichbar sind (Walled Garden).
-restricted_effective: Policy-Flag (Resultat aus Gates/Quota/Manual), das den Restricted Mode erzwingt.
+restricted_effective: Policy-Flag (Resultat aus Quota/Expiry/Manual/UNCLAIMED_OVERDUE), das den Restricted Mode (Walled Garden) erzwingt.
 restricted_reason: Klarer Grundcode/Grundtext, warum restricted aktiv ist (Support/UX/Logs).
 Service-IP: 10.77.0.1/32 auf lo, interner Dienst-Anker (DNS/Panel/Portal/NTP).
 Simultaneous-Use=1 (SimUse): Pro Subaccount nur eine aktive Session; harte Regel (pro Gerät genau eine Session).
 Spool (durable spool): Lokale Ablage für Accounting-Deltas, falls DB down ist; wird später nachgeschrieben.
 Stale Session: Offene radacct Session ohne echte PPP-Session; wird durch Janitor geschlossen (Threshold).
 Stealth: Auf WAN nur notwendige Ports sichtbar; SSH/Web nicht.
-trial_until: Zeitpunkt, ab dem Gate #1 (Claim) greift, falls noch nicht claimed.
-verify_deadline: Deadline, ab der ohne email_verified_at Gate #2 greift.
+trial_until (DEPRECATED): Altbegriff aus Gate#1-Logik. Im aktuellen Konzept ersetzt durch UNCLAIMED Grace/UNCLAIMED_OVERDUE.
+verify_deadline (DEPRECATED): Altbegriff aus Gate#2-Logik. Im aktuellen Konzept ersetzt durch Verify-Wall im Panel (App-Layer).
 Walled Garden: Für gesperrte User nur Portal/DNS/NTP erlauben, alles andere blocken.
 XFRM: Linux IPsec Transform Layer (IPsec Kontext im Kernel); Basis für “L2TP nur via IPsec”.
 DNAT53: DNS-Zwang via nft nat prerouting; TCP+UDP 53 wird auf 10.77.0.1:53 umgeleitet.

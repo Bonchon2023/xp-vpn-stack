@@ -1,21 +1,21 @@
-vpn_masterkonzept/blocks/B150_Walled Garden / Restricted Mode (Gate#1 Claim + Gate#2 Email Verify + Quota/Expiry.txt
+vpn_masterkonzept/blocks/B150_TITLE: Walled Garden / Restricted Mode (Quota/Expiry/Manual).txt
 ================================================================================
 BLOCK-ID: B150
-TITLE: Walled Garden / Restricted Mode (Gate#1 Claim + Gate#2 Email Verify + Quota/Expiry)
-VERSION: v1.4
+TITLE: Walled Garden / Restricted Mode (Quota/Expiry/Manual)
+VERSION: v1.8
 STATUS: ACTIVE
 PRIORITY: MUST
-OWNER-INTENT: Statt "Internet kaputt" eine klare Portal-Seite zeigen (HARD Enforcement für Gate#1/Gate#2 + Quota/Expiry).
+OWNER-INTENT: Statt "Internet kaputt" eine klare Portal-Seite zeigen (HARD Enforcement für Restricted Reasons: Quota/Expiry/Manual/UNCLAIMED_OVERDUE).
 ================================================================================
 
 1) ZWECK
-- Wenn Restricted Mode aktiv ist (Gate#1 / Gate#2 / Quota / Expiry):
+- Wenn Restricted Mode aktiv ist (Quota / Expiry / Manual / UNCLAIMED_OVERDUE):
   - nur Portal/DNS erlauben
   - Rest blocken
-  - User bekommt klare Anweisung
-- Zusätzlich HARD Onboarding Enforcement:
-  - Gate #1 (CLAIM): Nach Trial-Ende (Connection noch nicht geclaimed) -> nur Portal/DNS erlauben, Rest blocken.
-  - Gate #2 (EMAIL VERIFY): Nach Verify-Deadline ohne Email-Verify -> nur Portal/DNS erlauben, Rest blocken.
+- Bootstrap/Self-Heal MUST: Auch im Restricted (insb. UNCLAIMED_OVERDUE) muss das Panel/Portal auf 10.77.0.1:80/443 erreichbar bleiben, damit der User Verify+Claim durchführen und wieder in FULL kommen kann.
+  - User bekommt klare Anweisung im Panel (Reason + Next Step)
+- Onboarding nutzt KEIN Gate#1/Gate#2 Restricted Enforcement mehr:
+  - Email-Verifikation wird über Verify-Wall im Panel umgesetzt (B155/B280), nicht über nftables.
 
 2) AKTIVIERUNG (WIE "RESTRICTED" TECHNISCH GREIFT)
 - Restricted Mode wird pro zugewiesener VPN-IP enforced (nicht pro User-Agent / nicht per URL).
@@ -42,13 +42,19 @@ Hinweis:
 
 - Sync/Apply:
   - Beim Connect (ip-up) MUSS ein Sync erfolgen: Client-IP wird anhand SQL in restricted_v4 hinzugefügt/entfernt.
-  - Bei Statusänderungen über Panel (Claim/Verify/Quota/Expiry) MUSS ein Sync erfolgen, damit Wirkung sofort greift.
+  - Bei Statusänderungen über Panel (Claim/Unclaim/Quota/Expiry/Manual) MUSS ein Sync erfolgen, damit Wirkung sofort greift.
+  - Hinweis: Verify-Wall (Email-Verify) ist App-Layer und KEIN Kernel-Restricted-Trigger; dafür ist kein nftables Sync nötig.
 - Reconcile Safety-Net (Option B):
   - Zusätzlich MUSS ein periodischer Reconcile laufen (z.B. alle 5 Minuten), der den Restricted-Zustand aus SQL deterministisch neu aufbaut.
   - Ziel: Drift-Reparatur (wenn Hook/Panel-Trigger ausfällt), stale IPs entfernen, konsistenter Ist-Zustand.
   - Reconcile ist idempotent: wiederholtes Anwenden führt immer zum gleichen Ergebnis.
 
 2.1) nftables Hook-Placement + Reihenfolge (KANONISCH)
+WICHTIG (Pfad-Trennung):
+- Traffic zu 10.77.0.1 (Service-IP) läuft über nftables "input" (lokales Ziel), nicht über "forward".
+- Daher MUSS Restricted Mode zweifach enforced werden:
+  1) input (iif ppp*): nur Allowlist-Ports zu 10.77.0.1 erlauben, alles andere an 10.77.0.1 droppen (z.B. SSH etc.).
+  2) forward: sobald saddr in restricted_v4 -> WAN-Forward droppen (nur Allowlist zu 10.77.0.1 erlauben).
 - Restricted Mode MUSS im nftables "forward"-Pfad vor dem normalen Full-Tunnel Forward (B120) ausgewertet werden.
 - Begründung: Wenn B120 (Forward->WAN allow) vor dem Restricted-Check kommt, kann ein restricted Client trotzdem ins Internet.
 
@@ -66,14 +72,18 @@ Kanonische Reihenfolge im forward chain (High-Level):
 - DNS-Portal optional, aber nicht default.
 
 4) ABHÄNGIGKEITEN
-- Requires: B050, B120, B220, B280, B155, B210
+- Requires: B050, B120, B220, B280, B210
 - Influences: Support volume, UX, Abuse/Compliance enforcement
 
 5) INPUTS
-- Decision source: SQL (gate flags + quota/expiry flags) -> enforcement via scripts/hook
-- Gate/State Inputs (konzeptionell):
-  - Gate #1: trial_until + status PREPROVISIONED/CLAIMED + customer_id NULL/SET
-  - Gate #2: verify_deadline + email_verified_at NULL/SET (kundenweit)
+- Decision source: SQL (restricted_reason + policy flags) -> enforcement via scripts/hook
+- Restricted Inputs (kanonisch):
+  - Quota <= 0 (pro Connection) -> restricted
+  - Expiry überschritten (pro Connection) -> restricted
+  - manual_restricted (pro Connection) -> restricted (Admin-Tool)
+  - UNCLAIMED_OVERDUE (customer_id IS NULL AND now > unclaimed_grace_until) -> restricted
+Hinweis:
+- Email-Verifikation ist kein nftables-Restricted-Trigger mehr (Verify-Wall im Panel).
 - Allowed services:
   - 10.77.0.1:80/443
   - 10.77.0.1:53
@@ -101,13 +111,19 @@ Kanonische Reihenfolge im forward chain (High-Level):
 10) TESTS
 - Toggle expiry -> user gets portal instantly.
 - Toggle back -> internet works immediately.
-- Verify done -> restricted Set wird entfernt -> Internet sofort frei.
+-    Verify-Wall ist App-Layer (B155/B280) und unabhängig vom Restricted-Set: nftables Restricted wird durch Quota/Expiry/Manual/UNCLAIMED_OVERDUE gesteuert.
 - Quota reset/renew -> restricted Set wird entfernt -> Internet sofort frei.
 - Ordering Test: Client-IP in restricted_v4 -> darf NICHT über B120 ins WAN forwarden; nur 10.77.0.1:80/443/53/123 ist möglich.
 - Restricted Allowlist Test: restricted client kann DNS (udp+tcp 53) + Web (80/443) + NTP (123) + ICMP zu 10.77.0.1, aber NICHT ins WAN.
+- UNCLAIMED_OVERDUE Test: unclaimed_grace_until überschritten (customer_id NULL) -> Client-IP landet im restricted_v4 Set -> nur Panel/DNS/NTP zu 10.77.0.1, kein WAN.
+- Input-Pfad Test (lokale Services): restricted client darf NICHT auf andere Ports von 10.77.0.1 (z.B. tcp/22 SSH) zugreifen; nur 80/443/53/123 + ICMP echo sind erlaubt.
 
 11) CHANGELOG
--    v1.4:     Restricted Allowlist präzisiert (DNS udp+tcp 53, NTP 123/udp, ICMP echo nur zu 10.77.0.1) + Reihenfolge im forward chain festgenagelt; Tests ergänzt.
+- v1.8: Enforcement-Pfade präzisiert: Restricted Mode MUSS sowohl im input (lokale Service-IP 10.77.0.1) als auch im forward (WAN) greifen; zusätzlicher Test für Blocken nicht-allowlist Ports auf 10.77.0.1 ergänzt.
+- v1.7: Textdrift behoben: Zweck nennt nun Quota/Expiry/Manual/UNCLAIMED_OVERDUE. Sync/Apply Trigger bereinigt (Verify ist App-Layer, kein Kernel-Sync); Claim/Unclaim/Quota/Expiry/Manual bleiben Kernel-relevant. (Optional: Bootstrap/Self-Heal Satz ergänzt.)
+- v1.6: Restricted-Triggerliste erweitert um UNCLAIMED_OVERDUE (nach unclaimed_grace_until). "gate flags" aus INPUTS entfernt; Tests entsprechend ergänzt.
+- v1.5: Gate#1/Gate#2 Bezug entfernt. Restricted Mode ist nur noch für Quota/Expiry/Manual; Email-Verifikation erfolgt über Verify-Wall im Panel (B155/B280), nicht über nftables.
+- v1.4: Restricted Allowlist präzisiert (DNS udp+tcp 53, NTP 123/udp, ICMP echo nur zu 10.77.0.1) + Reihenfolge im forward chain festgenagelt; Tests ergänzt.
 - v1.3: Reconcile Safety-Net ergänzt (Option B): periodischer Rebuild/Sync des restricted nft set aus SQL (Drift-Reparatur, stale cleanup); Referenz auf B166.
 - v1.2: Aktivierung definiert: restricted wird via nftables Set pro Client-IP enforced; Sync bei Connect + bei Panel-Statusänderungen (SQL-first via B050).
 - v1.1: Expanded to HARD Restricted Mode for Gate#1 Claim + Gate#2 Email Verify + Quota/Expiry; Requires updated (B155,B280); Priority MUST.

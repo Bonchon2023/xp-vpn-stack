@@ -2,7 +2,7 @@ vpn_masterkonzept/blocks/B200_DNS_UNBOUND_ADGUARD.txt
 ================================================================================
 BLOCK-ID: B200
 TITLE: DNS Stack (Unbound + AdGuardHome)
-VERSION: v1.0
+VERSION: v1.2
 STATUS: ACTIVE
 PRIORITY: SHOULD
 OWNER-INTENT: Sauberer Resolver + Filter + interne rewrites.
@@ -16,13 +16,14 @@ OWNER-INTENT: Sauberer Resolver + Filter + interne rewrites.
 - AdGuard UI ist admin-only.
 
 3) ABHÄNGIGKEITEN
-- Requires: B060, B220
+- Requires: B060, B220, docs/nft_service_ip_scopes.txt
 - Influences: B210, B230
 
 4) INPUTS
-- Unbound bind 127.0.0.1:5335
-- AdGuard bind 10.77.0.1:53, UI 10.77.0.1:2000
-- Upstream of AdGuard = Unbound
+- Unbound bind 127.0.0.1:5335 (UDP+TCP)
+- AdGuard bind 10.77.0.1:53 (UDP+TCP), UI 10.77.0.1:2000
+- Upstream of AdGuard = Unbound (127.0.0.1:5335)
+- Server-eigene DNS Queries (OUTPUT): nutzen standardmäßig Unbound direkt (z.B. resolv.conf -> 127.0.0.1, Port 5335 via local stub/resolver-config), nicht DNAT (siehe B210).
 
 5) OUTPUTS
 - DNS for user/admin
@@ -31,8 +32,9 @@ OWNER-INTENT: Sauberer Resolver + Filter + interne rewrites.
 - Blocking mode: Custom IP -> 10.77.0.1
 
 6) MUST (wenn aktiv)
-- User net allow 53 only (no UI)
-- Admin net allow 53 + 2000
+- DNS (10.77.0.1:53, UDP+TCP) ist für User/Admin/Restricted erreichbar (B210 DNAT + B150 + docs/nft_service_ip_scopes.txt input allowlist).
+- AdGuard UI (10.77.0.1:2000) ist strikt admin-only (Source-IP 10.77.20.0/24 gemäß docs/nft_service_ip_scopes.txt).
+- User/Restricted dürfen 2000 niemals erreichen.
 
 7) OPTIONAL
 - Multiple profiles per group (user/admin)
@@ -42,10 +44,14 @@ OWNER-INTENT: Sauberer Resolver + Filter + interne rewrites.
 - Blockpage not hit -> blocking mode wrong or web not reachable.
 
 9) TESTS
-- From client: resolve works, blocked domain returns 10.77.0.1.
-- Admin can open UI, user cannot.
+- From client: resolve works (UDP) und TCP DNS fallback funktioniert ebenfalls (TCP/53).
+- Blocked domain returns 10.77.0.1 (AdGuard "Custom IP" mode).
+- Restricted client: DNS funktioniert weiterhin (DNAT->10.77.0.1:53; input allowlist erlaubt 53).
+- Admin can open UI (10.77.0.1:2000), user cannot.
 
 10) CHANGELOG
+- v1.2 (2026-01-07): T06 Referenzen entfernt/ersetzt durch docs/nft_service_ip_scopes.txt (Dependencies + MUST). Inhalt ansonsten unverändert.
+- v1.1: Bindings präzisiert (UDP+TCP) für Unbound/AdGuard; nft-scope Abhängigkeiten (T06/B150) ergänzt; Server-DNS (OUTPUT) Kanon: nutzt Unbound direkt (B210 DNAT gilt nur für Clients); Tests um TCP-DNS + Restricted-Fall erweitert.
 - v1.0: Initial
 
 ================================================================================

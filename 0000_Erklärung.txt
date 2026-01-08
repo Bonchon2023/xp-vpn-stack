@@ -1,6 +1,6 @@
-0000_Erklärung.txt (v2.0)
+0000_Erklärung.txt (v2.1.0)
 
-00_MASTER_v2.0.txt (Inhalt/Format)
+00_MASTER_v2.1.0.txt (Inhalt/Format)
 
 Ziel: Das ist die Datei, die du immer “komplett” rausgeben kannst, wenn du sagst „gib mir das ganze Konzept“.
 Sie enthält keine Details doppelt, sondern verweist auf Blocks.
@@ -179,8 +179,15 @@ Wichtig (v2.0-Update, explizit):
 
 DNS-ZWANG ist IMMER aktiv (MUST): DNAT TCP+UDP 53 von iif ppp* -> 10.77.0.1:53.
 
-Gate #2 (Email Verify) ist kundenweit (Decision D008): ist ein Customer nicht verifiziert, bleiben alle
-claimed Connections dieses Customers im Restricted Mode, bis verifiziert.
+Onboarding ist App-Layer:
+- Verify-Wall: Panelzugriff ist bis zur Email-Code-Bestätigung auf die Verify-Seite begrenzt.
+- Claim läuft per Claim-Token im Panel (keine Gate#1/Gate#2 Begriffe mehr).
+
+Restricted Mode (Kernel / nftables) ist davon getrennt und wird nur aktiv durch:
+- Quota / Expiry / Manual
+- UNCLAIMED_OVERDUE (z.B. nach 30 Tagen Grace-Zeitraum)
+
+Policy-Enforcement ist deterministisch (B166/B167): Drift wird über Reconcile (<=5min) verhindert.
 
 Policy-Enforcement ist deterministisch (B166/B167): Drift wird über Reconcile (<=5min) verhindert.
 

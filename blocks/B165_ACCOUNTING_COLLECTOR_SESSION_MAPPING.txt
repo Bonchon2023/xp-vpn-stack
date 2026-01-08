@@ -1,8 +1,8 @@
 BLOCK: B165_ACCOUNTING_COLLECTOR_SESSION_MAPPING
-VERSION: v1.0
+VERSION: v1.2
 STATUS: ACTIVE
 OWNER: Marco + ChatGPT
-LAST-UPDATE: (Datum von dir)
+LAST-UPDATE: 2026-01-07
 
 ================================================================================
 1) ZWECK
@@ -28,10 +28,12 @@ LAST-UPDATE: (Datum von dir)
     - PPP_IF=pppX
     - CLIENT_IP=10.77.x.y
     - CONNECTION_ID=<int>
-    - SESSION_ID=<string>
+    - SESSION_ID=<string>   (lokaler Identifier; kann = RADIUS Acct-Session-Id sein, ist aber für Runtime-Aktivität nicht führend)
     - START_TS=<unix>
 - Bei PPP Disconnect (ip-down Hook) wird /run/vpn-sessions/<ppp_if>.env entfernt.
-
+- Runtime-Aktivitätsprüfung (für Janitor/Locks):
+  - "connection_id ist aktiv" gilt genau dann, wenn irgendein /run/vpn-sessions/*.env existiert, dessen CONNECTION_ID=<id> ist.
+  - Diese Runtime-Quelle ist führend für B168/B169 Integrationschecks (keine DB-Heuristik).
 - Hinweis: stale Mapping-Files werden zentral durch Reconcile (B166) bereinigt (PPP_IF Existenzcheck).
 ================================================================================
 4) DURABLE ACCOUNTING STATE + SPOOL
@@ -46,6 +48,20 @@ LAST-UPDATE: (Datum von dir)
     - last_flush_ts
 - Durable Spool/Journal (DB-Down/Retry):
   - Pfad: /var/lib/vpn-accounting/spool.log (append-only)
+- Spool Policy (KANONISCH, Anforderungen):
+  - Ziel: Bei DB-Ausfall keine Datenverluste, keine Endlos-Wachstumsfalle (Disk-Full).
+  - Idempotenz/De-Dup MUSS möglich sein:
+    - Ein Replay darf quota_used nicht doppelt erhöhen (z.B. Schlüssel: connection_id + timestamp + delta_seq oder session_id + flush_window).
+  - Backpressure MUSS definiert werden:
+    - Max-Spool-Größe (MB/GB) + Max-Alter ältester Eintrag (Zeit) => ab dann Alert (siehe Logging/Monitoring).
+  - Observability:
+    - spool backlog size + oldest record age müssen messbar sein (für /diag/Monitoring später).
+  - Replay-Verhalten:
+    - Wenn DB wieder up: seriell drainen (geordnet), mit Backoff/Rate-Limit, um DB nicht zu fluten.
+- Offene Parameter (bewusst offen, später zu entscheiden):
+  - Max-Spool-Größe
+  - Retention (Tage) + Rotation (Dateigröße)
+  - Replay Rate Limit / Backoff-Strategie
   - Einträge: timestamp + connection_id + delta_bytes
 
 ================================================================================
@@ -76,8 +92,13 @@ LAST-UPDATE: (Datum von dir)
 - Collector Test: alle 300s werden Deltas korrekt berechnet und als Batch committed.
 - DB Down Test: DB stoppen -> spool.log wächst, pending wächst; nach DB recovery wird nachgetragen.
 - Reboot Test: DB down + reboot -> spool/state bleibt; nach DB recovery wird korrekt nachgetragen.
+- Runtime Index Test (connection_id):
+  - Wenn /run/vpn-sessions/pppX.env CONNECTION_ID=123 enthält, gilt connection_id=123 als aktiv (scan *.env).
+  - Wenn kein *.env diese CONNECTION_ID enthält, gilt sie als inaktiv (wichtig für B168 Lock-Leiche Backstop).
 ================================================================================
 7) CHANGELOG
 ================================================================================
+- v1.2 (2026-01-07): Spool-Policy-Anforderungen ergänzt (Backpressure/Idempotenz/Observability/Replay), ohne bestehende Pfade/Mechanik zu ändern.
+- v1.1 (2026-01-07): Runtime-Aktivitätsdefinition pro connection_id ergänzt (scan /run/vpn-sessions/*.env). SESSION_ID Bedeutung präzisiert (nicht führend für Aktivitätschecks). Tests um Runtime-Index/Janitor-Integration erweitert.
 - v1.0: initial
 ================================================================================

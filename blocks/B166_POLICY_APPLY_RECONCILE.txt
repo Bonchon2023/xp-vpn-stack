@@ -1,15 +1,16 @@
 BLOCK: B166_POLICY_APPLY_RECONCILE
-VERSION: v1.2
+VERSION: v1.6
 STATUS: ACTIVE
 OWNER: Marco + ChatGPT
-LAST-UPDATE: 2026-01-05
+LAST-UPDATE: 2026-01-07
 
 ================================================================================
 1) ZWECK
 ================================================================================
 - Definiert die komplette Policy-Apply / Restricted-Sync-Kette.
 - Ziel: Kein Drift zwischen SQL (Source of Truth) und Kernel-Enforcement (nftables/tc).
-- Änderungen (Claim/Verify/Quota/Expiry/Speed) müssen sofort wirken.
+- Änderungen (Claim/Unclaim/Quota/Expiry/Manual/Speed) müssen sofort wirken.
+- Hinweis: Email-Verify (Verify-Wall) ist App-Layer und kein Kernel-Policy-Trigger.
 - Safety-Net: Reconcile repariert Drift spätestens innerhalb <= 5 Minuten.
 
 ================================================================================
@@ -38,6 +39,9 @@ LAST-UPDATE: 2026-01-05
 - Aktive Sessions werden über Mapping-Files aus B165 ermittelt:
   - /run/vpn-sessions/<ppp_if>.env (volatile)
   - Enthält mindestens: CONNECTION_ID, PPP_IF, CLIENT_IP, SESSION_ID
+- Runtime-Aktivität (KANONISCH, Definition siehe B165/B167):
+  - "connection_id aktiv?" => true genau dann, wenn irgendein /run/vpn-sessions/*.env diese CONNECTION_ID enthält.
+  - Diese Runtime-Quelle ist führend für Apply (online/offline), Reconcile und Safety-Checks (Janitor-Integration).
 - Offline Connections haben kein Mapping => es gibt nichts am Kernel zu ändern; Policy greift beim nächsten ip-up.
 - Reconcile purgt stale /run/vpn-sessions Mappings deterministisch (PPP_IF muss im Kernel existieren), damit /run als Safety-Quelle zuverlässig bleibt.
 
@@ -54,7 +58,7 @@ Modus B: Reconcile All (BEST EFFORT)
 
 Optional Modus C: Customer Scope (STRICT)
 - Aufruf: vpn-policy-apply --customer-id=<id>
-- Verwendet von: Gate#2 kundenweit (Verify overdue/done), damit nicht viele Einzelaufrufe nötig sind
+- Verwendet von: Bulk-Änderungen auf Customer-Ebene (z.B. Admin-Tool: Quota/Expiry für mehrere Connections eines Customers), um nicht viele Einzelaufrufe zu benötigen.
 
 ================================================================================
 6) APPLY-LOGIK (SINGLE TARGET)
@@ -64,7 +68,8 @@ Ablauf: vpn-policy-apply --connection-id=<id>
 1) SQL lesen (Control-Plane)
 - Lade effective Policy für diese connection_id:
   - restricted_effective (bool)
-  - restricted_reason (string; z.B. GATE1_UNCLAIMED / GATE2_VERIFY / QUOTA_EXPIRED / PLAN_EXPIRED / MANUAL)
+- restricted_reason (string; z.B. UNCLAIMED_OVERDUE / QUOTA / EXPIRY / MANUAL)
+  - Hinweis: Verify-Wall ist App-Layer und erscheint NICHT als restricted_reason.
   - speed_profile / rate-limit (falls aktiv)
 
 2) Online/Offline feststellen (Mapping)
@@ -86,7 +91,7 @@ Ablauf: vpn-policy-apply --connection-id=<id>
 7) APPLY-LOGIK (CUSTOMER SCOPE, OPTIONAL)
 ================================================================================
 Ablauf: vpn-policy-apply --customer-id=<id>
-- Ziel: Gate#2 wirkt kundenweit auf alle CLAIMED Connections des Customers.
+- Ziel: Bulk-Operationen kundenweit anwenden (z.B. Admin-Tool: Quota/Expiry/Speed/Manual für mehrere Connections), ohne viele Einzelaufrufe zu benötigen.
 - SQL:
   - Ermittelt alle CLAIMED connection_ids des customers + deren effective policy
 - Runtime:
@@ -158,10 +163,11 @@ Trigger 2: ip-down Hook (pppd)
 Trigger 3: Panel Events
 - MUSS apply triggern bei:
   - Claim done/revoked -> --connection-id
-  - Verify done/overdue -> bevorzugt --customer-id (kundenweit), alternativ mehrere --connection-id
   - Quota reset/refill -> --connection-id
   - Expiry extend -> --connection-id
+  - Manual Restrict/Unrestrict -> --connection-id
   - Speed change -> --connection-id
+- Email-Verify (PENDING->ACTIVE) ist App-Layer (Verify-Wall) und kein Kernel-Policy-Trigger. Kein nft/tc Apply erforderlich.
 
 Trigger 4: Reconcile Timer (systemd, 5 Minuten)
 - MUSS: vpn-policy-apply --reconcile-all
@@ -176,6 +182,18 @@ Trigger 4: Reconcile Timer (systemd, 5 Minuten)
 - Reconcile All = BEST EFFORT:
   - korrigiert so viel wie möglich; einzelne Fehler verhindern nicht die Korrektur anderer Sessions
   - kann "partial" melden (Exit 1), aber beendet erfolgreich, nachdem es gearbeitet hat
+
+================================================================================
+10.5) CONCURRENCY / SINGLE-WRITER (MUST)
+================================================================================
+- Ziel: Apply/Reconcile darf niemals parallel laufen (Race auf nft/tc + inkonsistenter Zustand möglich).
+- Mindestanforderungen:
+  - Es existiert ein Single-Writer Lock vor jeder Apply/Reconcile-Ausführung.
+  - Wenn Lock belegt: sauber abbrechen über EXIT 5 = TEMPFAIL_LOCKED (keine Partial Applies).
+  - Stale-Lock Handling: definierte TTL/Break-Glass, damit ein Crash nicht dauerhaft blockiert.
+  - Idempotenz: Wiederholung nach TEMPFAIL/Crash stellt deterministischen Endzustand wieder her.
+- Implementationshinweis:
+  - Die konkrete Mechanik (z.B. flock Lockfile unter /run) wird im Wiring-Block B167 verbindlich verdrahtet.
 
 ================================================================================
 11) EXIT-CODES (STANDARD)
@@ -207,7 +225,7 @@ Offline ist KEIN Fehler:
 13) TESTS (MINIMUM)
 ================================================================================
 - Connect Apply Test: PPP connect -> ip-up ruft single apply -> restricted/tc sofort gesetzt.
-- Panel Event Test: Quota reset oder Verify done -> apply -> restricted_v4 sofort angepasst.
+- Panel Event Test: Quota reset/refill oder Expiry extend oder Manual Restrict/Unrestrict -> apply -> restricted_v4 sofort angepasst.
 - Missed Event Drift Test: Panel Änderung ohne apply -> Reconcile korrigiert <=5 Minuten.
 - Stale Cleanup Test: Disconnect ohne cleanup -> Reconcile entfernt stale IP aus restricted_v4.
 - SQL Down Test: apply/reconcile -> Exit 2; keine neuen VPN-Logins (Fail-Closed). Nach DB up -> Reconcile korrigiert.
@@ -220,6 +238,10 @@ Offline ist KEIN Fehler:
 ================================================================================
 14) CHANGELOG
 ================================================================================
+- v1.6 (2026-01-07): Concurrency/Singe-Writer Regeln ergänzt (TEMPFAIL_LOCKED Semantik + Stale-Lock Handling), ohne Apply/Reconcile-Logik zu ändern.
+- v1.5: Kernel-Triggerliste bereinigt (Verify entfernt, Unclaim+Manual ergänzt); Trigger 3 Panel Events strukturell korrigiert + Manual Restrict/Unrestrict als Apply-Event ergänzt; Runtime-Aktivitätsdefinition pro connection_id (scan /run/vpn-sessions/*.env) als kanonisch dokumentiert (B165/B167).
+- v1.4: Gate#1/Gate#2-Reste entfernt; restricted_reason Beispiele auf QUOTA/EXPIRY/MANUAL/UNCLAIMED_OVERDUE aktualisiert; Customer-Scope Zweck auf Bulk-Apply (ohne Gate#2) korrigiert; Tests bereinigt (Verify done ist App-Layer, kein Apply).
+- v1.3: Email-Verify aus Kernel-Triggern entfernt (Verify-Wall App-Layer). Customer-Scope Apply bleibt für Bulk-Operationen (Quota/Expiry/Admin) statt Gate#2.
 - v1.2: Reconcile Step 4 auf deterministischen restricted_v4 Rebuild umgestellt (flush+rebuild nach desired_restricted_ips), inkl. Test.
 - v1.1: Reconcile ergänzt um deterministischen Purge stale /run/vpn-sessions Mappings (PPP_IF Existenzcheck), inkl. Test.
 - v1.0: initial (event-driven apply + 5min reconcile; DRY tool; strict vs best effort; exit-codes)

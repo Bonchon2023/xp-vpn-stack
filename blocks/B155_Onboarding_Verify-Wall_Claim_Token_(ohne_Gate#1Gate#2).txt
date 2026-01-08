@@ -1,0 +1,164 @@
+================================================================================
+BLOCK ID: B155
+TITLE: Onboarding / Verify-Wall / Claim Token (ohne Gate#1/Gate#2)
+VERSION: v2.1
+STATUS: ACTIVE
+OWNER: Marco
+OWNER-INTENT: Minimaler Support + verifizierbare Kontakt-Email. Panel-Innenleben erst nach Email-Code-Verifikation; Claim nur nach Verifikation und nur per Claim-Token (keine VPN-Client-Credentials nötig).
+PRIORITY: MUST
+REQUIRES: B050, B150, B280, B220
+INFLUENCES: B240 (Setup-Tool / Claim Token Distribution)
+NOTES:
+- Kein nftables-Regeldetail (das ist B150).
+- Keine UI/UX-Screens (das ist B280).
+- Keine RADIUS Attribute-Mappings im Detail (das ist B050).
+================================================================================
+
+1) ZWECK
+- Definiert den vollständigen, zeilenfesten Ablauf für Onboarding ohne Gate#1/Gate#2:
+  (a) Gerät ist PREPROVISIONED (VPN steht; Connection ist UNCLAIMED)
+  (b) User registriert Panel-Account
+  (c) Login ist möglich, aber bei PENDING wird das Panel-Innenleben durch eine Verify-Wall ersetzt
+  (d) Email-Verifikation erfolgt per Code (kein Link)
+  (e) Erst nach erfolgreicher Verifikation (ACTIVE) darf der User das Panel-Innenleben sehen
+  (f) Claim ist erst nach Verifikation möglich und erfordert zwingend den Claim-Token
+- Ergebnis: verifizierbare Kontakt-Email + Claim-Token als Besitznachweis; keine VPN-Client-Credentials müssen dem User bekannt sein.
+
+2) BEGRIFFE
+- Customer = Panel-Account (email, password_hash, email_verified_at)
+- Account-Status:
+  - PENDING: registriert, aber email_verified_at ist NULL
+  - ACTIVE: email_verified_at ist gesetzt
+- VPN-Connection = Sub-Account pro Gerät (vpn_connections)
+- UNCLAIMED = vpn_connections.customer_id ist NULL
+- CLAIMED = vpn_connections.customer_id ist gesetzt
+- Claim = Verknüpfung VPN-Connection -> Customer (customer_id wird gesetzt) durch Eingabe eines Claim-Tokens
+- Verify-Wall = Zwangsseite nach Login für PENDING-Accounts; erlaubt ausschließlich:
+  - Code eingeben
+  - Code neu senden
+  - Support kontaktieren
+
+3) SOURCE OF TRUTH (MUST)
+- SQL ist Source of Truth ab Tag 1 (keine chap-secrets Migration).
+- Claim/Status/Allowlist werden ausschließlich aus DB abgeleitet.
+
+4) STATES (VPN_CONNECTION.status)
+- PREPROVISIONED:
+  - Connection existiert und kann verbunden sein, ist aber UNCLAIMED (customer_id = NULL).
+- CLAIMED:
+  - Connection ist einem Customer zugeordnet (customer_id gesetzt).
+- DISABLED:
+  - Connection ist deaktiviert (no VPN)
+  - Enforcement: RADIUS reject (siehe B050)
+
+5) PFLICHTFELDER (DB – konzeptionell)
+
+5.1 VPN_CONNECTIONS (pro Gerät/Subaccount)
+- id
+- subaccount_login (PPP Username) / username (je nach AAA Mapping)
+- password_hash (VPN-Subaccount)  [User muss es NICHT kennen]
+- fixed_ip
+- status (PREPROVISIONED/CLAIMED/DISABLED)
+- customer_id (NULL bis Claim)
+- claim_token_hash (DB speichert Hash; Klartext-Token liegt auf dem Gerät)
+- claimed_at (timestamp)
+- OPTIONAL: claim_deadline (Hard stop gegen „ewige Leichen“)
+- MUST: unclaimed_grace_until (timestamp; bis dahin FULL, danach UNCLAIMED_OVERDUE => Restricted Panel-only)
+- SHOULD: unclaimed_grace_set_at (timestamp; Admin-Reset setzt neu)
+
+5.2 CUSTOMERS (Panel-User)
+- id
+- email
+- password_hash (Panel Login)
+- email_verified_at (NULL bis Verify)
+
+5.3 CUSTOMER LOGIN-ALLOWLIST (Panel Login IP-bound)
+- Login ist IP-bound über VPN-IP (B280):
+  - Mode ALL oder SELECT
+  - Bei Registrierung wird initial die aktuelle VPN-IP gebunden (canonical default), damit Login deterministisch ist.
+
+6) PANEL FLOW (KANONISCH)
+
+6.1 Registrierung
+- User registriert Panel-Account (email + Panel-Passwort).
+- Account entsteht als PENDING (email_verified_at NULL).
+- System sendet Verify-Code per Email.
+
+6.2 Login + Verify-Wall (MUST)
+- User kann sich mit Panel-Credentials einloggen.
+- Wenn PENDING:
+  - niemals Panel-Innenleben anzeigen
+  - immer Redirect/Guard auf Verify-Wall
+  - Verify-Wall bietet exakt 3 Aktionen:
+    1) Code eingeben (Verify)
+    2) Code neu senden (Resend)
+    3) Support kontaktieren
+- Erst wenn Verify erfolgreich:
+  - email_verified_at wird gesetzt
+  - Account ist ACTIVE
+  - Redirect ins Panel-Innenleben
+
+6.3 Claim (MUST: erst nach Verify + Token)
+- Claim ist nur erlaubt, wenn:
+  - Account ACTIVE ist (email_verified_at gesetzt)
+  - User eingeloggt ist
+  - Claim-Token eingegeben wird (keine VPN-Client-Credentials)
+- Claim-Prozess:
+  - Token_hash Match -> Ziel-Connection wird eindeutig bestimmt
+  - Claim-Authorization (Anti-Abuse):
+    - Fall A: Erster Claim für diesen Customer:
+      - Request VPN-IP MUSS der fixed_ip der Ziel-Connection entsprechen
+      - (Claim muss aus der Ziel-Connection selbst kommen)
+    - Fall B: Weitere Claims:
+      - Request VPN-IP MUSS eine login-berechtigte VPN-IP des Customers sein (Allowlist)
+      - neue Connection muss nicht aktiv sein
+- Danach:
+  - customer_id setzen
+  - status = CLAIMED
+  - claimed_at setzen
+
+6.4 VPN-Subaccount Passwort-Handling (User-Sicht)
+- User muss VPN-Subaccount Username/Passwort nicht kennen.
+- Panel darf (optional) „VPN-Passwort ändern“ pro Connection anbieten:
+  - Rotation des Subaccount-Passworts wird in SQL gespeichert
+  - Name/Identity der Connection bleibt fix (kein Rename durch User)
+
+7) RESTRICTED MODE (Walled Garden)
+- Onboarding selbst nutzt KEIN Gate#1/Gate#2 Restricted Enforcement mehr.
+- Restricted Mode bleibt Kernel-Enforcement (B150/B050) und wird ausgelöst durch:
+  - Quota / Expiry / Manual
+  - UNCLAIMED_OVERDUE: customer_id IS NULL AND now > unclaimed_grace_until
+- Zweck von UNCLAIMED_OVERDUE:
+  - Nach 30 Tagen ohne Claim wird der Client auf "Panel-only" gesetzt, damit Verify + Claim auch ohne Internet weiterhin möglich sind.
+- Verify-Wall ist App-Layer und unabhängig vom nftables Restricted Set.
+
+8) OPTIONAL: HARD STOP (empfohlen)
+- claim_deadline:
+  - Wenn now > claim_deadline UND status=PREPROVISIONED UND customer_id IS NULL:
+    -> DISABLED (no VPN; RADIUS reject, siehe B050)
+- Zweck: keine dauerhaft offenen unclaimed Zugänge.
+
+9) TESTFÄLLE (MUST – Konzept-Tests)
+- T1: PENDING Login -> Verify-Wall; nur Code/Resend/Support sichtbar; kein Panel-Innenleben erreichbar.
+- T2: Verify erfolgreich -> ACTIVE; Panel-Innenleben wird freigeschaltet.
+- T3: Claim nur wenn ACTIVE + Claim-Token; ohne Token kein Claim.
+- T4: Claim #1 aus Ziel-Connection (Request VPN-IP == fixed_ip) -> Claim erfolgreich.
+- T5: Claim #2 aus allowlisted Connection -> Claim erfolgreich, auch wenn neue Connection offline ist.
+- T6: VPN-Client-Credentials sind für User nicht erforderlich; Passwortrotation im Panel wirkt.
+- T7: UNCLAIMED nach Ablauf unclaimed_grace_until -> Walled Garden aktiv (Panel/DNS/NTP erreichbar, kein WAN). User kann sich registrieren/login (Verify-Wall), verifizieren (ACTIVE) und claimen; danach fällt UNCLAIMED_OVERDUE weg und Internet ist sofort wieder frei (sofern nicht Quota/Expiry/Manual greift).
+
+10) NICHT-IN-SCOPE (bewusst)
+- nftables Regeldetails: B150
+- UI/Panel Screens: B280
+- RADIUS Attribute Mapping: B050
+
+11) CHANGELOG
+- v2.1: UNCLAIMED-30d-Flow ergänzt (Variante 2: unclaimed_grace_until). Neuer Restricted-Trigger UNCLAIMED_OVERDUE führt nach Ablauf zu Panel-only (Walled Garden), damit Verify+Claim weiterhin möglich sind; nach Claim sofortige Freischaltung (falls kein anderer Restricted-Reason aktiv).
+- v2.0: Gate#1/Gate#2 entfernt. Neuer kanonischer Onboarding-Flow: Login erlaubt, aber PENDING wird per Verify-Wall (Code/Resend/Support) blockiert; Claim nur nach Verify und nur per Claim-Token; keine VPN-Client-Credentials nötig. Optionaler Hard-Stop (claim_deadline) bleibt als Empfehlung.
+- v1.3: Logik-Präzisierung: Claim schaltet NICHT pauschal Internet frei; Prüfung auf Gate#2 (Verify/Overdue) erfolgt sofort beim Claim (kein toter Winkel).
+- v1.2: Claim-Authorization präzisiert: Erster Claim nur aus der Ziel-Connection selbst (Request VPN-IP == fixed_ip). Weitere Claims dürfen aus einer bereits login-berechtigten Customer-Connection erfolgen; neue Connection muss nicht aktiv sein.
+- v1.1: DISABLED-Semantik präzisiert: DISABLED = no VPN (RADIUS reject, siehe B050). "Portal-only/Restricted" ist kein DISABLED, sondern Enforcement über B150. HARD STOP Zeile und Test T6 entsprechend angepasst.
+- v1.0: Initiale Version im B150-Header-Stil (Inhalt aus der bestehenden B155 übernommen, nur Form/Metadaten vereinheitlicht).
+================================================================================
+END BLOCK B155
+================================================================================

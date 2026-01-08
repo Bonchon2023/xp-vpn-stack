@@ -1,0 +1,96 @@
+vpn_masterkonzept/blocks/B055_DB_SCHEMA_CORE.txt
+================================================================================
+BLOCK-ID: B055
+TITLE: DB Schema Core (customers, vpn_connections, active_session_locks)
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: Verbindliches SQL-first Schema als Single Source of Truth (Stabilität + deterministische Gates/Claim/SimUse).
+================================================================================
+
+1) QUELLE / HERKUNFT
+- Migrated from: tasks/t/T01_DB_SCHEMA_CORE.txt (Version v0.7, Datum 2026-01-07)
+- Hinweis: Der ursprüngliche Task-Text enthält eigene Historie/Changelog; dieser Block hat zusätzlich einen Block-Changelog am Ende.
+
+================================================================================
+2) INHALT (aus T01, unverändert übertragen)
+================================================================================
+
+Version: v0.7
+Status: FIX REQUIRED
+Priority: MUST
+Source: Regression fix request (v0.2 -> v0.4 -> now v0.5)
+
+## 1) Purpose
+Define core DB schema for:
+- customers (panel account)
+- vpn_connections (device/subaccount)
+- active_session_locks (atomic SimUse guard)
+- plus minimal indices required for high-performance reconcile
+
+## 2) Core Tables
+
+### 2.1 customers
+- id (PK)
+- email (UNIQUE)
+- password_hash (Argon2id)
+- created_at
+- status (active/suspended/deleted)
+- ... (panel-only meta)
+
+Indexes:
+- UNIQUE(email)
+
+### 2.2 vpn_connections
+Represents one VPN “client” (per device sub-account)
+- id (PK)
+- customer_id (FK customers.id, NULLABLE for unclaimed)
+- token (UNIQUE)  <-- claim token
+- token_state (enum: unclaimed, claimed, revoked)
+- created_at
+- last_seen_at
+- unclaimed_grace_until (DATETIME NULL)
+- restricted (BOOLEAN)
+- restricted_effective (BOOLEAN)  <-- NEW (indexed), used by reconcile (T06/B166)
+- status (active/suspended/revoked)
+- ... (optional: label/device_name)
+
+Indexes:
+- UNIQUE(token)
+- INDEX(customer_id)
+- INDEX(restricted_effective)  <-- FIX REQUIRED
+- INDEX(last_seen_at)
+
+### 2.3 active_session_locks  <-- FIX REQUIRED
+Atomic guard against SimUse race (radacct is history, not a lock)
+- id (PK)
+- vpn_connection_id (FK vpn_connections.id)
+- session_key (VARCHAR)  <-- derived from NAS-IP-Address + Calling-Station-Id + username
+- acquired_at (DATETIME)
+- expires_at (DATETIME)
+- state (enum: held, released)
+- release_reason (nullable)
+
+Constraints:
+- UNIQUE(vpn_connection_id)  <-- SimUse=1 guard
+- INDEX(expires_at)          <-- janitor scans
+
+## 3) Notes / Constraints
+- vpn_connections.restricted_effective is the performance field (avoid join-heavy evaluate path).
+- active_session_locks must be used by T02 mapping + T09 tests.
+
+## 4) Changelog (Task-Historie)
+- v0.1 initial
+- v0.2 included SimUse lock table
+- v0.4 regression (missing lock table + restricted_effective)
+- v0.5: restore both required items
+- v0.6: refine indices
+- v0.7: final wording + confirm mapping responsibilities
+
+================================================================================
+3) CHANGELOG
+================================================================================
+- v1.0 (2026-01-07): Neu angelegt. Inhalt aus T01_DB_SCHEMA_CORE (v0.7) in Block-Form übernommen (ohne inhaltliche Änderung).
+================================================================================
+END BLOCK B055
+================================================================================

@@ -2,7 +2,7 @@ vpn_masterkonzept/blocks/B120_NFT_FORWARD_NAT_FULLTUNNEL.txt
 ================================================================================
 BLOCK-ID: B120
 TITLE: nftables Forward + NAT (Full-Tunnel)
-VERSION: v1.1
+VERSION: v1.3
 STATUS: ACTIVE
 PRIORITY: MUST
 OWNER-INTENT: Full-Tunnel Routing/NAT sauber und deterministisch.
@@ -14,6 +14,9 @@ OWNER-INTENT: Full-Tunnel Routing/NAT sauber und deterministisch.
 2) GRENZEN
 - Kein Forward zwischen User-Clients (handled in B130).
 - Restricted Mode (B150) kann Forward zusätzlich reduzieren (Portal-Only).
+- WICHTIG (Pfad-Trennung): Dieser Block beschreibt nur Restricted Enforcement im forward-Pfad (WAN/NAT).
+  - Traffic zu lokalen Services auf 10.77.0.1 läuft über filter input und MUSS dort separat durch B150 + docs/nft_service_ip_scopes.txt restricted allowlist
+ enforced werden (sonst bleiben lokale Ports offen).
 - Wichtig: Restricted Enforcement (B150) muss im forward chain vor dem allgemeinen Forward-Allow (dieser Block) evaluiert werden (sonst Umgehung möglich).
 - Konkret: Für saddr∈restricted_v4 (B150) ist im forward chain nur Verkehr zu 10.77.0.1 erlaubt:
   - DNS: 53/udp + 53/tcp
@@ -55,6 +58,8 @@ OWNER-INTENT: Full-Tunnel Routing/NAT sauber und deterministisch.
 - IP check: public IP = server IP.
 
 10) CHANGELOG
+- v1.3 (2026-01-07): T06-Referenz entfernt (Service-IP Scopes jetzt über docs/nft_service_ip_scopes.txt referenziert). Inhalt unverändert.
+- v1.2: Klarstellung ergänzt: B120 beschreibt Restricted Enforcement nur im forward-Pfad; input-Enforcement für Service-IP 10.77.0.1 ist separat in B150/T06 Pflicht (Pfad-Trennung, keine Logikänderung).
 -    v1.1:     Restricted Mode Reihenfolge + konkrete Allowlist (DNS udp+tcp 53, Web 80/443, NTP 123/udp, ICMP zu 10.77.0.1) ergänzt; Hinweis zu DNS-Enforcement Hook/Order (B210) ergänzt.
 - v1.0: Initial
 

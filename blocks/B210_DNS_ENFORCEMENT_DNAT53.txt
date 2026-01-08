@@ -2,7 +2,7 @@ vpn_masterkonzept/blocks/B210_DNS_ENFORCEMENT_DNAT53.txt
 ================================================================================
 BLOCK-ID: B210
 TITLE: DNS Enforcement (DNAT 53)
-VERSION: v1.4
+VERSION: v1.6
 STATUS: ACTIVE
 PRIORITY: MUST
 OWNER-INTENT: "Idiotensicher" DNS egal was User einträgt.
@@ -16,18 +16,22 @@ OWNER-INTENT: "Idiotensicher" DNS egal was User einträgt.
 - Aktivieren erst wenn DNS stack stabil.
 
 3) ABHÄNGIGKEITEN
-- Requires: B200, B120, B150
+- Requires: B200, B120, B150, docs/nft_service_ip_scopes.txt
 
 4) INPUTS
 - nft nat prerouting for interfaces ppp*
 
 5) OUTPUTS
 - forced DNS
+- Empfehlung (Kanon): Server nutzt Unbound direkt als Resolver (127.0.0.1:5335) statt AdGuard, um Abhängigkeiten/Loops zu minimieren; Client-DNS bleibt via DNAT immer AdGuard.
 
 6) MUST (wenn aktiv)
 - Both UDP and TCP 53
 - Hook/Order: nft nat prerouting (DNAT) auf iifname "ppp*" muss vor filter/forward Enforcement greifen.
 - Scope Klarstellung: DNAT betrifft nur eingehenden Client-Traffic auf iifname "ppp*". Server-eigene DNS Queries (OUTPUT) sind nicht Teil dieses DNAT und werden ueber lokale Resolver-Config gesteuert (z.B. resolv.conf -> 127.0.0.1/Unbound/AdGuard).
+- WICHTIG (Pfad nach DNAT):
+  - Nach DNAT ist dst=10.77.0.1:53 => Traffic läuft über nftables filter input (lokales Ziel), nicht über forward.
+- Daher MUSS Restricted Allowlist im input (B150 + docs/nft_service_ip_scopes.txt) explizit UDP+TCP 53 zu 10.77.0.1 erlauben, sonst bricht DNS-Enforcement (insbesondere im Restricted Mode).
 
 7) OPTIONAL
 - Kein nftables syslog logging fuer "external DNS attempts" (Noise/Logspam). DNS-Transparenz erfolgt ueber AdGuardHome Logs; optional spaeter nur Counters, falls Bedarf.
@@ -39,8 +43,12 @@ OWNER-INTENT: "Idiotensicher" DNS egal was User einträgt.
 9) TESTS
 - Client set DNS 8.8.8.8 -> still uses 10.77.0.1.
 - TCP DNS Test: Client erzeugt DNS über tcp/53 (z.B. große Antwort / erzwungen) -> wird ebenfalls zu 10.77.0.1 umgebogen.
+- Restricted Input Test:
+  - Client ist restricted (Portal-Only) + setzt DNS manuell auf 8.8.8.8 -> DNS funktioniert trotzdem (DNAT auf 10.77.0.1:53) und input-allowlist lässt tcp/udp 53 zu.
 
 10) CHANGELOG
+- v1.6 (2026-01-07): T06 Referenzen entfernt/ersetzt durch docs/nft_service_ip_scopes.txt (Dependencies + MUST Input-Allowlist Bezug). Keine Logikänderung.
+- v1.5: Pfadpräzisierung ergänzt: DNS nach DNAT läuft über filter input (dst=10.77.0.1:53). Deshalb muss Restricted Allowlist im input (B150/T06) UDP+TCP 53 zu 10.77.0.1 erlauben; Tests um Restricted/Input-Fall erweitert; T06 als Dependency ergänzt.
 - v1.4: IPv6 Klarstellung ergaenzt: B210 ist IPv4-only; IPv6 ist per Policy deaktiviert/gedroppt, sonst waere v6 DNS Enforcement notwendig.
 - v1.3: Scope Klarstellung: DNAT nur fuer ppp* Client-Traffic (PREROUTING); Server-DNS (OUTPUT) via lokaler Resolver-Konfig, nicht via DNAT.
 - v1.2: OPTIONAL nft syslog logging fuer externe DNS-Versuche deaktiviert/begruendet; DNS-Transparenz ueber AdGuardHome, optional spaeter Counters statt Logspam.

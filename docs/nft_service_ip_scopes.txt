@@ -1,0 +1,163 @@
+# docs/nft_service_ip_scopes.txt
+VERSION: v1.0
+LAST-UPDATE: 2026-01-07
+SOURCE: T06 + B150 + B200 + B210 (Single Source of Truth für Service-IP Scopes)
+
+================================================================================
+0) ZIEL / KURZBILD
+================================================================================
+Diese Datei ist die definitive Port-/Scope-Matrix für die Service-IP 10.77.0.1.
+Sie beschreibt:
+- Welche Ports sind aus dem VPN erreichbar (VPN input; dst=10.77.0.1)?
+- Welche Ports sind admin-only?
+- Welche Einschränkungen gelten im Restricted Mode (Walled Garden)?
+- Wie passt DNS-Enforcement (DNAT 53) in den Pfad (post-DNAT -> filter input)?
+
+WICHTIG (Pfad-Trennung):
+- Traffic zu 10.77.0.1 ist lokales Ziel => nftables filter input.
+- WAN/Internet-Traffic ist Weiterleitung => nftables filter forward.
+
+================================================================================
+1) KANONISCHE NETZE / ROLLEN
+================================================================================
+Service-IP:
+- 10.77.0.1/32 (lo)
+
+VPN Netze:
+- USER_NET:  10.77.10.0/24
+- ADMIN_NET: 10.77.20.0/24
+
+Rollen:
+- USER:    Source-IP in USER_NET (nicht restricted)
+- ADMIN:   Source-IP in ADMIN_NET (nicht restricted)
+- RESTRICTED: Source-IP ist Mitglied der restricted_v4 Set-Logik (Reason: quota/expiry/manual/unclaimed_overdue)
+
+================================================================================
+2) SERVICE STACK (BINDINGS) AUF 10.77.0.1
+================================================================================
+DNS Stack:
+- AdGuardHome DNS Listener: 10.77.0.1:53 (UDP+TCP)
+- AdGuardHome UI:           10.77.0.1:2000 (TCP)  [ADMIN ONLY]
+- Unbound:                  127.0.0.1:5335 (UDP+TCP)  [nur lokal]
+
+Panel/Portal:
+- Web: 10.77.0.1:80  (TCP)
+- Web: 10.77.0.1:443 (TCP)
+
+Zeit / Stabilität:
+- NTP: 10.77.0.1:123 (UDP)
+
+Diagnose:
+- ICMP echo (optional): nur zu/von 10.77.0.1 erlaubt
+
+================================================================================
+3) VPN INPUT SCOPE (filter input)  —  iifname "ppp*"
+================================================================================
+Grundregel:
+- Für Zugriffe auf 10.77.0.1 gilt filter input.
+- Im Restricted Mode MUSS die Allowlist auch im input enforced werden (sonst bleiben lokale Ports offen).
+
+3.1 USER (10.77.10.0/24), NICHT restricted
+ALLOW zu 10.77.0.1:
+- TCP 80    (Panel/Portal)
+- TCP 443   (Panel/Portal)
+- UDP 53    (DNS)
+- TCP 53    (DNS TCP fallback)
+- UDP 123   (NTP)
+- ICMP echo (optional, nur zu 10.77.0.1)
+
+DENY zu 10.77.0.1:
+- TCP 2000  (AdGuard UI)  [verboten für USER]
+- alle anderen lokalen Ports (z.B. tcp/22 SSH, DB, phpMyAdmin, etc.)
+
+3.2 ADMIN (10.77.20.0/24), NICHT restricted
+ALLOW zu 10.77.0.1:
+- alles wie USER
+- PLUS: TCP 2000 (AdGuard UI)  [ADMIN ONLY]
+
+DENY:
+- alle anderen lokalen Ports, die nicht explizit erlaubt sind (least privilege)
+
+3.3 RESTRICTED (egal ob USER/ADMIN, wenn saddr ∈ restricted_v4)
+STRICT ALLOWLIST zu 10.77.0.1:
+- TCP 80
+- TCP 443
+- UDP 53
+- TCP 53
+- UDP 123
+- ICMP echo (optional, nur zu 10.77.0.1)
+
+STRICT DENY:
+- TCP 2000 (AdGuard UI) ist weiterhin ADMIN ONLY (restricted darf nie UI sehen)
+- alle anderen Ports zu 10.77.0.1 (insb. tcp/22 SSH -> MUSS blockiert sein)
+
+================================================================================
+4) VPN FORWARD SCOPE (filter forward) — iifname "ppp*" -> oifname "ens13"
+================================================================================
+4.1 USER/ADMIN (nicht restricted)
+- Full-Tunnel: WAN forward ist erlaubt + NAT/Masquerade aktiv.
+
+4.2 RESTRICTED
+- WAN forward MUSS gedroppt werden (kein Internet).
+- Im Restricted Mode darf praktisch nur 10.77.0.1 (Panel/DNS/NTP) erreicht werden.
+  Hinweis: 10.77.0.1 ist lokal => das ist input, nicht forward.
+
+================================================================================
+5) DNS ENFORCEMENT (DNAT53) — nat prerouting
+================================================================================
+Ziel:
+- Client kann DNS nicht "wegkonfigurieren".
+- Alle DNS Queries (UDP+TCP/53) aus dem VPN werden auf 10.77.0.1:53 umgebogen.
+
+Regel (KANONISCH):
+- iifname "ppp*" udp dport 53 -> dnat to 10.77.0.1:53
+- iifname "ppp*" tcp dport 53 -> dnat to 10.77.0.1:53
+
+WICHTIG (Pfad nach DNAT):
+- Nach DNAT ist dst=10.77.0.1:53 => filter input.
+- Daher muss input-allowlist (Kapitel 3) UDP+TCP 53 erlauben (auch im Restricted Mode).
+
+Server-eigene DNS Queries (OUTPUT):
+- DNAT gilt nicht für OUTPUT.
+- Kanon: Server nutzt Unbound direkt (lokal) als Resolver; Client-DNS bleibt via DNAT immer AdGuard.
+
+================================================================================
+6) KOMPAKT-ALLOWLIST (RESTRICTED MODE)
+================================================================================
+RESTRICTED MODE MUSS (zu 10.77.0.1):
+- TCP: 80, 443
+- UDP: 53, 123
+- TCP: 53
+- ICMP: echo-request/echo-reply (optional)
+
+RESTRICTED MODE MUSS NICHT (und darf nicht):
+- TCP 2000 (AdGuard UI) außer Admin (und i.d.R. nicht restricted)
+- irgendwelche anderen lokalen Ports (SSH, DB, phpMyAdmin, etc.)
+- irgendein WAN forward ins Internet
+
+================================================================================
+7) ACCEPTANCE TESTS (messbar)
+================================================================================
+Input / Service-IP Tests:
+- USER erreicht 10.77.0.1:443 + 10.77.0.1:80.
+- USER DNS funktioniert via UDP und via TCP fallback (tcp/53).
+- USER kann 10.77.0.1:2000 NICHT öffnen.
+- ADMIN kann 10.77.0.1:2000 öffnen.
+- RESTRICTED erreicht weiterhin 10.77.0.1:443/80 + DNS (udp/tcp 53) + NTP (udp 123).
+- RESTRICTED erreicht NICHT tcp/22 auf 10.77.0.1 (SSH muss blockiert sein).
+
+DNS Enforcement Tests:
+- Client setzt DNS manuell auf 8.8.8.8 -> trotzdem wird DNS via DNAT auf 10.77.0.1:53 umgeleitet.
+- Gleiche Prüfung im Restricted Mode (muss weiter funktionieren).
+
+Forward/WAN Tests:
+- USER/ADMIN (nicht restricted): Internet funktioniert (Full-Tunnel).
+- RESTRICTED: Internet geht NICHT (WAN forward drop), aber Panel/DNS/NTP gehen.
+
+================================================================================
+8) REFERENZEN (Konzeptdateien)
+================================================================================
+- T06: Service-IP Scopes (Task / Output)
+- B150: Restricted Mode / Walled Garden (Allowlist + input/forward Enforcement)
+- B210: DNS Enforcement DNAT53 (udp+tcp)
+- B200: DNS Stack Unbound + AdGuard (Bindings + UI admin-only)

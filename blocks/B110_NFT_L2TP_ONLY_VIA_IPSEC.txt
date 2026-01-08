@@ -2,7 +2,7 @@ vpn_masterkonzept/blocks/B110_NFT_L2TP_ONLY_VIA_IPSEC.txt
 ================================================================================
 BLOCK-ID: B110
 TITLE: nftables: L2TP (UDP 1701) nur via IPsec/XFRM
-VERSION: v1.0
+VERSION: v1.1
 STATUS: ACTIVE
 PRIORITY: MUST
 OWNER-INTENT: UDP 1701 darf nie "blank" im Internet stehen.
@@ -28,6 +28,8 @@ OWNER-INTENT: UDP 1701 darf nie "blank" im Internet stehen.
 
 6) MUST
 - meta ipsec exists Regel aktiv
+- Regel MUSS auf WAN-Input (iifname "ens13") begrenzt sein: UDP/1701 wird nur dort geprüft (meta ipsec exists) und sonst gedroppt.
+- VPN-Input (iifname "ppp*") darf durch diese Regel nicht betroffen sein.
 
 7) OPTIONEN
 - log dropped 1701 for scanning detection
@@ -39,6 +41,7 @@ OWNER-INTENT: UDP 1701 darf nie "blank" im Internet stehen.
 - external UDP scan: 1701 closed/filtered.
 
 10) CHANGELOG
+- v1.1: Scope-Präzisierung: UDP/1701 XFRM-Check gilt nur auf WAN-Input (iifname "ens13"); VPN-Input (ppp*) bleibt unberührt.
 - v1.0: Initial
 
 ================================================================================

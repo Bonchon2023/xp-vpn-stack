@@ -1,6 +1,6 @@
 vpn_masterkonzept/04_BLOCK_INDEX.txt
 ================================================================================
-BLOCK INDEX (MASTER v2.0.1)
+BLOCK INDEX (MASTER v2.1.0)
 ================================================================================
 
 [B010] META / Scope & Constraints
@@ -27,7 +27,17 @@ BLOCK INDEX (MASTER v2.0.1)
 [B050] SQL AAA / FreeRADIUS / Accounting
 - Datei: blocks/B050_SQL_AAA_RADIUS.txt
 - Status: ACTIVE | Priority: MUST
+- Requires: B040, B055, B056, B270
+
+[B055] DB Schema Core (customers, vpn_connections, active_session_locks)
+- Datei: blocks/B055_DB_SCHEMA_CORE.txt
+- Status: ACTIVE | Priority: MUST
 - Requires: B040
+
+[B056] RADIUS Schema Mapping + SimUse Atomic Lock Lifecycle
+- Datei: blocks/B056_RADIUS_SCHEMA_MAPPING.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B050, B055
 
 [B060] Netzplan / IPs / Segmente / Bindings
 - Datei: blocks/B060_NETPLAN_IPS_SEGMENTS.txt
@@ -74,13 +84,13 @@ BLOCK INDEX (MASTER v2.0.1)
 - Status: ACTIVE | Priority: MUST
 - Requires: B120
 
-[B150] Walled Garden / Restricted Mode (Gate#1 Claim + Gate#2 Email Verify + Quota/Expiry)
-- Datei: blocks/B150_Walled Garden_Restricted_Mode_(Gate#1_Claim_+_Gate#2_Email_Verify_+_QuotaExpiry).txt
+[B150] Walled Garden / Restricted Mode (Quota/Expiry/Manual + UNCLAIMED_OVERDUE)
+- Datei: blocks/B150_Walled_Garden_Restricted_Mode_(QuotaExpiryManual).txt
 - Status: ACTIVE | Priority: MUST
 - Requires: B050, B120, B220, B280, B155
 
-[B155] Onboarding Gates (Gate#1 Claim + Gate#2 Email Verify)
-- Datei: blocks/B155_ONBOARDING_GATES_STATE_MACHINE.txt
+[B155] Onboarding / Verify-Wall / Claim Token (ohne Gate#1/Gate#2)
+- Datei: blocks/B155_Onboarding  Verify-Wall  Claim Token (ohne Gate#1Gate#2).txt
 - Status: ACTIVE | Priority: MUST
 - Requires: B050, B150, B280, B220
 - Influences: B240
@@ -175,6 +185,11 @@ BLOCK INDEX (MASTER v2.0.1)
 - Status: ACTIVE | Priority: MUST
 - Requires: B050, B220
 
+[B285] Panel Security Model (AuthN/AuthZ/CSRF/RateLimit/Audit/Scopes)
+- Datei: blocks/B285_PANEL_SECURITY_MODEL.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B280, B220
+
 [B290] Rollout Phasenplan
 - Datei: blocks/B290_PHASE_PLAN_ROLLOUT.txt
 - Status: ACTIVE | Priority: MUST
@@ -184,6 +199,21 @@ BLOCK INDEX (MASTER v2.0.1)
 - Datei: blocks/B300_SECURITY_STEALTH_GUIDELINES.txt
 - Status: ACTIVE | Priority: MUST
 - Requires: alle
+
+[B310] Tests / Acceptance Criteria (E2E-Katalog)
+- Datei: blocks/B310_TESTS_ACCEPTANCE_CATALOG.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B050, B165, B168, B200, B210, B270, B090, B190, B220
+
+[B320] Backup / Restore / DR Runbook
+- Datei: blocks/B320_BACKUP_RESTORE_DR_RUNBOOK.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B050, B220
+
+[B330] Logging / Monitoring / Retention / Alerts
+- Datei: blocks/B330_LOGGING_MONITORING_RETENTION_ALERTS.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B050, B165, B220
 
 ================================================================================
 ENDE 04_BLOCK_INDEX.txt

@@ -1,8 +1,8 @@
 BLOCK: B167_WIRING_HOOKS_SYSTEMD
-VERSION: v1.6
+VERSION: v1.8
 STATUS: ACTIVE
 OWNER: Marco + ChatGPT
-LAST-UPDATE: 2026-01-05
+LAST-UPDATE: 2026-01-07
 
 ================================================================================
 1) ZWECK
@@ -26,6 +26,9 @@ LAST-UPDATE: 2026-01-05
 
 - Runtime Mapping (volatile):
   - /run/vpn-sessions/<ppp_if>.env   (B165)
+- Runtime-Aktivität (KANONISCH):
+  - "connection_id aktiv?" => true genau dann, wenn irgendein /run/vpn-sessions/*.env diese CONNECTION_ID enthält (Definition siehe B165).
+  - Diese Runtime-Quelle ist führend für Janitor/Safety Checks (B168/B169) und Reconcile.
 - Durable Accounting State + Spool:
   - /var/lib/vpn-accounting/         (B165)
 
@@ -80,12 +83,13 @@ Hinweis:
 ================================================================================
 5) PANEL EVENT TRIGGER (sofortige Wirkung)
 ================================================================================
-- Event: Panel verändert Policy-relevanten Zustand (Claim/Verify/Quota/Expiry/Speed)
+- Event: Panel verändert Kernel-Policy-relevanten Zustand (Claim/Unclaim/Quota/Expiry/Manual/Speed)
+- Hinweis: Email-Verify (Verify-Wall) ist App-Layer und kein Kernel-Policy-Trigger; dafür kein nft/tc Apply nötig.
 - Verantwortlich: Panel Backend (OpenResty/PHP)
 
 MUSS ausführen (B166, STRICT):
 - Single: vpn-policy-apply --connection-id=<id>
-- Customer scope (optional, Gate2 kundenweit): vpn-policy-apply --customer-id=<id>
+- Customer scope (optional, wenn eine Panel-Aktion customerweit wirken soll): vpn-policy-apply --customer-id=<id>
 
 Hinweis:
 - Panel ruft NICHT nft/tc direkt, sondern nur vpn-policy-apply.
@@ -100,7 +104,11 @@ Konzept-Units:
 - vpn-policy-reconcile.service:
   - ExecStart: vpn-policy-apply --reconcile-all
   - Mode: BEST EFFORT
-  - Optional: Locking via flock, damit nie zwei Reconciles parallel laufen
+- Locking (MUST, Single-Writer, passend zu B166):
+  - Reconcile/Apply dürfen niemals parallel laufen.
+  - Mechanik: flock auf ein Lockfile unter /run ist akzeptiert (z.B. /run/vpn-policy-apply.lock).
+  - Wenn Lock belegt: sauberer Abbruch (TEMPFAIL_LOCKED), keine Partial Applies.
+  - Stale-Lock: definierte TTL/Break-Glass (Lock-Alter prüfen; Admin-Override möglich), damit Crash nicht dauerhaft blockiert.
 
 - vpn-policy-reconcile.timer:
   - OnUnitActiveSec=5min
@@ -234,6 +242,8 @@ Kanonisch:
 ================================================================================
 10) CHANGELOG
 ================================================================================
+- v1.8 (2026-01-07): Locking im Reconcile Wiring von OPTIONAL auf MUST hochgestuft + Single-Writer Regeln konkretisiert (TEMPFAIL_LOCKED + Stale-Lock).
+- v1.7: Panel-Event-Trigger korrigiert: Verify entfernt (App-Layer), Kernel-Trigger sind Claim/Unclaim/Quota/Expiry/Manual/Speed; Gate2-Begriff entfernt. Runtime-Aktivitätsdefinition pro connection_id (scan /run/vpn-sessions/*.env) explizit als kanonisch referenziert (B165).
 - v1.6: DB-down Verhalten definiert (Fail-Closed für Auth, Services starten ohne Deadlock, Best-Effort für collector/janitor/reconcile), inkl. Test.
 - v1.5: Systemd Start-Order/Dependencies für Boot-Reconcile + Boot-Janitor ergänzt (After/Wants network-online + VPN-Stack), inkl. Tests.
 - v1.4: Boot-Reconcile/Boot-Janitor Strategie ergänzt (reconcile-all beim Boot, Janitor global verzögert), inkl. Tests.

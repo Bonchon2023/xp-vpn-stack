@@ -1,8 +1,8 @@
 BLOCK: B168_STALE_SESSION_JANITOR
-VERSION: v1.2
+VERSION: v1.5
 STATUS: ACTIVE
 OWNER: Marco + ChatGPT
-LAST-UPDATE: 2026-01-05
+LAST-UPDATE: 2026-01-07
 
 ================================================================================
 1) ZWECK
@@ -84,6 +84,22 @@ Verhalten:
 Match-Kriterium: Mapping enthält CONNECTION_ID; Janitor schließt nur, wenn keine aktive Mapping-Datei mit derselben CONNECTION_ID existiert.
 
 ================================================================================
+6.5) INTEGRATION: ATOMARER SESSION-LOCK (active_session_locks, B055/B056)
+================================================================================
+Ziel:
+- B168 schließt stale radacct Einträge (stop_time setzen), um SimUse=1 wieder freizugeben.
+- active_session_locks (B055/B056) ist der atomare Guard gegen Parallel-Login-Races.
+
+Regel (MUST, um "Lock-Leichen" zu vermeiden):
+- Wenn B168 eine stale Session für einen subaccount_login schließt (stop_time=NOW()):
+  - DANN MUSS zusätzlich geprüft werden, ob ein active_session_locks Eintrag für die zugehörige vpn_connection/connection_id existiert.
+    - Falls JA:
+    - und kein Runtime-Mapping (/run/vpn-sessions/*) für diese connection_id existiert (Safety-Check bleibt führend; "connection_id aktiv?" Definition siehe B165),
+      dann darf/muss der Lock bereinigt werden (DELETE), damit keine Lock-Leiche neue Logins blockiert.
+Hinweis:
+- Diese Lock-Bereinigung ersetzt nicht den authorize-flow cleanup in B169; sie ist ein Backstop für Crash/Restart/Partial-Failure Fälle.
+
+================================================================================
 7) WAS GENAU MACHT "SCHLIESSEN"?
 ================================================================================
 - Setze stop_time = NOW()
@@ -114,10 +130,15 @@ Match-Kriterium: Mapping enthält CONNECTION_ID; Janitor schließt nur, wenn kei
   - DB down -> Janitor kann nicht schließen, aber neue Logins sind fail-closed; nach DB up -> Janitor räumt.
 - On-Demand Reconnect Test: stale radacct (stop_time NULL) blockiert Simultaneous-Use -> On-Demand Cleanup (--subaccount-login) schließt stale -> Login wird danach sofort möglich.
 - On-Demand Safety Test: Session ist live (Mapping in /run/vpn-sessions vorhanden) -> On-Demand Cleanup darf NICHT schließen, auch wenn DB-Kriterium "stale" täuschen würde.
+- Lock-Leiche Backstop Test:
+  - stale radacct wird geschlossen + es existiert ein active_session_locks Eintrag ohne Runtime-Mapping -> Lock wird bereinigt (DELETE), damit Login nicht weiter blockiert.
 
 ================================================================================
 10) CHANGELOG
 ================================================================================
+- v1.5 (2026-01-07): Referenzen auf T01/T02 entfernt -> B055/B056 (keine Logikänderung).
+- v1.4: Querverweis präzisiert: Runtime-Aktivitätsdefinition für connection_id (über /run/vpn-sessions/*.env) explizit auf B165 referenziert (nur Klarstellung, keine Logikänderung).
+- v1.3: Integration mit active_session_locks ergänzt: Wenn stale radacct geschlossen wird, muss ein ggf. verwaister Session-Lock (ohne Runtime-Mapping) als Backstop bereinigt werden, um Lock-Leichen zu vermeiden; Tests entsprechend erweitert.
 - v1.2: Referenz auf B169 ergänzt (konkreter RADIUS Login-Flow inkl. Retry-Logik für On-Demand Cleanup).
 - v1.1: On-Demand Single-Target Cleanup ergänzt (--subaccount-login), um Lockout-Fenster bei Simultaneous-Use=1 zu minimieren; Tests erweitert.
 - v1.0: initial (Interim 300s, threshold 900s, janitor 5min, safety check /run/vpn-sessions)

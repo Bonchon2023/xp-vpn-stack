@@ -1,0 +1,53 @@
+vpn_masterkonzept/blocks/B330_LOGGING_MONITORING_RETENTION_ALERTS.txt
+================================================================================
+BLOCK-ID: B330
+TITLE: Logging / Monitoring / Retention / Alerts (Heavy User Detection)
+VERSION: v1.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: Betriebssicherheit + Heavy-User/Abuse-Erkennung ohne Disk-Full/Noise.
+================================================================================
+
+1) QUELLE / HERKUNFT
+- Migrated from: tasks/t/T15_LOGGING_MONITORING_RETENTION_ALERTS.txt (Datum 2026-01-06)
+
+================================================================================
+2) INHALT (aus T15, unverändert übertragen)
+================================================================================
+
+Version: v0.4
+Priority: MUST
+
+## 1) What to log
+- RADIUS auth events
+- Accounting start/stop
+- DNS enforcement counters (optional)
+- Policy reconcile actions
+- Panel admin actions
+
+## 2) Retention
+- Keep detailed logs short
+- Aggregate monthly stats for heavy-user detection
+- Avoid disk full
+
+## 3) Alerts
+- service down
+- spool backlog too large
+- repeated auth failures
+- suspicious traffic patterns
+
+## 4) Heavy user detection
+- Monthly traffic per vpn_connection
+- Monthly online time
+- Identify outliers
+
+## 5) Changelog (Task-Historie)
+...
+
+================================================================================
+3) CHANGELOG
+================================================================================
+- v1.0 (2026-01-07): Neu angelegt. Inhalt aus T15_LOGGING_MONITORING_RETENTION_ALERTS in Block-Form übernommen (ohne inhaltliche Änderung).
+================================================================================
+END BLOCK B330
+================================================================================

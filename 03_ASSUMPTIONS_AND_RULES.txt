@@ -48,7 +48,8 @@ D) Qualitätsregeln / Abnahme
   - CA Import (Windows Store + MyPal NSS)
   - Verbindung/Status/Diag Shortcuts
 - “Restricted statt Reject” ist bindend:
-  Gate/Quota/Verify/Manual -> ACCEPT + restricted_effective + restricted_reason.
+  Quota/Expiry/Manual/UNCLAIMED_OVERDUE -> ACCEPT + restricted_effective + restricted_reason.
+  Verify-Wall ist App-Layer (Panel) und KEIN Kernel-Trigger für restricted_effective.
   Reject nur für DISABLED/BANNED/Missbrauch.
 - Deterministische Durchsetzung ist bindend:
   - ip-up/ip-down erzeugen Runtime-Mapping (/run/vpn-sessions/pppX.env)
