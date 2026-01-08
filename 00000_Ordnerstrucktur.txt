@@ -24,8 +24,8 @@ vpn_masterkonzept/
 │  ├─ B120_NFT_FORWARD_NAT_FULLTUNNEL.txt
 │  ├─ B130_NFT_PEER_ISOLATION.txt
 │  ├─ B140_NFT_OUTBOUND_ABUSE_BLOCKS.txt
+│  ├─ B150_Walled_Garden_Restricted_Mode_(QuotaExpiryManual).txt
 │  ├─ B155_Onboarding_Verify-Wall_Claim_Token_(ohne_Gate#1Gate#2).txt
-│  ├─ B155_ONBOARDING_GATES_STATE_MACHINE.txt
 │  ├─ B160_TC_QOS_PER_PPP.txt
 │  ├─ B165_ACCOUNTING_COLLECTOR_SESSION_MAPPING.txt
 │  ├─ B166_POLICY_APPLY_RECONCILE.txt
