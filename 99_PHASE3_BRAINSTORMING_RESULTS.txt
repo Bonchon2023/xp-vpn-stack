@@ -1,0 +1,123 @@
+# BRAINSTORMING & ARCHITEKTUR-DEFINITION V2.2 PREPARATION
+# Datum: 2026-01-08
+# Status: FINALISIERT FÜR PHASE 3
+# Scope: Fehlerbehebung, Feature-Erweiterung, Prozess-Definition
+
+---
+
+## 1. KRITISCHE LOGIK-FIXES (Must-Have vor Build)
+
+### 1.1 SimUse Locking & Reconnects
+* **Problem:** `Calling-Station-Id` ändert sich bei Netzwechsel (WLAN -> LTE) oder NAT-Rebinds. Wird diese im Locking-Key verwendet, entstehen "Stale Locks". Der User kommt nicht mehr rein, obwohl er offline ist.
+* **Entscheidung:** Der Locking-Key in `B056` wird vereinfacht.
+* **Lösung:** Key = `vpn_connection_id` (Datenbank-ID).
+    * Da `Simultaneous-Use = 1` gilt, darf eine Connection-ID physikalisch nur 1x existieren.
+    * Das macht das Locking robust gegen IP/MAC-Änderungen des Clients.
+
+### 1.2 Time-Drift bei Policies (Expiry/Grace)
+* **Problem:** SQL ist passiv. Ein User, der um 00:00 Uhr abläuft (`expires_at`), wird nicht automatisch gesperrt, da sich das Feld `restricted_effective` nicht von selbst aktualisiert.
+* **Lösung:**
+    * Einsatz von **Generated Columns** (MariaDB) oder einem hochfrequenten **State-Calculator** im Janitor-Prozess.
+    * Logik: `restricted_effective` muss `TRUE` sein, wenn `NOW() > expires_at` ODER `unclaimed_grace` abgelaufen ist.
+
+### 1.3 XP Setup-Tool "Henne-Ei-Problem"
+* **Problem:** Windows XP mit falscher Systemzeit (z.B. Jahr 2002) kann keine HTTPS-Verbindung aufbauen (Zertifikatsfehler). Ein Download des Tools oder ein Time-Check via HTTPS scheitert.
+* **Lösung (B240):**
+    * Das Setup-Tool muss **zwingend** NTP (UDP 123) oder einen **Plain HTTP** Time-Check durchführen, bevor es HTTPS nutzt.
+    * Alternativ: Das Tool bringt `certutil` und DLLs embedded mit, um Abhängigkeiten vom Download zu minimieren.
+
+---
+
+## 2. NETZWERK & IP-MANAGEMENT (Skalierung)
+
+### 2.1 Netzvergrößerung für Soft-Delete
+* **Anforderung:** IPs von gelöschten Kunden sollen nicht sofort wiederverwendet werden (Logs/Rechtssicherheit), sondern in eine "Quarantäne" (z.B. 180 Tage) gehen.
+* **Problem:** Das bisherige `/24` Netz (253 IPs) läuft bei Quarantäne sofort voll ("IP Exhaustion").
+* **Lösung (B060):** Erweiterung des User-Netzes auf **`/20`**.
+    * Netz: `10.77.16.0/20`
+    * Range: `10.77.16.1` bis `10.77.31.254`
+    * Kapazität: **4.094 Verbindungen**. Genug Puffer für Jahre inkl. Leichen.
+
+### 2.2 IP-Vergabe-Logik (Panel/SQL)
+* **Strategie:**
+    1.  Kunden werden **nie** physisch gelöscht (`DELETE`), sondern markiert (`revoked_at`).
+    2.  Panel-Logik bei Neuvergabe: "Suche kleinste IP, die NICHT aktiv ist UND nicht in Quarantäne (revoked < 180 Tage) ist."
+
+### 2.3 Managed Port Forwarding (SQL-Driven)
+* **Anforderung:** Admin will Ports im Panel manuell zuweisen (z.B. "Kunde X bekommt Port 55000").
+* **Lösung (Neuer Block B125):**
+    * Datenbank-Tabelle `port_forwardings` (wan_port, target_ip, protocol).
+    * `nftables` nutzt eine **Map** (`type inet_service : ipv4_addr`) für High-Performance Forwarding.
+    * Kein Skript-Gefrickel, reine SQL-to-Kernel Logik via Reconcile.
+
+---
+
+## 3. PANEL & ADMIN-PROZESSE (ISP-Logik)
+
+### 3.1 "Inkasso"-Modus (Payment)
+* **Prozess:** Bezahlung erfolgt bar/manuell ("Zettel-Wirtschaft"). Keine Payment-Gateways.
+* **Panel-Feature (B280):**
+    * Dashboard-Widget **"Bald fällig / Offen"**: Liste aller User, deren `expires_at` < 7 Tage (oder abgelaufen).
+    * Aktion: Button "Verlängern (+1 Monat / +X Monate)".
+    * Alerting: Wöchentliche E-Mail an Admin mit Zusammenfassung der Schuldner.
+
+### 3.2 DNS-Management & Support
+* **Anforderung:** Diagnose ("Was wird geblockt?") und Wartung ohne SSH.
+* **Panel-Feature:**
+    * **Live-Logs:** Abfrage der AdGuard API gefiltert nach Client-IP (`10.77.16.x`).
+    * **Notfall-Buttons:** "DNS Cache leeren" (Unbound flush + AdGuard refresh) und "Filterlisten aktualisieren".
+
+### 3.3 SMTP-Integration
+* **Infrastruktur:** Vorhandener, eigener Mailserver mit sauberer Reputation.
+* **Konfig (B220):** Panel nutzt **externes SMTP-Relay** (Port 587/465) statt lokalem Postfix, um Cloud-Sperren (Port 25 block) zu umgehen.
+
+### 3.4 IPC / Sicherheit
+* **Problem:** Webserver (www-data) darf keine Root-Befehle direkt ausführen.
+* **Lösung:** **File-Trigger-Mechanismus**. PHP schreibt leere Datei -> systemd Path Unit sieht Datei -> führt Root-Skript aus.
+
+---
+
+## 4. SECURITY & ABUSE PREVENTION
+
+### 4.1 Log-Rotation (Anti-Crash)
+* **Anforderung:** Keine externen Logs, aber Schutz vor "Disk Full".
+* **Lösung (B330):** Aggressive lokale Rotation.
+    * Logs werden **maximal 7 Tage** vorgehalten.
+    * Täglicher Cronjob löscht alles Ältere hart.
+
+### 4.2 Connection Rate Limit (Anti-Scan)
+* **Problem:** Viren/Scraper fallen nicht durch Bandbreiten-Limit auf, schädigen aber die IP-Reputation (Portscans, Google Captchas).
+* **Lösung (B100/nftables):**
+    * Einführung eines **Connection Rate Limits** (z.B. Max 20 neue Verbindungen pro Sekunde pro Client).
+    * Blockiert Portscanner und aggressive Bots automatisch, lässt normales Surfen zu.
+
+### 4.3 AGB / TOS
+* **Rechtliches:** Onboarding-Prozess (`B155`) muss Checkbox erzwingen: "Ich akzeptiere TOS und lade nichts Illegales." Speicherung des Zeitstempels in DB.
+
+---
+
+## 5. CLIENT-SIDE HARDENING (XP SPEZIAL)
+
+### 5.1 DNS Leak Protection (Ohne Software)
+* **Problem:** XP nutzt manchmal lokalen DNS statt VPN (schneller), wenn die Metrik nicht stimmt. Statische DNS (8.8.8.8) brechen Hotel-Logins.
+* **Lösung (B240 Setup Tool):**
+    1.  **Metrik-Hack:** Setup-Tool setzt die Interface-Metrik des **physischen** Adapters (LAN/WLAN) einmalig auf **500** (sehr hoch). VPN hat automatisch 1. -> VPN gewinnt immer.
+    2.  **Config:** `.pbk` Datei bekommt `IpPrioritizeRemote=1`.
+    3.  **DHCP:** DNS bleibt auf "Automatisch", damit Captive Portals (Hotels) funktionieren.
+
+---
+
+## 6. ZUKUNFTS-STRATEGIE (PHASE 6 / MODERN STACK)
+
+### 6.1 Die "3-Netze-Strategie"
+* Trennung der Welten zur Sicherheit und Stabilität.
+    1.  **Legacy Net (XP):** `10.77.16.0/20` (IPv4 Only, L2TP, Strikte Isolation).
+    2.  **Admin Net:** `10.77.10.0/24` (Dual Stack IPv4+IPv6, IKEv2 + L2TP, Zugriff auf alles).
+    3.  **Modern Net (Zukunft):** `10.77.32.0/20` (Dual Stack, IKEv2, IPhone/Android).
+
+### 6.2 Stealth / Undetected Strategy
+* **Erkenntnis:** XP (L2TP/IPsec) kann technisch keinen "TCP Fallback" oder Obfuscation. In DPI-Ländern (Ägypten) ist XP tot.
+* **Hintertür für Admin:**
+    * Reservierung von **TCP Port 443** auf der Public IP.
+    * Einsatz eines **Multiplexers** (sslh/nginx stream) in Phase 6.
+    * Unterscheidet Traffic: HTTPS (Setup-Tool) vs. SSL-VPN (OpenConnect/Shadowsocks für Admin-Notfallzugang).
