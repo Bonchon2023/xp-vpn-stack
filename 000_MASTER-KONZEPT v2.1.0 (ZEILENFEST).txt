@@ -20,14 +20,14 @@
 0020|     | - Admin-Panel / Admin-Tools
 0021|     | - HTTPS-Blockpage (MITM) für AdGuard-Blocklisten (“Custom IP” -> interne Blockpage)
 0022| 1.10| ONBOARDING / BUSINESS-ENFORCEMENT (MUST):
-0023|     | - Gate #1 (CLAIM): Nach Ablauf der Trial-Frist wird Internet gesperrt (Walled Garden),
-0024|     |   bis der Käufer einen Panel-Account erstellt UND die Verbindung claimed (Verknüpfung
-0025|     |   Panel-User ↔ VPN-Connection).
-0026|     | - Gate #2 (EMAIL VERIFY): Nach dem Claim läuft Internet sofort wieder (unabhängig von
-0027|     |   Verifikation), ABER wenn die Email nicht bis zur Verify-Deadline bestätigt ist, wird
-0028|     |   wieder Walled Garden erzwungen, bis verifiziert.
-0029|     | - Gate #2 ist KUNDENWEIT: ist ein Customer nicht verifiziert, bleiben ALLE claimed
-0030|     |   Verbindungen dieses Customers im Restricted Mode, bis verifiziert.
+0023|     | - Gate #1/#2 sind entfernt. Modell: Verify-Wall + Claim Token (B155) + UNCLAIMED Grace.
+0024|     | - Verify-Wall (App-Layer): Customer PENDING (email_verified_at NULL) -> nach Login nur Code/Resend/Support.
+0025|     | - Claim Token (App-Layer): Verbindung wird im eingeloggten Panel per Token einem Customer zugeordnet (B280 Regeln).
+0026|     | - UNCLAIMED Grace: Unclaimed Connections bleiben bis unclaimed_grace_until FULL; danach restricted_reason=UNCLAIMED_OVERDUE.
+0027|     | - UNCLAIMED_OVERDUE ist Kernel-Restricted (B150): Portal-Only bis Claim oder Admin "Grace reset (30 Tage)".
+0028|     | - Restricted (Kernel) wird nur durch QUOTA/EXPIRY/MANUAL/UNCLAIMED_OVERDUE ausgelöst, nicht durch Verify.
+0029|     | - Customer-Verify wirkt panelweit (UI/Feature-Gating), nicht über nftables. Internet bleibt davon unberührt.
+0030|     | - (Policy: Reject nur für DISABLED/BANNED/Missbrauch; sonst ACCEPT+restricted_effective.)
 0031|     | - Ziel: minimale Supportfälle + am Ende verifizierbare Kontakt-Email für Abuse/Compliance.
 0032| 1.11| AAA/Policy ist SQL-first ab Tag 1 (MUST):
 0033|     | - RADIUS+SQL sind “Source of Truth”; keine chap-secrets Migration.
@@ -161,18 +161,18 @@
 0161|     |   VPN_Connections (Subaccounts pro Gerät; feste IP; Limits; Status; expiry; quota; gates)
 0162|     |   Accounting (radacct)
 0163|     |   PanelUsers/ResetTokens/Emails etc. (für Webpanel)
-0164| 9.4| Onboarding-Felder (MUST, für Gate #1/#2)
+0164| 9.4| Onboarding-Felder (MUST, Verify-Wall + Claim Token + UNCLAIMED Grace)
 0165|     | - VPN_Connections zusätzlich:
 0166|     |   status: PREPROVISIONED | CLAIMED | DISABLED
 0167|     |   customer_id (NULL bis Claim)
-0168|     |   trial_until (Gate #1 Start)
-0169|     |   verify_deadline (Gate #2 Start)
-0170|     |   claim_deadline (Hard stop optional, aber empfohlen)
-0171|     |   claim_token_hash (Token liegt auf Gerät; DB speichert nur Hash)
+0168|     |   unclaimed_grace_until (bis dahin FULL; danach UNCLAIMED_OVERDUE -> restricted)
+0169|     |   unclaimed_grace_set_at (für Admin-Grace-Reset Diagnose)
+0170|     |   claim_token_hash (Token liegt auf Gerät; DB speichert nur Hash)
+0171|     |   restricted_effective (BOOL, indexed; aus SQL berechnet/geführt)
 0172|     | - Customers zusätzlich:
-0173|     |   email_verified_at (NULL bis Verify)
+0173|     |   email_verified_at (NULL bis Verify; steuert Verify-Wall im Panel, kein Kernel-Trigger)
 0174| 9.5| “Restricted statt Reject” (MUST):
-0175|     | - Gate/Quota/Verify/Manual -> ACCEPT + restricted_effective + restricted_reason
+0175|     | - QUOTA/EXPIRY/MANUAL/UNCLAIMED_OVERDUE -> ACCEPT + restricted_effective + restricted_reason
 0176|     | - Reject nur für DISABLED/BANNED/Missbrauch
 0177| 9.6| DB-Down Policy (MUST, fail-closed):
 0178|     | - Wenn SQL/RADIUS-Policy nicht sauber evaluierbar ist: Zugriff wird nicht erlaubt.
@@ -289,21 +289,21 @@
 0289|     | - DB Felder: quota_total, quota_used, quota_reset_policy
 0290|     | - Accounting Collector schreibt Deltas batchweise (kein DB-spam).
 0291|     | - Quota-Logik setzt restricted_effective bei <=0 (kein sofortiges Reject).
-0292| 18.3| Restricted Mode (Walled Garden) – MUST (Basis für Gate #1/#2 + Quota/Verify)
+0292| 18.3| Restricted Mode (Walled Garden) – MUST (Portal-Only bei QUOTA/EXPIRY/MANUAL/UNCLAIMED_OVERDUE)
 0293|     | - Erlaubt im Restricted Mode NUR:
 0294|     |   * DNS (TCP/UDP 53) -> 10.77.0.1
-0295|     |   * HTTP/HTTPS (80/443) -> 10.77.0.1 (Panel/Status/Verify/Resend)
+0295|     |   * HTTP/HTTPS (80/443) -> 10.77.0.1 (Panel/Status/Claim/Support)
 0296|     |   * NTP (UDP 123) -> 10.77.0.1
-0297|     | - Alles andere: DROP (kein normales Internet)
-0298| 18.4| Gate #1 (CLAIM) – HARD (MUST)
-0299|     | - Bedingung: now > trial_until UND status = PREPROVISIONED (customer_id ist NULL)
-0300|     | - Aktion: Restricted Mode aktiv, bis Claim abgeschlossen
-0301|     | - Claim bedeutet: Käufer registriert Panel-Account + gibt Claim-Token ein
-0302|     | - Ergebnis: Connection wird CLAIMED (customer_id gesetzt) -> Internet sofort wieder frei
-0303| 18.5| Gate #2 (EMAIL VERIFY) – HARD (MUST)
-0304|     | - Bedingung: now > verify_deadline UND email_verified_at ist NULL
-0305|     | - Aktion: Restricted Mode aktiv, bis Email verifiziert
-0306|     | - Scope: kundenweit (alle claimed Connections des Customers bleiben restricted)
+0297|     |   * ICMP echo -> 10.77.0.1 (Diagnose)
+0298|     | - Alles andere: DROP (kein normales Internet)
+0299| 18.4| UNCLAIMED_OVERDUE – Kernel-Restricted (MUST)
+0300|     | - Bedingung: customer_id IS NULL UND now > unclaimed_grace_until
+0301|     | - Aktion: Restricted Mode aktiv, bis Claim oder Admin "Grace reset (30 Tage)"
+0302|     | - Claim bedeutet: eingeloggter Customer nutzt Claim-Token im Panel (B155/B280 Regeln)
+0303|     | - Ergebnis: Connection wird CLAIMED (customer_id gesetzt) -> Internet frei (sofern kein anderer Restricted-Reason)
+0304| 18.5| VERIFY-WALL (Email-Verify) – App-Layer (MUST)
+0305|     | - Bedingung: Customer PENDING (email_verified_at NULL) -> UI blockt Panel-Innenleben (Code/Resend/Support)
+0306|     | - Wichtig: VERIFY-WALL ist KEIN nftables/Kernel-Restricted-Trigger (Internet bleibt davon unberührt)
 0307| 
 0308| 19) SERVICE WATCHDOG / STABILITÄT (MUST)
 0309| 19.1| systemd Auto-Restart:
@@ -343,11 +343,11 @@
 0343| - tc (CAKE/fq_codel) pro pppX via ip-up mit DB Parametern
 0344| - Live-Drosselung testbar
 0345| 
-0346| Phase 3: Webpanel + Gates + /diag
-0347| - OpenResty + PHP-FPM + MariaDB + phpMyAdmin intern
-0348| - Panel: User Login mit IP-Abgleich + Reset via externem Mailserver
-0349| - Claim/Verify UX inkl. Gate #1/#2 (kundenweit Gate #2)
-0350| - Panel-Events triggern vpn-policy-apply
+0346| Phase 3: Webpanel + Verify-Wall + Claim Token + /diag
+0347| - OpenResty + PHP-FPM + MariaDB intern (Admin-only Scopes)
+0348| - Panel: User Login IP-bound (Customer Allowlist) + Reset via externem Mailserver
+0349| - Verify-Wall (kundenweit) + Claim Token (ohne Gate #1/#2), inkl. UNCLAIMED Grace/Overdue-UI
+0350| - Panel-Events triggern vpn-policy-apply (B166) + Reconcile Backstop
 0351| - /diag Endpoint
 0352| - MyPal NSS Import Bundle
 0353| 
@@ -370,5 +370,5 @@
 0370|     | - darf Admin UIs (pma/adguard ui) und SSH, aber alles explizit freigeschaltet.
 0371| 
 0372| ==================================================================================================
-0373| ENDE MASTER-KONZEPT v2.0.1 (ZEILENFEST)
+0373| ENDE MASTER-KONZEPT v2.1.0 (ZEILENFEST)
 0374| ==================================================================================================

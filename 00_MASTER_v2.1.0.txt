@@ -1,7 +1,7 @@
-vpn_masterkonzept/00_MASTER_v2.0.txt
+vpn_masterkonzept/00_MASTER_v2.1.0.txt
 ================================================================================
 MASTER-KONZEPT: XP/Vista Full-Tunnel VPN auf Debian 13 (from scratch)
-MASTER VERSION: v2.0.1
+MASTER VERSION: v2.1.0
 STATUS: ACTIVE (produktionstaugliche Ziel-Architektur)
 DATUM: (von dir eintragen)
 AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
@@ -19,14 +19,12 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
 - "Source of Truth" für Nutzer/Verbindungen/Expiry/Quota/Stats ist SQL ab Tag 1.
 - AAA ist SQL-first ab Tag 1 (kein chap-secrets als Master), inklusive Accounting-Grundlage.
 
-- ONBOARDING ist HARD und bindend (2 Gates, 1 Mechanismus):
-  Gate #1 (CLAIM): Nach Trial-Ende wird Internet gesperrt (Walled Garden), bis eine Verbindung geclaimed ist.
-  Gate #2 (EMAIL VERIFY): Nach Claim ist Internet sofort frei, ABER nach Verify-Deadline wird Internet wieder
-  gesperrt (Walled Garden), bis Email verifiziert ist.
-- Gate #2 ist KUNDENWEIT (Decision D008): ist ein Customer nicht verifiziert, bleiben ALLE claimed Verbindungen
-  dieses Customers im Restricted Mode, bis verifiziert.
-- Walled Garden ist damit NICHT optional, sondern zwingende Kern-Policy (gilt für Gate #1/#2 und später Quota/Expiry).
-- Email-Verifikation ist technisch nicht “UX”, sondern Compliance/Abuse-Kontakt: Ohne Verify wird Gate #2 erzwungen.
+- ONBOARDING ist HARD und bindend (ohne Gate #1/#2):
+  - Modell: Verify-Wall + Claim-Token (App-Layer) + UNCLAIMED Grace/Overdue (Kernel-Restricted).
+  - Verify-Wall (App-Layer): Customer PENDING (email_verified_at NULL) -> nach Login nur Code/Resend/Support (kein Panel-Innenleben).
+  - Claim-Token (App-Layer): Verbindung wird im eingeloggten Panel per Token einem Customer zugeordnet (B155/B280 Regeln).
+  - UNCLAIMED Grace: Unclaimed Connections bleiben bis unclaimed_grace_until FULL; danach restricted_reason=UNCLAIMED_OVERDUE -> Walled Garden/Portal-Only (B150).
+  - Restricted (Kernel) wird nur durch QUOTA/EXPIRY/MANUAL/UNCLAIMED_OVERDUE ausgelöst, nicht durch Verify.
 
 - Default-WAN-Interface im Konzept: ens13 (falls abweichend: in Assumptions anpassen).
 - IPv6 ist deaktiviert (Provider + OS), um Leaks/Überraschungen zu vermeiden.
@@ -38,8 +36,8 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
   DNAT TCP+UDP 53 von iif ppp* -> 10.77.0.1:53 (AdGuardHome).
   Klassisches DNS (Port 53) wird immer über AdGuardHome erzwungen; DoH/DoT wird in dieser Runde nicht behandelt (PARKED).
 
-- Restricted statt Reject (MUST, Kernregel):
-  Gate/Quota/Verify/Manual -> ACCEPT + restricted_effective + restricted_reason.
+- Restricted statt Reject: QUOTA/EXPIRY/MANUAL/UNCLAIMED_OVERDUE -> ACCEPT + restricted_effective + restricted_reason
+  - Verify (Email-Verify) ist App-Layer (Verify-Wall) und KEIN Restricted-Trigger.
   Reject nur für DISABLED/BANNED/Missbrauch.
 
 - Policy-Enforcement ist deterministisch (MUST):
@@ -65,7 +63,7 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
 
 - Policy:
   - nftables: WAN minimal offen (UDP 500/4500 + ESP), 1701 nur via IPsec/XFRM,
-    Forward+NAT, Peer-Isolation, Abuse-Outbound-Block, Walled-Garden (HARD: Gate#1 Claim + Gate#2 Email-Verify
+    Forward+NAT, Peer-Isolation, Abuse-Outbound-Block, - Walled-Garden (HARD: Restricted QUOTA/EXPIRY/MANUAL/UNCLAIMED_OVERDUE; Verify läuft als App-Layer Verify-Wall)
     customerwide + später Quota/Expiry)
   - tc: Bandbreite pro pppX (CAKE/fq_codel), live drosselbar
 
@@ -84,11 +82,11 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
   - Reconcile (<=5min): FLUSH+REBUILD restricted_v4 (Drift-Schutz)
   - Boot-Reconcile: /run ist tmpfs, daher Reconcile nach reboot zwingend
 
-- Onboarding (2 Gates, HARD via Walled Garden / Restricted Mode):
-  - Gate #1 (Trial -> Claim): Nach trial_until nur noch DNS + Panel/Status erreichbar, bis Claim erfolgt.
-  - Gate #2 (Verify Deadline): Nach Claim Internet sofort frei; wenn Email bis verify_deadline nicht bestätigt,
-    wieder nur DNS + Panel/Status, bis verifiziert.
-  - Gate #2 ist kundenweit: ohne Verify bleibt ALLES des Customers restricted, bis verifiziert.
+- ONBOARDING (Verify-Wall + Claim Token, ohne Gate#1/#2)
+  - Verify-Wall (App-Layer): Customer PENDING -> nach Login nur Code/Resend/Support (kein Panel-Innenleben).
+  - Claim Token (App-Layer): eingeloggter Customer claimed eine VPN-Connection per Token (B155/B280 Regeln).
+  - UNCLAIMED Grace/Overdue (Kernel): Unclaimed Connections sind bis unclaimed_grace_until FULL; danach restricted_reason=UNCLAIMED_OVERDUE -> portal-only (B150).
+  - Admin kann "Grace reset (30 Tage)" auslösen (setzt unclaimed_grace_until neu), danach wieder FULL (sofern kein anderer Restricted-Reason aktiv).
 
 - Webstack intern:
   - OpenResty (Nginx+Lua) + PHP-FPM + DB + phpMyAdmin (admin-only)
@@ -127,8 +125,8 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
 - B120 nftables Forward + NAT Full-Tunnel
 - B130 nftables Peer Isolation
 - B140 nftables Outbound Abuse Blocks
-- B150 Walled Garden (HARD: Gate#1 Claim + Gate#2 Email Verify customerwide + Quota/Expiry)
-- B155 Onboarding Gates (Gate#1 Claim + Gate#2 Email Verify) – State Machine / Deadlines / Enforcement
+- B150: Walled Garden / Restricted Mode (Quota/Expiry/Manual + UNCLAIMED_OVERDUE)
+- B155: Onboarding / Verify-Wall / Claim Token (ohne Gate#1/Gate#2)
 - B160 tc QoS pro PPP
 - B165 Accounting Collector / Session Mapping (pppX -> connection_id) / durable spool
 - B166 Policy Apply + Reconcile (deterministisch, FLUSH+REBUILD restricted sets)
@@ -147,6 +145,7 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
 - B260 Time/NTP Strategy
 - B270 Diagnose Endpoint /diag
 - B280 Panel Features (User/Admin)
+- B285: Panel Security Model (AuthN/AuthZ/Session/CSRF, internal-only)
 - B290 Rollout Phasenplan
 - B300 Security/Stealth Guidelines
 
@@ -158,7 +157,7 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
 - B050 -> B160, B150, B155, B280, B270, B165, B166, B167, B168, B169
   (Accounting/Quota/Onboarding/Stats + Policy Apply/Reconcile + Stale/On-demand Flow)
 - B060 -> B100..B150, B200..B230 (Ports/Bindings)
-- B155 -> B050, B150, B280, B220 (Gates brauchen SQL-Truth + Walled Garden + Panel + Webstack)
+- B155 (Onboarding) -> B050,B280,B220 (Verify-Wall/Claim Token brauchen SQL-Truth + Panel + Webstack; UNCLAIMED_OVERDUE Enforcement liegt in B150)
 - B165 -> B167 (Mapping wird durch ip-up/ip-down erzeugt) und -> B050 (Quota/Truth) und -> B168 (Safety Check)
 - B166 -> B150, B120, B130 (Restricted Enforcement/Hook-Placement) und -> B280 (Panel triggers apply)
 - B167 -> B166, B165, B168, B169 (Wiring für Apply/Reconcile/Collector/Janitor/Login-Flow)
@@ -195,5 +194,5 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
 - Siehe: 04_BLOCK_INDEX.txt
 
 ================================================================================
-ENDE 00_MASTER_v2.0.txt
+ENDE 00_MASTER_v2.1.0.txt
 ================================================================================

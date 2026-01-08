@@ -9,6 +9,7 @@ v2.1.0 (2026-01-08)
   - Gate #1/#2 entfernt -> Verify-Wall + Claim-Token (B155)
   - Verify ist App-Layer (Panel UI), kein Kernel-Restricted-Trigger
   - UNCLAIMED Grace + UNCLAIMED_OVERDUE als Restricted-Quelle (Portal-Only) bis Claim/Grace-Reset
+- Fix: Master-Dateien bereinigt (00_MASTER_* + 000_MASTER-*): verbliebene Gate#1/#2-Textreste entfernt; UNCLAIMED-Grace/UNCLAIMED_OVERDUE konsistent dokumentiert.
 - Concurrency/Stability nachgezogen:
   - atomic SimUse-Guard via active_session_locks (DB-Schema in B055/B056)
   - vpn_connections.restricted_effective (indexed) für High-Perf Reconcile (B166)
