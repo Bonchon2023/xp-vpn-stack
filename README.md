@@ -2,7 +2,7 @@
 
 A **Debian 13** “from scratch” **L2TP/IPsec (strongSwan + xl2tpd/pppd)** VPN stack designed specifically for **Windows XP / Vista** clients.
 
-Goal: **Full-Tunnel**, minimal client configuration, deterministic server-side policy, and a production-ready operational model (AAA, accounting, QoS, DNS stack, internal webpanel, blockpage MITM, onboarding gates).
+Goal: **Full-Tunnel**, minimal client configuration, deterministic server-side policy, and a production-ready operational model (AAA, accounting, QoS, DNS stack, internal webpanel, blockpage MITM, onboarding: Verify-Wall + Claim Token + UNCLAIMED Grace/Overdue).
 
 ---
 
@@ -52,11 +52,12 @@ The intended outcome is a reproducible server setup where the VPN software provi
   - XP browser target: **MyPal** with NSS trust store handling
 - **Time/NTP strategy**
   - XP time problems handled (pre-/post-connect strategy; optional NTP hijack to `10.77.0.1`)
-- **Onboarding gates (v2.0 hardened)**
-  - Gate#1: claim / link device+VPN connection to a user account
-  - Gate#2: email verification hard gate
-  - **Gate#2 is customerwide** (unverified customer → all claimed connections restricted)
-  - enforcement via **Restricted Mode / Walled Garden** (panel-only access)
+## Onboarding (v2.1.1)
+- Verify-Wall (App-Layer): Customer PENDING sieht nach Login nur Code/Resend/Support.
+- Claim Token (App-Layer): Claim ordnet eine VPN-Connection einem Customer zu (Token als Besitznachweis).
+- UNCLAIMED Grace/Overdue (Kernel): 30 Tage ab Provisioning/Erstellung Internet frei; danach UNCLAIMED_OVERDUE -> "Nur Panel-Zugriff" (Walled Garden), damit Verify+Claim weiterhin möglich sind.
+- Hard-Stop gegen Leichen (Standardbetrieb): claim_deadline immer gesetzt (180 Tage). Nach Ablauf unclaimed -> DISABLED (kein VPN/kein Panel).
+
 
 ---
 
@@ -142,7 +143,8 @@ See `B290_PHASE_PLAN_ROLLOUT` and the MASTER file for the authoritative phase pl
 
 ## Status
 
-- - Spec baseline: **MASTER v2.0.1**
+- - Spec baseline: **MASTER v2.1.1**
+- Decision records: present (incl. D008 Verify-Wall customer scope)
 - Blocks: B010–B300 present (incl. v2.0 additions B165–B169)
 - Decision records: present (incl. D008 customerwide Gate#2)
 - Templates: present

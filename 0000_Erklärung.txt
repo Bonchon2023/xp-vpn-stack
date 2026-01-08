@@ -105,7 +105,7 @@ decisions/
 ├─ D005_OFFLOAD_DEFAULT_VM.txt
 ├─ D006_NTP_MANDATORY_XP.txt
 ├─ D007_SUBACCOUNTS_PER_DEVICE.txt
-└─ D008_GATE2_CUSTOMERWIDE_VERIFY.txt
+└─ D008_VERIFY_WALL_CUSTOMER_SCOPE.txt
 
 
 Template:
@@ -141,7 +141,7 @@ B020 Goals → steuert alle
 
 B040 Stack → bedingt B070, B080, B090, B100…
 
-B050 SQL/RADIUS → bedingt B150 (Gates/Restricted/Quota), B155 (State Machine), B160 (QoS aus DB),
+B050 SQL/RADIUS → bedingt B150 (Restricted/Quota), B155 (State Machine), B160 (QoS aus DB),
 B165 (Accounting Collector / Session Mapping), B166 (Policy Apply/Reconcile), B167 (Hooks/systemd),
 B168/B169 (Stale/On-demand Login Flow), B280 (Panel), B270 (Diag)
 
@@ -181,7 +181,7 @@ DNS-ZWANG ist IMMER aktiv (MUST): DNAT TCP+UDP 53 von iif ppp* -> 10.77.0.1:53.
 
 Onboarding ist App-Layer:
 - Verify-Wall: Panelzugriff ist bis zur Email-Code-Bestätigung auf die Verify-Seite begrenzt.
-- Claim läuft per Claim-Token im Panel (keine Gate#1/Gate#2 Begriffe mehr).
+- Claim läuft per Claim-Token im Panel (Verify-Wall + Claim-Token + Grace/Overdue).
 
 Restricted Mode (Kernel / nftables) ist davon getrennt und wird nur aktiv durch:
 - Quota / Expiry / Manual

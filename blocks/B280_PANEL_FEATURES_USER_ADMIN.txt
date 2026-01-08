@@ -2,7 +2,7 @@ vpn_masterkonzept/blocks/B280_PANEL_FEATURES_USER_ADMIN.txt
 ================================================================================
 BLOCK-ID: B280
 TITLE: Panel Features (User/Admin)
-VERSION: v1.7
+VERSION: v1.8
 STATUS: ACTIVE
 PRIORITY: MUST
 OWNER-INTENT: Self-service, weniger Support, klare Trennung.
@@ -35,12 +35,24 @@ OWNER-INTENT: Self-service, weniger Support, klare Trennung.
   - Panel zeigt restricted_reason + klare Handlung (Claim / Quota / Expiry / Manual).
   - Zusätzlich (App-Layer unabhängig von restricted_reason): Wenn Customer PENDING ist, bleibt die Verify-Wall aktiv (Code/Resend/Support).
   - Panel bleibt erreichbar, auch wenn Internet gesperrt ist (Walled Garden).
-- UNCLAIMED_OVERDUE:
-  - Panel zeigt Countdown/Datum: unclaimed_grace_until (für Admin sichtbar; optional auch für User mit Hinweis).
+- UNCLAIMED_OVERDUE (Restricted Reason):
+  - Panel zeigt für UNCLAIMED Grace alle 3 Formen parallel:
+    - Countdown ("noch X Tage")
+    - Datum ("bis DD.MM.YYYY", aus unclaimed_grace_until)
+    - Warnstufen (z.B. ab Tag 20 gelb, ab Tag 28 rot)
+    Sichtbarkeit: Admin immer; User sichtbar mit klarer CTA ("Bitte claimen, sonst nur noch Panel-Zugriff").
   - Wenn UNCLAIMED_OVERDUE aktiv: Panel-CTA ist "Verify + Claim", da Internet erst nach Claim wieder frei wird.
-  - Admin-Action: "Grace reset (30 Tage)" setzt unclaimed_grace_until = now + 30d und unclaimed_grace_set_at = now; danach greift wieder FULL (sofern kein anderer Restricted-Reason aktiv ist).
+  - Admin-Action: "Grace reset (30 Tage)":
+    - setzt ausschließlich unclaimed_grace_until = NOW()+30d
+    - setzt unclaimed_grace_set_at = NOW()
+    - verändert NICHT claim_deadline
+  - Admin-Action: "Deadline verlängern":
+    - setzt claim_deadline = NOW()+180d (Standard: neu setzen)
+    - setzt claim_deadline_set_at = NOW()
+    - verändert NICHT unclaimed_grace_until
+  - Admin sieht zusätzlich claim_deadline als Datum; optional Warnstufe kurz vor Hard-Stop (Admin-only).
 - DISABLED (re-aktivierbar):
-  - Admin-Action: "Re-enable" setzt status=PREPROVISIONED (oder ENABLED je nach finalem Statusmodell) und triggert Apply/Reconcile (B166).
+- Admin-Action: "Re-enable" setzt status=PREPROVISIONED und triggert Apply/Reconcile (B166).
 - Panel-Statusänderungen, die Kernel-Policy beeinflussen (Claim/Unclaim/Quota/Expiry/Manual/Speed), MÜSSEN serverseitig ein Apply triggern (B166), damit Wirkung sofort greift.
 - Hinweis: Verify-Wall (Email-Verify) ist App-Layer und KEIN Kernel-Policy-Trigger; dafür ist kein nftables Apply nötig.
 - Safety-Net: Falls ein Trigger ausfällt, korrigiert Reconcile (B166) den Zustand spätestens innerhalb <= 5 Minuten.
@@ -82,6 +94,7 @@ OWNER-INTENT: Self-service, weniger Support, klare Trennung.
 - Admin Grace Reset Test: UNCLAIMED_OVERDUE aktiv -> Admin setzt Grace reset -> restricted entfernt (wenn kein weiterer Grund) -> Internet frei.
 
 10) CHANGELOG
+- v1.8 (2026-01-08): UNCLAIMED Grace UI (Countdown+Datum+Warnstufen) konsolidiert; Admin-Actions semantisch präzisiert (Grace reset nur Grace, Deadline verlängern setzt claim_deadline=NOW()+180d); claim_deadline Admin-Sicht ergänzt; DISABLED Re-enable auf PREPROVISIONED kanonisiert.
 - v1.7 (2026-01-07): ABHÄNGIGKEITEN ergänzt (B155 Verify-Wall/Claim, B166 Apply/Reconcile), keine Logikänderung.
 - v1.6: Apply-Trigger präzisiert: Verify (Email-Verify) ist App-Layer und kein Kernel-Policy-Trigger; Apply nur für Claim/Unclaim/Quota/Expiry/Manual/Speed. (Optional: restricted CTA/Reason Text schichtentrennend präzisiert.)
 - v1.5: Panel-Logik ergänzt für UNCLAIMED_OVERDUE (Variante 2: unclaimed_grace_until) inkl. Admin "Grace reset" + Hinweise/CTA. DISABLED als re-aktivierbarer Admin-Fall dokumentiert.

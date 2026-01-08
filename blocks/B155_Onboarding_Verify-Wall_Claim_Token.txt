@@ -1,7 +1,7 @@
 ================================================================================
 BLOCK ID: B155
-TITLE: Onboarding / Verify-Wall / Claim Token (ohne Gate#1/Gate#2)
-VERSION: v2.1
+TITLE: Onboarding / Verify-Wall / Claim Token
+VERSION: v2.2
 STATUS: ACTIVE
 OWNER: Marco
 OWNER-INTENT: Minimaler Support + verifizierbare Kontakt-Email. Panel-Innenleben erst nach Email-Code-Verifikation; Claim nur nach Verifikation und nur per Claim-Token (keine VPN-Client-Credentials nötig).
@@ -15,7 +15,7 @@ NOTES:
 ================================================================================
 
 1) ZWECK
-- Definiert den vollständigen, zeilenfesten Ablauf für Onboarding ohne Gate#1/Gate#2:
+- Definiert den vollständigen, zeilenfesten Ablauf für Onboarding:
   (a) Gerät ist PREPROVISIONED (VPN steht; Connection ist UNCLAIMED)
   (b) User registriert Panel-Account
   (c) Login ist möglich, aber bei PENDING wird das Panel-Innenleben durch eine Verify-Wall ersetzt
@@ -62,7 +62,7 @@ NOTES:
 - customer_id (NULL bis Claim)
 - claim_token_hash (DB speichert Hash; Klartext-Token liegt auf dem Gerät)
 - claimed_at (timestamp)
-- OPTIONAL: claim_deadline (Hard stop gegen „ewige Leichen“)
+- MUST: claim_deadline (Hard stop gegen „ewige Leichen“; Standardbetrieb: immer gesetzt = created_at + 180 Tage; nach Ablauf UNCLAIMED -> DISABLED)
 - MUST: unclaimed_grace_until (timestamp; bis dahin FULL, danach UNCLAIMED_OVERDUE => Restricted Panel-only)
 - SHOULD: unclaimed_grace_set_at (timestamp; Admin-Reset setzt neu)
 
@@ -124,7 +124,7 @@ NOTES:
   - Name/Identity der Connection bleibt fix (kein Rename durch User)
 
 7) RESTRICTED MODE (Walled Garden)
-- Onboarding selbst nutzt KEIN Gate#1/Gate#2 Restricted Enforcement mehr.
+- Onboarding löst kein eigenes Kernel-Enforcement aus; Kernel-Restricted wird ausschließlich durch QUOTA/EXPIRY/MANUAL/UNCLAIMED_OVERDUE ausgelöst.
 - Restricted Mode bleibt Kernel-Enforcement (B150/B050) und wird ausgelöst durch:
   - Quota / Expiry / Manual
   - UNCLAIMED_OVERDUE: customer_id IS NULL AND now > unclaimed_grace_until
@@ -132,11 +132,45 @@ NOTES:
   - Nach 30 Tagen ohne Claim wird der Client auf "Panel-only" gesetzt, damit Verify + Claim auch ohne Internet weiterhin möglich sind.
 - Verify-Wall ist App-Layer und unabhängig vom nftables Restricted Set.
 
-8) OPTIONAL: HARD STOP (empfohlen)
-- claim_deadline:
-  - Wenn now > claim_deadline UND status=PREPROVISIONED UND customer_id IS NULL:
-    -> DISABLED (no VPN; RADIUS reject, siehe B050)
-- Zweck: keine dauerhaft offenen unclaimed Zugänge.
+8) HARD STOP (Standardbetrieb: MUST)
+- claim_deadline ist im Standardbetrieb IMMER gesetzt: 180 Tage ab Provisioning/Erstellung (created_at).
+- Wenn now > claim_deadline UND status=PREPROVISIONED UND customer_id IS NULL:
+  -> status = DISABLED
+  -> Enforcement: RADIUS reject (kein VPN; damit auch kein Panel über diesen Client).
+
+8.1 Admin-Actions (solange vpn_connection Datensatz existiert)
+- Grace reset:
+  - setzt ausschließlich unclaimed_grace_until = NOW()+30d
+  - setzt zusätzlich unclaimed_grace_set_at = NOW()
+  - verändert NICHT claim_deadline
+- Deadline verlängern:
+  - setzt ausschließlich claim_deadline = NOW()+180d (Standard: neu setzen)
+  - setzt zusätzlich claim_deadline_set_at = NOW()
+  - verändert NICHT unclaimed_grace_until
+- Re-enable:
+  - DISABLED -> PREPROVISIONED (nur solange Datensatz existiert)
+- Re-provision (Lifecycle-Reset desselben Geräts, Token bleibt gleich):
+  - nur erlaubt, wenn status != CLAIMED (niemals CLAIMED zurücksetzen)
+  - setzt status=PREPROVISIONED, customer_id=NULL, claimed_at=NULL
+  - setzt unclaimed_grace_until = NOW()+30d
+  - setzt claim_deadline = NOW()+180d
+
+8.2 Determinismus / Race (MUST)
+RF-01 Claim vs Hard-Stop-Janitor:
+- Claim und Janitor dürfen nicht parallel inkonsistent schreiben.
+- Kanonisch: Entweder Claim gewinnt (-> CLAIMED), oder Janitor gewinnt (-> DISABLED).
+- Umsetzungsidee (SQL-first): Row-Lock auf vpn_connections.id (SELECT ... FOR UPDATE) für Claim und Janitor.
+
+8.3 STATE TABLE (ENTWURF)
+| Ebene | Objekt | Zustand/Flag | Bedingung | Effekt (User/UI) | Enforcement |
+|------:|--------|--------------|-----------|------------------|------------|
+| App   | Customer | PENDING | email_verified_at IS NULL | Verify-Wall: nur Code/Resend/Support | Panel-Guard |
+| App   | Customer | ACTIVE | email_verified_at gesetzt | Panel-Innenleben | — |
+| DB    | vpn_connection | PREPROVISIONED | status=PREPROVISIONED AND customer_id IS NULL | Internet frei bis Grace; Claim möglich | PPP/RADIUS accept |
+| DB    | vpn_connection | CLAIMED | status=CLAIMED AND customer_id gesetzt | Internet frei (sofern nicht restricted_effective) | PPP/RADIUS accept |
+| DB    | vpn_connection | DISABLED | status=DISABLED | kein VPN, kein Panel über diesen Client | RADIUS reject |
+| Kernel | restricted_effective | true | restricted_reason ∈ {QUOTA, EXPIRY, MANUAL, UNCLAIMED_OVERDUE} | "Internet gesperrt" + "Nur Panel-Zugriff" | nft/tc via B150/B166 |
+| Kernel | UNCLAIMED_OVERDUE | aktiv | customer_id IS NULL AND now > unclaimed_grace_until | "Nur Panel" bis Claim/Admin | nft via B150 |
 
 9) TESTFÄLLE (MUST – Konzept-Tests)
 - T1: PENDING Login -> Verify-Wall; nur Code/Resend/Support sichtbar; kein Panel-Innenleben erreichbar.
@@ -153,6 +187,9 @@ NOTES:
 - RADIUS Attribute Mapping: B050
 
 11) CHANGELOG
+HINWEIS: Der Changelog kann historische Begriffe enthalten. Maßgeblich ist der aktuelle Blocktext/Glossar.
+
+- v2.2: claim_deadline Standardbetrieb kanonisiert (immer gesetzt, 180d, danach DISABLED hard). Admin-Actions (Grace reset / Deadline verlängern / Re-enable / Re-provision) + Determinismus (Claim vs Janitor) + State-Table (ENTWURF) ergänzt. Gate-Terminologie im Blocktext entfernt.
 - v2.1: UNCLAIMED-30d-Flow ergänzt (Variante 2: unclaimed_grace_until). Neuer Restricted-Trigger UNCLAIMED_OVERDUE führt nach Ablauf zu Panel-only (Walled Garden), damit Verify+Claim weiterhin möglich sind; nach Claim sofortige Freischaltung (falls kein anderer Restricted-Reason aktiv).
 - v2.0: Gate#1/Gate#2 entfernt. Neuer kanonischer Onboarding-Flow: Login erlaubt, aber PENDING wird per Verify-Wall (Code/Resend/Support) blockiert; Claim nur nach Verify und nur per Claim-Token; keine VPN-Client-Credentials nötig. Optionaler Hard-Stop (claim_deadline) bleibt als Empfehlung.
 - v1.3: Logik-Präzisierung: Claim schaltet NICHT pauschal Internet frei; Prüfung auf Gate#2 (Verify/Overdue) erfolgt sofort beim Claim (kein toter Winkel).

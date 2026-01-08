@@ -1,7 +1,7 @@
-vpn_masterkonzept/00_MASTER_v2.1.0.txt
+vpn_masterkonzept/00_MASTER_v2.1.1.txt
 ================================================================================
 MASTER-KONZEPT: XP/Vista Full-Tunnel VPN auf Debian 13 (from scratch)
-MASTER VERSION: v2.1.0
+MASTER VERSION: v2.1.1
 STATUS: ACTIVE (produktionstaugliche Ziel-Architektur)
 DATUM: (von dir eintragen)
 AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
@@ -19,7 +19,7 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
 - "Source of Truth" für Nutzer/Verbindungen/Expiry/Quota/Stats ist SQL ab Tag 1.
 - AAA ist SQL-first ab Tag 1 (kein chap-secrets als Master), inklusive Accounting-Grundlage.
 
-- ONBOARDING ist HARD und bindend (ohne Gate #1/#2):
+- ONBOARDING ist HARD und bindend:
   - Modell: Verify-Wall + Claim-Token (App-Layer) + UNCLAIMED Grace/Overdue (Kernel-Restricted).
   - Verify-Wall (App-Layer): Customer PENDING (email_verified_at NULL) -> nach Login nur Code/Resend/Support (kein Panel-Innenleben).
   - Claim-Token (App-Layer): Verbindung wird im eingeloggten Panel per Token einem Customer zugeordnet (B155/B280 Regeln).
@@ -82,7 +82,7 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
   - Reconcile (<=5min): FLUSH+REBUILD restricted_v4 (Drift-Schutz)
   - Boot-Reconcile: /run ist tmpfs, daher Reconcile nach reboot zwingend
 
-- ONBOARDING (Verify-Wall + Claim Token, ohne Gate#1/#2)
+- ONBOARDING (Verify-Wall + Claim Token)
   - Verify-Wall (App-Layer): Customer PENDING -> nach Login nur Code/Resend/Support (kein Panel-Innenleben).
   - Claim Token (App-Layer): eingeloggter Customer claimed eine VPN-Connection per Token (B155/B280 Regeln).
   - UNCLAIMED Grace/Overdue (Kernel): Unclaimed Connections sind bis unclaimed_grace_until FULL; danach restricted_reason=UNCLAIMED_OVERDUE -> portal-only (B150).
@@ -126,7 +126,7 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
 - B130 nftables Peer Isolation
 - B140 nftables Outbound Abuse Blocks
 - B150: Walled Garden / Restricted Mode (Quota/Expiry/Manual + UNCLAIMED_OVERDUE)
-- B155: Onboarding / Verify-Wall / Claim Token (ohne Gate#1/Gate#2)
+- B155: Onboarding / Verify-Wall / Claim Token
 - B160 tc QoS pro PPP
 - B165 Accounting Collector / Session Mapping (pppX -> connection_id) / durable spool
 - B166 Policy Apply + Reconcile (deterministisch, FLUSH+REBUILD restricted sets)
@@ -179,12 +179,15 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
 - NTP Pflicht (Pre-Connect + Post-Connect)
 - Offload-Tuning Default (VM-Phantomfehler minimieren)
 - DNS-Zwang ist IMMER aktiv (MUST): DNAT TCP+UDP 53 -> 10.77.0.1:53
-- Onboarding ist 2-Gate HARD Enforcement (Restricted Mode / Walled Garden):
-  - Gate #1 (Claim) nach Trial-Ende -> Walled Garden bis Claim
-  - Gate #2 (Email Verify) nach Verify-Deadline -> Walled Garden bis verifiziert
-  - Gate #2 ist kundenweit (Decision D008): ohne Verify bleiben alle claimed Connections restricted
-- Restricted statt Reject ist bindend (nur DISABLED/BANNED/Missbrauch -> Reject)
-- B155 ist der zentrale State-Machine Block für Gate #1/#2 (Deadlines/States/Enforcement-Regeln)
+- Onboarding ist HARD und bindend:
+  - Verify-Wall (App-Layer): Customer PENDING (email_verified_at NULL) -> nach Login nur Code/Resend/Support (kein Panel-Innenleben; kein Claim).
+  - Claim-Token (App-Layer): eingeloggter Customer claimed eine VPN-Connection per Token (B155/B280 Regeln).
+  - UNCLAIMED Grace/Overdue (Kernel): Unclaimed Connections sind bis unclaimed_grace_until FULL; danach restricted_reason=UNCLAIMED_OVERDUE -> "Nur Panel-Zugriff" (B150).
+  - Verify ist App-Layer und KEIN Kernel-Restricted Trigger.
+- Hard-Stop gegen „ewige Leichen“ (Standardbetrieb):
+  - claim_deadline ist IMMER gesetzt (180 Tage ab Provisioning/Erstellung).
+  - Wenn nach Ablauf weiterhin UNCLAIMED -> status=DISABLED (HARD; RADIUS reject; kein VPN/kein Panel).
+- B155 ist der zentrale State-Machine Block für Verify-Wall/Claim/Grace/Hard-Stop (Deadlines/States/Enforcement/Atomicity).
 - Policy Apply/Reconcile ist deterministisch (B166/B167): restricted sets werden per FLUSH+REBUILD konsistent gehalten
 - Stale-Session-Problem wird aktiv gelöst (B168/B169), damit Simultaneous-Use=1 nicht zu Support-Lockouts führt
 
@@ -194,5 +197,5 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
 - Siehe: 04_BLOCK_INDEX.txt
 
 ================================================================================
-ENDE 00_MASTER_v2.1.0.txt
+ENDE 00_MASTER_v2.1.1.txt
 ================================================================================

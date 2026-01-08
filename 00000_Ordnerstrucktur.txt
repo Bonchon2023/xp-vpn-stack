@@ -1,8 +1,8 @@
 vpn_masterkonzept/
 ├─ 00000_Ordnerstrucktur.txt
 ├─ 0000_Erklärung.txt
-├─ 000_MASTER-KONZEPT v2.1.0 (ZEILENFEST).txt
-├─ 00_MASTER_v2.1.0.txt
+├─ 000_MASTER-KONZEPT v2.1.1 (ZEILENFEST).txt
+├─ 00_MASTER_v2.1.1.txt
 ├─ 01_CHANGELOG.txt
 ├─ 02_GLOSSAR.txt
 ├─ 03_ASSUMPTIONS_AND_RULES.txt
@@ -25,7 +25,7 @@ vpn_masterkonzept/
 │  ├─ B130_NFT_PEER_ISOLATION.txt
 │  ├─ B140_NFT_OUTBOUND_ABUSE_BLOCKS.txt
 │  ├─ B150_Walled_Garden_Restricted_Mode_(QuotaExpiryManual).txt
-│  ├─ B155_Onboarding_Verify-Wall_Claim_Token_(ohne_Gate#1Gate#2).txt
+│  ├─ B155_Onboarding_Verify-Wall_Claim_Token.txt
 │  ├─ B160_TC_QOS_PER_PPP.txt
 │  ├─ B165_ACCOUNTING_COLLECTOR_SESSION_MAPPING.txt
 │  ├─ B166_POLICY_APPLY_RECONCILE.txt
@@ -58,7 +58,7 @@ vpn_masterkonzept/
 │  ├─ D005_OFFLOAD_DEFAULT_VM.txt
 │  ├─ D006_NTP_MANDATORY_XP.txt
 │  ├─ D007_SUBACCOUNTS_PER_DEVICE.txt
-│  └─ D008_GATE2_CUSTOMERWIDE_VERIFY.txt
+│  └─ D008_VERIFY_WALL_CUSTOMER_SCOPE.txt
 ├─ docs/
 │  └─ nft_service_ip_scopes.txt
 ├─ tasks/

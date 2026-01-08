@@ -1,5 +1,5 @@
 0001| ==================================================================================================
-0002| MASTER-KONZEPT v2.0.1 (ZEILENFEST)
+0002| MASTER-KONZEPT v2.1.1 (ZEILENFEST)
 0003| XP/Vista Full-Tunnel VPN auf Debian 13 (from scratch) — L2TP/IPsec (strongSwan + xl2tpd + pppd)
 0004| Policies in Linux: nftables + tc + SQL/RADIUS + interner Webstack + DNS-Stack + MITM-Blockpage
 0005| ==================================================================================================
@@ -20,7 +20,7 @@
 0020|     | - Admin-Panel / Admin-Tools
 0021|     | - HTTPS-Blockpage (MITM) für AdGuard-Blocklisten (“Custom IP” -> interne Blockpage)
 0022| 1.10| ONBOARDING / BUSINESS-ENFORCEMENT (MUST):
-0023|     | - Gate #1/#2 sind entfernt. Modell: Verify-Wall + Claim Token (B155) + UNCLAIMED Grace.
+0023|     | - Onboarding-Modell: Verify-Wall + Claim Token (B155) + UNCLAIMED Grace/Overdue (Kernel-Restricted).
 0024|     | - Verify-Wall (App-Layer): Customer PENDING (email_verified_at NULL) -> nach Login nur Code/Resend/Support.
 0025|     | - Claim Token (App-Layer): Verbindung wird im eingeloggten Panel per Token einem Customer zugeordnet (B280 Regeln).
 0026|     | - UNCLAIMED Grace: Unclaimed Connections bleiben bis unclaimed_grace_until FULL; danach restricted_reason=UNCLAIMED_OVERDUE.
@@ -32,7 +32,7 @@
 0032| 1.11| AAA/Policy ist SQL-first ab Tag 1 (MUST):
 0033|     | - RADIUS+SQL sind “Source of Truth”; keine chap-secrets Migration.
 0034|     | - Simultaneous-Use=1 pro Subaccount (pro Gerät genau eine Session).
-0035|     | - “Restricted statt Reject”: Gate/Quota/Verify/Manual -> ACCEPT + restricted_effective.
+0035|     | - “Restricted statt Reject”: QUOTA/EXPIRY/MANUAL/UNCLAIMED_OVERDUE -> ACCEPT + restricted_effective (Verify ist App-Layer über Verify-Wall).
 0036|     | - Reject nur für DISABLED/BANNED/Missbrauch.
 0037| 
 0038| 2) GRUNDPRINZIP (MUST): “VPN-Software nur Tunnel – Kontrolle im OS”
@@ -346,7 +346,7 @@
 0346| Phase 3: Webpanel + Verify-Wall + Claim Token + /diag
 0347| - OpenResty + PHP-FPM + MariaDB intern (Admin-only Scopes)
 0348| - Panel: User Login IP-bound (Customer Allowlist) + Reset via externem Mailserver
-0349| - Verify-Wall (kundenweit) + Claim Token (ohne Gate #1/#2), inkl. UNCLAIMED Grace/Overdue-UI
+0349| - Verify-Wall (kundenweit) + Claim Token, inkl. UNCLAIMED Grace/Overdue-UI
 0350| - Panel-Events triggern vpn-policy-apply (B166) + Reconcile Backstop
 0351| - /diag Endpoint
 0352| - MyPal NSS Import Bundle
@@ -370,5 +370,5 @@
 0370|     | - darf Admin UIs (pma/adguard ui) und SSH, aber alles explizit freigeschaltet.
 0371| 
 0372| ==================================================================================================
-0373| ENDE MASTER-KONZEPT v2.1.0 (ZEILENFEST)
+0373| ENDE MASTER-KONZEPT v2.1.1 (ZEILENFEST)
 0374| ==================================================================================================

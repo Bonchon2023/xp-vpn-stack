@@ -11,11 +11,11 @@ Apply / Policy Apply: Aktives Durchsetzen der Policy für eine Verbindung (tc + 
 CA: Certificate Authority (Root/Intermediate für MITM).
 Calling-Station-ID: Identifier im RADIUS, oft MAC/LineID; bei L2TP unzuverlässig.
 Claim: Zuordnung einer PREPROVISIONED VPN-Connection zu customer_id per Claim-Token.
-claim_deadline: Optionales hartes Ende für Claim (wenn definiert), ansonsten wirkt Gate #1 über trial_until.
+claim_deadline: Hard-Stop gegen „ewige Leichen“. Standardbetrieb: IMMER gesetzt (180 Tage ab Provisioning/Erstellung). Wenn now > claim_deadline und weiterhin UNCLAIMED -> status=DISABLED (HARD, kein VPN/kein Panel). Admin kann per „Deadline verlängern“ claim_deadline = NOW()+180d neu setzen.
 claim_token_hash: Hash des Claim-Tokens in der DB (Token selbst liegt auf dem Gerät).
 Connection / VPN-Connection: Subaccount pro Gerät (eigene Credentials + feste IP + Limits + Status).
 Customer: Kundenkonto im Panel/SQL, kann mehrere VPN-Connections besitzen (1 Kunde -> n Verbindungen).
-Customerwide (kundenweit): Gilt für alle Connections eines Customers (z.B. Gate #2 Email Verify).
+Customerwide (kundenweit): Gilt für alle Connections eines Customers (z.B. Verify-Wall im Panel / App-Layer Regeln).
 Decision Record: Textdatei im decisions/ Ordner, die eine bindende Architekturentscheidung festhält (D001..D008).
 DPD: Dead Peer Detection (strongSwan).
 ESP: Encapsulating Security Payload (IPsec, Proto 50).
@@ -26,7 +26,6 @@ Full-Tunnel: Standard-Route der Clients geht über VPN; gesamter Traffic über d
 Verify-Wall: App-Layer Onboarding-Sperre im Panel. Bis Email-Code bestätigt ist, ist der Panelzugriff auf die Verify-Seite begrenzt (kein Claim/keine Client-Verwaltung).
 UNCLAIMED / Grace: Zustand einer vorprovisionierten VPN-Connection, die noch keinem Customer zugeordnet ist. Während Grace ist Internet möglich (Full-Tunnel), damit Panel-Login/Verify/Claim durchgeführt werden kann.
 UNCLAIMED_OVERDUE: Grace-Zeitraum abgelaufen (z.B. 30 Tage) und Connection ist weiterhin unclaimed -> Kernel-Restricted Mode (Walled Garden: nur Panel/DNS/NTP).
-Gate (DEPRECATED): Historischer Begriff. Früher = nftables-Onboarding-Restricted. Im aktuellen Konzept NICHT mehr verwenden.
 Ghost Session: “tote” Session, die in Accounting/State noch offen wirkt (z.B. WLAN weg), aber real nicht mehr lebt.
 IKEv1: Internet Key Exchange Version 1 (XP kompatibel, Legacy).
 IFB: Intermediate Functional Block (Linux Ingress Shaping via tc).
@@ -59,9 +58,9 @@ Simultaneous-Use=1 (SimUse): Pro Subaccount nur eine aktive Session; harte Regel
 Spool (durable spool): Lokale Ablage für Accounting-Deltas, falls DB down ist; wird später nachgeschrieben.
 Stale Session: Offene radacct Session ohne echte PPP-Session; wird durch Janitor geschlossen (Threshold).
 Stealth: Auf WAN nur notwendige Ports sichtbar; SSH/Web nicht.
-trial_until (DEPRECATED): Altbegriff aus Gate#1-Logik. Im aktuellen Konzept ersetzt durch UNCLAIMED Grace/UNCLAIMED_OVERDUE.
-verify_deadline (DEPRECATED): Altbegriff aus Gate#2-Logik. Im aktuellen Konzept ersetzt durch Verify-Wall im Panel (App-Layer).
 Walled Garden: Für gesperrte User nur Portal/DNS/NTP erlauben, alles andere blocken.
+Nur Panel-Zugriff (Panel-UI): User-facing Begriff für Walled Garden / Restricted Mode (kein Internet, aber Panel/DNS/NTP erreichbar).
+Internet gesperrt (Panel-UI): User-facing Statusmeldung für restricted_effective=true (Grund wird aus restricted_reason gemappt).
 XFRM: Linux IPsec Transform Layer (IPsec Kontext im Kernel); Basis für “L2TP nur via IPsec”.
 DNAT53: DNS-Zwang via nft nat prerouting; TCP+UDP 53 wird auf 10.77.0.1:53 umgeleitet.
 run-state (/run/vpn-sessions): Temporärer Runtime-State (tmpfs), enthält pppX.env Mapping; nach reboot leer.

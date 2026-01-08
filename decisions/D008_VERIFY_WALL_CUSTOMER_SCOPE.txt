@@ -1,4 +1,4 @@
-vpn_masterkonzept/decisions/D008_GATE2_CUSTOMERWIDE_VERIFY.txt
+vpn_masterkonzept/decisions/D008_VERIFY_WALL_CUSTOMER_SCOPE.txt
 ================================================================================
 DECISION-ID: D008
 TITLE: Email Verify ist Customer-Attribut (nicht pro Connection) und steuert Verify-Wall + Claim-Freigabe

@@ -2,10 +2,10 @@ vpn_masterkonzept/blocks/B055_DB_SCHEMA_CORE.txt
 ================================================================================
 BLOCK-ID: B055
 TITLE: DB Schema Core (customers, vpn_connections, active_session_locks)
-VERSION: v1.0
+VERSION: v1.1
 STATUS: ACTIVE
 PRIORITY: MUST
-OWNER-INTENT: Verbindliches SQL-first Schema als Single Source of Truth (Stabilität + deterministische Gates/Claim/SimUse).
+OWNER-INTENT: Verbindliches SQL-first Schema als Single Source of Truth (Stabilität + deterministische State-Machine für Claim/SimUse/Restricted).
 ================================================================================
 
 1) QUELLE / HERKUNFT
@@ -45,21 +45,29 @@ Indexes:
 Represents one VPN “client” (per device sub-account)
 - id (PK)
 - customer_id (FK customers.id, NULLABLE for unclaimed)
-- token (UNIQUE)  <-- claim token
-- token_state (enum: unclaimed, claimed, revoked)
+- token (UNIQUE)  <-- claim token (empfohlen: als Hash speichern; Klartext liegt nur auf dem Gerät)
 - created_at
 - last_seen_at
-- unclaimed_grace_until (DATETIME NULL)
-- restricted (BOOLEAN)
-- restricted_effective (BOOLEAN)  <-- NEW (indexed), used by reconcile (T06/B166)
-- status (active/suspended/revoked)
+- status (enum: PREPROVISIONED, CLAIMED, DISABLED)
+  - PREPROVISIONED: customer_id NULL
+  - CLAIMED: customer_id gesetzt
+  - DISABLED: HARD (RADIUS reject; kein VPN/kein Panel über diesen Client)
+- claimed_at (DATETIME NULL)
+- unclaimed_grace_until (DATETIME NOT NULL)  <-- Provisioning: created_at + 30d
+- unclaimed_grace_set_at (DATETIME NULL)     <-- Admin "Grace reset"
+- claim_deadline (DATETIME NOT NULL)         <-- Standardbetrieb: created_at + 180d; nach Ablauf UNCLAIMED -> DISABLED
+- claim_deadline_set_at (DATETIME NULL)      <-- Admin "Deadline verlängern"
+- restricted_reason (enum: QUOTA, EXPIRY, MANUAL, UNCLAIMED_OVERDUE, NULL)
+- restricted_effective (BOOLEAN)  <-- indexed, used by reconcile (T06/B166)
 - ... (optional: label/device_name)
 
 Indexes:
 - UNIQUE(token)
 - INDEX(customer_id)
-- INDEX(restricted_effective)  <-- FIX REQUIRED
+- INDEX(restricted_effective)
 - INDEX(last_seen_at)
+- INDEX(status)
+- INDEX(restricted_reason)
 
 ### 2.3 active_session_locks  <-- FIX REQUIRED
 Atomic guard against SimUse race (radacct is history, not a lock)
@@ -90,6 +98,7 @@ Constraints:
 ================================================================================
 3) CHANGELOG
 ================================================================================
+- v1.1 (2026-01-08): vpn_connections Schema an v2.1.1 State-Machine angepasst (status PREPROVISIONED/CLAIMED/DISABLED, claim_deadline MUST 180d, Grace/Deadline timestamps, restricted_reason ENUM). Terminologie bereinigt (keine Gates).
 - v1.0 (2026-01-07): Neu angelegt. Inhalt aus T01_DB_SCHEMA_CORE (v0.7) in Block-Form übernommen (ohne inhaltliche Änderung).
 ================================================================================
 END BLOCK B055

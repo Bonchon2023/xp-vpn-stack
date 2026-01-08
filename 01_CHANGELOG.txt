@@ -2,6 +2,21 @@ vpn_masterkonzept/01_CHANGELOG.txt
 ================================================================================
 MASTER CHANGELOG
 ================================================================================
+ERRATA (KANONISCHKEIT): Der Changelog kann historische Begriffe enthalten. Maßgeblich für den aktuellen Stand sind MASTER/Glossar/Blocks. Historische Begriffe sind nicht kanonisch.
+
+- v2.1.1 (2026-01-08):
+  - Terminologie kanonisiert: "Gate" aus kanonischen Texten/Titeln/Dateinamen entfernt (historische Changelog-Reste sind durch ERRATA entkanonisiert).
+  - Onboarding kanonisiert: Verify-Wall (App-Layer, customer PENDING/ACTIVE) + Claim-Token (App-Layer) + UNCLAIMED Grace/Overdue (Kernel Restricted).
+  - UNCLAIMED Grace (30 Tage) Startpunkt fixiert: ab Provisioning/Erstellung (auch ohne ersten Connect). Nach Ablauf -> restricted_reason=UNCLAIMED_OVERDUE -> "Nur Panel" (Walled Garden).
+  - Hard-Stop/Leichen-Vermeidung: claim_deadline Feature bleibt OPTIONAL im Konzept, ist im Standardbetrieb aber IMMER gesetzt (180 Tage). Nach Ablauf (wenn weiterhin UNCLAIMED) -> status=DISABLED (HARD, kein VPN/kein Panel).
+  - Admin-Actions kanonisiert:
+    - Grace reset: setzt nur unclaimed_grace_until = NOW()+30d.
+    - Deadline verlängern: setzt claim_deadline = NOW()+180d (Standard: neu setzen).
+    - Re-enable / Re-provision nur solange Client existiert; Re-provision niemals für CLAIMED.
+    - Claim-Token bleibt konstant pro VPN-Client.
+  - UI/Wording: intern restricted/walled garden; Panel zeigt "Internet gesperrt" + "Nur Panel-Zugriff" + Grund-Mapping (Quota/Expiry/Manual/Unclaimed).
+  - Renames: D008_VERIFY_WALL_CUSTOMER_SCOPE; B155_Onboarding_Verify-Wall_Claim_Token (Dateiname bereinigt).
+  - DB/Schema-Alignment: vpn_connections um claim_deadline + status-Semantik erweitert; Reason/Flags konsistent gemacht.
 
 v2.1.0 (2026-01-08)
 - Master bump: v2.1.0
