@@ -1,6 +1,6 @@
 vpn_masterkonzept/04_BLOCK_INDEX.txt
 ================================================================================
-BLOCK INDEX (MASTER v2.1.0)
+BLOCK INDEX (MASTER v2.2)
 ================================================================================
 
 [B010] META / Scope & Constraints
@@ -89,8 +89,8 @@ BLOCK INDEX (MASTER v2.1.0)
 - Status: ACTIVE | Priority: MUST
 - Requires: B050, B120, B220, B280, B155
 
-[B155] Onboarding / Verify-Wall / Claim Token (ohne Gate#1/Gate#2)
-- Datei: blocks/B155_Onboarding  Verify-Wall  Claim Token (ohne Gate#1Gate#2).txt
+[B155] Onboarding / Verify-Wall / Claim Token
+- Datei: blocks/B155_Onboarding_Verify-Wall_Claim_Token.txt
 - Status: ACTIVE | Priority: MUST
 - Requires: B050, B150, B280, B220
 - Influences: B240

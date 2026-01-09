@@ -12,10 +12,21 @@ CA: Certificate Authority (Root/Intermediate für MITM).
 Calling-Station-ID: Identifier im RADIUS, oft MAC/LineID; bei L2TP unzuverlässig.
 Claim: Zuordnung einer PREPROVISIONED VPN-Connection zu customer_id per Claim-Token.
 claim_deadline: Hard-Stop gegen „ewige Leichen“. Standardbetrieb: IMMER gesetzt (180 Tage ab Provisioning/Erstellung). Wenn now > claim_deadline und weiterhin UNCLAIMED -> status=DISABLED (HARD, kein VPN/kein Panel). Admin kann per „Deadline verlängern“ claim_deadline = NOW()+180d neu setzen.
-claim_token_hash: Hash des Claim-Tokens in der DB (Token selbst liegt auf dem Gerät).
-Connection / VPN-Connection: Subaccount pro Gerät (eigene Credentials + feste IP + Limits + Status).
+claim_token_hash: Hash des Claim-Tokens in der DB (claim_token liegt nur auf dem Gerät/Beileger und wird ausschließlich im Panel zur Claim-Eingabe verwendet; NICHT für VPN-Login).
+Connection / VPN-Connection (UI-Begriff: VPN-Client): Pro Gerät genau eine Verbindungseinheit mit fester IP, Limits, Status und einem zugehörigen AAA-Subaccount (VPN-Login-Credentials). Nicht zu verwechseln mit Customer (Panel-Account).
 Customer: Kundenkonto im Panel/SQL, kann mehrere VPN-Connections besitzen (1 Kunde -> n Verbindungen).
 Customerwide (kundenweit): Gilt für alle Connections eines Customers (z.B. Verify-Wall im Panel / App-Layer Regeln).
+Panel-Account / Webpanel-Account: Login-Konto für das Webpanel (E-Mail/Verify/Abuse-Kontakt). Entspricht „Customer“.
+VPN-Client (UI): Umgangssprachlicher/UI-Begriff für eine VPN-Connection (pro Gerät).
+Subaccount (AAA): Technischer VPN-Login-Account der VPN-Connection (pro Gerät). Besteht aus subaccount_login (Username) + subaccount_nt_hash (NT-Hash / RADIUS NT-Password; MSCHAPv2).
+subaccount_login: PPP/RADIUS Username (pro Gerät; vorkonfiguriert im VPN-Client; i.d.R. fix).
+subaccount_nt_hash: PPP/RADIUS Secret als NT-Hash (pro Gerät; im Panel änderbar per „Passwort setzen/rotieren“). SoT: NT-Hash (MSCHAPv2 / RADIUS NT-Password), kein Klartext als SoT.
+MSCHAPv2: PPP-Authentifizierungsmethode (XP-tauglich). RADIUS validiert per MSCHAPv2 gegen NT-Hash (NT-Password).
+NT-Hash / NT-Password: NT-Hash (MD4 über UTF-16LE Passwort). Wird in RADIUS als „NT-Password“ genutzt (für MSCHAPv2).
+CSRF-Token: Webpanel-internes Schutz-Token für state-changing Requests; niemals gleichbedeutend mit Claim-Token.
+Claim-Token (claim_token): Ein Geräte-Token zur Übernahme (Claim) einer preprovisionierten VPN-Connection im Panel. Nie für VPN-Login.
+Terminologie-Regel (MUST): Das Wort „Token“ darf im gesamten Konzept nicht unqualifiziert verwendet werden.
+Zulässig sind nur: claim_token (Claim), csrf_token (Webpanel), session_token (Webpanel). „Token“ allein ist verboten.
 Decision Record: Textdatei im decisions/ Ordner, die eine bindende Architekturentscheidung festhält (D001..D008).
 DPD: Dead Peer Detection (strongSwan).
 ESP: Encapsulating Security Payload (IPsec, Proto 50).

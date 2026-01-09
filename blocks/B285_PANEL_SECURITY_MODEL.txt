@@ -2,7 +2,7 @@ vpn_masterkonzept/blocks/B285_PANEL_SECURITY_MODEL.txt
 ================================================================================
 BLOCK-ID: B285
 TITLE: Panel Security Model (AuthN/AuthZ/CSRF/RateLimit/Audit/Scopes)
-VERSION: v1.0
+VERSION: v1.2
 STATUS: ACTIVE
 PRIORITY: MUST
 OWNER-INTENT: Panel ist die Zentrale. Zugriff muss sicher, deterministisch und XP-tauglich sein – ohne WAN-Exposure, mit klaren Scopes, RateLimits und Audit.
@@ -114,8 +114,11 @@ OWNER-INTENT: Panel ist die Zentrale. Zugriff muss sicher, deterministisch und X
 - Weitere Claims:
   - dürfen aus einer bereits login-berechtigten Customer-Connection erfolgen (Request VPN-IP ∈ Allowlist)
 - Claim Token Speicherung:
-  - Tokens werden serverseitig nur gehasht gespeichert (wie Passwort-Reset Tokens).
-  - Token hat Ablaufzeit (Default: 30 Tage ab Erzeugung, konfigurierbar).
+  -   - claim_token wird serverseitig nur gehasht gespeichert (wie Passwort-Reset Tokens).
+- Token hat KEINE separate Config-TTL.
+- Gültigkeit ist SQL-first ausschließlich durch vpn_connections.claim_deadline begrenzt (Hard-Stop).
+  - Default: claim_deadline = created_at + 180 Tage
+  - „Deadline verlängern“ setzt claim_deadline = NOW() + 180 Tage (kanonisch)
   - Fehlversuche werden rate-limited (siehe 6.7).
 
 6.6 Restricted/Bootstrap Reachability (MUST für Walled Garden)
@@ -224,9 +227,9 @@ E) Admin-sensible Aktionen (optional strenger):
 - Admin sieht /admin nicht:
   - Ursache: nicht aus Admin-Netz 10.77.20.0/24 → Fix: über Admin-Connection einloggen.
 - CSRF-Fehler:
-  - Ursache: Token fehlt/abgelaufen/Session invalid → Fix: neu laden, ggf. relogin.
-- Token-Bruteforce/Spam:
-  - Ursache: RateLimit greift → Diagnose: Audit Log + RateLimit Counters prüfen.
+    - Ursache: csrf_token fehlt/abgelaufen/Session invalid → Fix: neu laden, ggf. relogin.
+- Claim-Token-Bruteforce/Spam:
+    - Ursache: RateLimit für Claim (claim_token) greift → Diagnose: Audit Log + RateLimit Counters prüfen.
 
 9) TESTS / ACCEPTANCE CRITERIA (messbar)
 - WAN Scope Test:
@@ -258,6 +261,9 @@ E) Admin-sensible Aktionen (optional strenger):
     - Nach erfolgreichem Claim: UNCLAIMED_OVERDUE fällt weg und Connection wechselt in FULL (sofern kein QUOTA/EXPIRY/MANUAL aktiv).
 
 10) CHANGELOG (Block-intern)
+- v1.2 (2026-01-09): Claim-Token Ablaufzeit SQL-first gemacht: keine 30-Tage Config-TTL mehr; Bound an vpn_connections.claim_deadline (180d) gemäß Konzept.
+- v1.2 (2026-01-09): Terminologie-Regel umgesetzt: „Token“ in Claim-Speicherung präzisiert auf claim_token (kein unqualifiziertes „Token/Tokens“).
+- v1.1 (2026-01-09): Terminologie-Fix: „Token“ im Diagnose-Teil präzisiert (csrf_token vs claim_token). „Token-Bruteforce“ zu „Claim-Token-Bruteforce“ umbenannt.
 - v1.0 (2026-01-07): Neu angelegt als Block B285. Inhalt konsolidiert: Panel AuthN/AuthZ/CSRF/RateLimit/Audit/Scopes + Restricted-Bootstrap Reachability.
 
 ================================================================================

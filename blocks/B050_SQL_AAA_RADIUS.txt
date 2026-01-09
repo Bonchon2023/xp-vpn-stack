@@ -2,7 +2,7 @@ vpn_masterkonzept/blocks/B050_SQL_AAA_RADIUS.txt
 ================================================================================
 BLOCK-ID: B050
 TITLE: SQL AAA / FreeRADIUS / Accounting
-VERSION: v1.16
+VERSION: v1.17
 STATUS: ACTIVE
 PRIORITY: MUST
 OWNER-INTENT: SQL als Source of Truth, RADIUS als Enforcement + Logging.
@@ -14,6 +14,13 @@ OWNER-INTENT: SQL als Source of Truth, RADIUS als Enforcement + Logging.
 2) GRENZEN
 - Kein chap-secrets als Master.
 - Keine Migration später: DB ist ab Start master.
+
+2.1 AUTHN-ENTSCHEIDUNG (MUST)
+- PPP Auth-Type ist fest: MSCHAPv2 (XP-tauglich).
+- Credential-SoT in SQL ist NT-Hash:
+  - vpn_connections.subaccount_nt_hash (NT-Password), KEIN Klartext-Passwort als Master.
+- RADIUS validiert MSCHAPv2 gegen NT-Password (NT-Hash).
+- claim_token / claim_token_hash ist ausschließlich Claim-only (Panel) und NIE Bestandteil des VPN-Login-Flows.
 
 3) ABHÄNGIGKEITEN
 - Requires: B040, B055, B056, B270
@@ -118,6 +125,7 @@ OWNER-INTENT: SQL als Source of Truth, RADIUS als Enforcement + Logging.
 - Immediate Reconnect Test: Crash erzeugt stale radacct (stop_time NULL) -> On-Demand Cleanup (B168) läuft beim Login-Versuch -> Login wird sofort wieder möglich, ohne Parallel-Sessions zu erlauben.
 
 10) CHANGELOG
+- v1.17 (2026-01-09): PPP Auth finalisiert: MSCHAPv2 + NT-Hash (NT-Password) als SQL-SoT dokumentiert; Claim-Token als strikt Claim-only im AAA-Kontext klargestellt.
 - v1.16 (2026-01-07): Task-Wortlaut entfernt: atomarer Session-Lock verweist jetzt auf B056 + B168/B169 + B310 (inhaltlich unverändert).
 - v1.15 (2026-01-07): Task-Referenz entfernt. DB-Schema/Mapping sind jetzt Block-basiert in B055/B056 (keine inhaltliche Änderung).
 - v1.14: Schema-Bindung explizit gemacht (Requires T01 für Feldnamen/Constraints). Klarstellung ergänzt: restricted_reason ist computed (deterministisch), nicht zwingend ein persistiertes DB-Feld.

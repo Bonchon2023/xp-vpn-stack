@@ -1,5 +1,5 @@
 0001| ==================================================================================================
-0002| MASTER-KONZEPT v2.1.1 (ZEILENFEST)
+0002| MASTER-KONZEPT v2.2 (ZEILENFEST)
 0003| XP/Vista Full-Tunnel VPN auf Debian 13 (from scratch) — L2TP/IPsec (strongSwan + xl2tpd + pppd)
 0004| Policies in Linux: nftables + tc + SQL/RADIUS + interner Webstack + DNS-Stack + MITM-Blockpage
 0005| ==================================================================================================
@@ -22,7 +22,7 @@
 0022| 1.10| ONBOARDING / BUSINESS-ENFORCEMENT (MUST):
 0023|     | - Onboarding-Modell: Verify-Wall + Claim Token (B155) + UNCLAIMED Grace/Overdue (Kernel-Restricted).
 0024|     | - Verify-Wall (App-Layer): Customer PENDING (email_verified_at NULL) -> nach Login nur Code/Resend/Support.
-0025|     | - Claim Token (App-Layer): Verbindung wird im eingeloggten Panel per Token einem Customer zugeordnet (B280 Regeln).
+0025|     | - Claim Token (App-Layer): Verbindung wird im eingeloggten Panel per Claim Token einem Customer zugeordnet (B280 Regeln).
 0026|     | - UNCLAIMED Grace: Unclaimed Connections bleiben bis unclaimed_grace_until FULL; danach restricted_reason=UNCLAIMED_OVERDUE.
 0027|     | - UNCLAIMED_OVERDUE ist Kernel-Restricted (B150): Portal-Only bis Claim oder Admin "Grace reset (30 Tage)".
 0028|     | - Restricted (Kernel) wird nur durch QUOTA/EXPIRY/MANUAL/UNCLAIMED_OVERDUE ausgelöst, nicht durch Verify.
@@ -370,5 +370,5 @@
 0370|     | - darf Admin UIs (pma/adguard ui) und SSH, aber alles explizit freigeschaltet.
 0371| 
 0372| ==================================================================================================
-0373| ENDE MASTER-KONZEPT v2.1.1 (ZEILENFEST)
+0373| ENDE MASTER-KONZEPT v2.2 (ZEILENFEST)
 0374| ==================================================================================================

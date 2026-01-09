@@ -1,7 +1,7 @@
 ================================================================================
 BLOCK ID: B155
 TITLE: Onboarding / Verify-Wall / Claim Token
-VERSION: v2.2
+VERSION: v2.3
 STATUS: ACTIVE
 OWNER: Marco
 OWNER-INTENT: Minimaler Support + verifizierbare Kontakt-Email. Panel-Innenleben erst nach Email-Code-Verifikation; Claim nur nach Verifikation und nur per Claim-Token (keine VPN-Client-Credentials nötig).
@@ -22,7 +22,7 @@ NOTES:
   (d) Email-Verifikation erfolgt per Code (kein Link)
   (e) Erst nach erfolgreicher Verifikation (ACTIVE) darf der User das Panel-Innenleben sehen
   (f) Claim ist erst nach Verifikation möglich und erfordert zwingend den Claim-Token
-- Ergebnis: verifizierbare Kontakt-Email + Claim-Token als Besitznachweis; keine VPN-Client-Credentials müssen dem User bekannt sein.
+- Ergebnis: verifizierbare Kontakt-Email + Claim-Token als Besitznachweis; für Claim sind keine VPN-Client-Credentials erforderlich (VPN-Login-Credentials sind getrennt und werden im Panel verwaltet/rotierbar gemacht).
 
 2) BEGRIFFE
 - Customer = Panel-Account (email, password_hash, email_verified_at)
@@ -55,8 +55,8 @@ NOTES:
 
 5.1 VPN_CONNECTIONS (pro Gerät/Subaccount)
 - id
-- subaccount_login (PPP Username) / username (je nach AAA Mapping)
-- password_hash (VPN-Subaccount)  [User muss es NICHT kennen]
+- subaccount_login (PPP Username; RADIUS User-Name; MSCHAPv2)  [fix, kein AAA-Mapping-Variant]
+- subaccount_nt_hash (VPN-Subaccount Secret; RADIUS NT-Password / NT-Hash für MSCHAPv2)  [für Claim nicht nötig; im Panel per „Passwort setzen/rotieren“ änderbar]
 - fixed_ip
 - status (PREPROVISIONED/CLAIMED/DISABLED)
 - customer_id (NULL bis Claim)
@@ -118,7 +118,7 @@ NOTES:
   - claimed_at setzen
 
 6.4 VPN-Subaccount Passwort-Handling (User-Sicht)
-- User muss VPN-Subaccount Username/Passwort nicht kennen.
+- Für Claim muss der User keine VPN-Subaccount-Credentials kennen oder eingeben. Im Panel kann subaccount_login angezeigt werden; das VPN-Passwort wird nicht „ausgelesen“, sondern per „Passwort setzen/rotieren“ geändert (SoT: NT-Hash für MSCHAPv2).
 - Panel darf (optional) „VPN-Passwort ändern“ pro Connection anbieten:
   - Rotation des Subaccount-Passworts wird in SQL gespeichert
   - Name/Identity der Connection bleibt fix (kein Rename durch User)
@@ -189,6 +189,7 @@ RF-01 Claim vs Hard-Stop-Janitor:
 11) CHANGELOG
 HINWEIS: Der Changelog kann historische Begriffe enthalten. Maßgeblich ist der aktuelle Blocktext/Glossar.
 
+- v2.3: AAA-Semantik fixiert: Token=Claim-only. PPP/RADIUS Username ist subaccount_login (kein „je nach Mapping“). VPN-Subaccount Secret als NT-Hash (MSCHAPv2) benannt; Panel-Passwortfunktion als „setzen/rotieren“ präzisiert (kein Klartext-Auslesen). Zweck-Text entsprechend korrigiert.
 - v2.2: claim_deadline Standardbetrieb kanonisiert (immer gesetzt, 180d, danach DISABLED hard). Admin-Actions (Grace reset / Deadline verlängern / Re-enable / Re-provision) + Determinismus (Claim vs Janitor) + State-Table (ENTWURF) ergänzt. Gate-Terminologie im Blocktext entfernt.
 - v2.1: UNCLAIMED-30d-Flow ergänzt (Variante 2: unclaimed_grace_until). Neuer Restricted-Trigger UNCLAIMED_OVERDUE führt nach Ablauf zu Panel-only (Walled Garden), damit Verify+Claim weiterhin möglich sind; nach Claim sofortige Freischaltung (falls kein anderer Restricted-Reason aktiv).
 - v2.0: Gate#1/Gate#2 entfernt. Neuer kanonischer Onboarding-Flow: Login erlaubt, aber PENDING wird per Verify-Wall (Code/Resend/Support) blockiert; Claim nur nach Verify und nur per Claim-Token; keine VPN-Client-Credentials nötig. Optionaler Hard-Stop (claim_deadline) bleibt als Empfehlung.

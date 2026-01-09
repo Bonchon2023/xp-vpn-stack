@@ -1,6 +1,6 @@
 vpn_masterkonzept/03_ASSUMPTIONS_AND_RULES.txt
 ================================================================================
-ASSUMPTIONS & RULES (bindend) — v2.0.1
+ASSUMPTIONS & RULES (bindend) — v2.2
 ================================================================================
 
 A) Systemannahmen
@@ -36,6 +36,9 @@ C) Änderungsregeln
   eine Architekturentscheidung ist (decisions/D00x).
 - Keine Neuinterpretation: Begriffe/Regeln bleiben in ihrem Sinn stabil. Wenn sich Sinn ändert:
   explizit als Decision + Anpassung in Glossar/Blocks dokumentieren.
+- Terminologie ist bindend: "Token" wird nie unqualifiziert verwendet. Nutze Claim-Token / CSRF-Token / Reset-Token etc.
+  Claim-Token ist Claim-only (Panel), nicht VPN-Auth.
+- Begriffe sind fix: Customer/Benutzeraccount = Panel-Login; Subaccount = VPN-Login pro Gerät (umgangssprachlich "VPN-Client").
 - “Zeilenfest”-Dateien werden nicht “frei umformuliert”. Aufbau/Format bleibt stabil, nur Inhalte werden
   versioniert angepasst.
 

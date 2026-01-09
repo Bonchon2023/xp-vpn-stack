@@ -22,7 +22,7 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
 - ONBOARDING ist HARD und bindend:
   - Modell: Verify-Wall + Claim-Token (App-Layer) + UNCLAIMED Grace/Overdue (Kernel-Restricted).
   - Verify-Wall (App-Layer): Customer PENDING (email_verified_at NULL) -> nach Login nur Code/Resend/Support (kein Panel-Innenleben).
-  - Claim-Token (App-Layer): Verbindung wird im eingeloggten Panel per Token einem Customer zugeordnet (B155/B280 Regeln).
+  - Claim-Token (App-Layer, Claim-only): Verbindung wird im eingeloggten Panel per Claim-Token einem Customer zugeordnet (B155/B280 Regeln).
   - UNCLAIMED Grace: Unclaimed Connections bleiben bis unclaimed_grace_until FULL; danach restricted_reason=UNCLAIMED_OVERDUE -> Walled Garden/Portal-Only (B150).
   - Restricted (Kernel) wird nur durch QUOTA/EXPIRY/MANUAL/UNCLAIMED_OVERDUE ausgelöst, nicht durch Verify.
 

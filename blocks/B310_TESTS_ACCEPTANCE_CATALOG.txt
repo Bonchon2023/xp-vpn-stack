@@ -2,29 +2,18 @@ vpn_masterkonzept/blocks/B310_TESTS_ACCEPTANCE_CATALOG.txt
 ================================================================================
 BLOCK-ID: B310
 TITLE: Tests / Acceptance Criteria (E2E-Katalog)
-VERSION: v1.0
+VERSION: v1.3
 STATUS: ACTIVE
 PRIORITY: MUST
 OWNER-INTENT: Abnahmekatalog für Stabilität (SimUse, DNS, /diag, Webstack, MTU/MSS/Offload) — messbar, reproduzierbar.
 ================================================================================
 
-1) QUELLE / HERKUNFT
-- Migrated/Consolidated from:
-  - tasks/t/T09_SIMUSE_STALE_E2E_TESTS.txt (v0.2)
-  - tasks/t/T10_DNS_FAILURE_MODES_HEALTHCHECKS.txt (v0.1)
-  - tasks/t/T11_DIAG_ENDPOINT_SPEC.txt (v0.1)
-  - tasks/t/T12_WEBSTACK_HARDENING_INTERNAL_ONLY.txt (v0.2)
-  - tasks/t/T13_MTU_MSS_OFFLOAD_DEFAULTS_TESTS.txt (v0.1)
-
 ================================================================================
-2) SIMUSE + STALE SESSIONS (aus T09)
+1) SIMUSE + STALE SESSIONS
 ================================================================================
-
-Version: v0.2
-Priority: MUST
 
 ## 1) SimUse atomic guard tests
-- Two parallel logins for same vpn_connection/token:
+- Two parallel logins for same vpn_connection_id / subaccount_login (AAA identity; claim_token is claim-only):
   - Expect exactly one ACCEPT, one REJECT/TEMPFAIL (policy-defined)
 - Lock row exists in active_session_locks after ACCEPT
 - Lock released on Accounting-Stop
@@ -41,15 +30,24 @@ Priority: MUST
   - No DB deadlocks
   - Mean time stable
 
-## 4) Changelog (Task-Historie)
-...
+## 4) ONBOARDING / VERIFY-WALL / CLAIM (SECURITY-CRITICAL E2E)
+- PENDING Customer (email_verified_at NULL):
+  - Panel erlaubt nur /verify + /verify/resend (kein Zugriff auf Connections/Actions).
+  - /claim muss abgewiesen werden (Customer nicht ACTIVE).
+- ACTIVE Customer (email_verified_at gesetzt):
+  - Claim mit korrekt eingegebenem claim_token (Server prüft gegen claim_token_hash) funktioniert.
+  - Wrong-Token Versuche sind rate-limited; kein Enumeration-Leak (gleiche Fehlermeldung für „nicht existent“ vs „falsch“).
+- First-Claim IP-Bind:
+  - Request VPN-IP muss == fixed_ip der Ziel-Connection sein, sonst Claim fail.
+- UNCLAIMED_GRACE / UNCLAIMED_OVERDUE:
+  - Nach Ablauf unclaimed_grace_until: Internet gesperrt (restricted), Panel/Verify/Claim bleibt erreichbar.
+  - Claim innerhalb claim_deadline hebt UNCLAIMED_OVERDUE sofort auf (restricted entfernt, sofern kein anderer Grund).
+- Hard-Stop:
+  - Nach claim_deadline: Connection wird DISABLED; RADIUS reject; Claim muss fehlschlagen (Hard Stop).
 
 ================================================================================
-3) DNS FAILURE MODES + HEALTHCHECKS (aus T10)
+2) DNS FAILURE MODES + HEALTHCHECKS
 ================================================================================
-
-Version: v0.1
-Priority: MUST
 
 ## 1) Failure modes
 - AdGuard down -> what happens?
@@ -61,15 +59,9 @@ Priority: MUST
 - panel shows degraded state
 - enforcement still forces port 53 to service IP
 
-## 3) Changelog (Task-Historie)
-...
-
 ================================================================================
-4) /diag SPEZIFIKATION + TESTS (aus T11)
+3) /diag SPEZIFIKATION + TESTS
 ================================================================================
-
-Version: v0.1
-Priority: MUST
 
 ## 1) Endpoint
 - GET /diag returns JSON with:
@@ -87,15 +79,9 @@ Priority: MUST
 - /diag returns 200 when healthy
 - /diag returns degraded with clear reason codes
 
-## 4) Changelog (Task-Historie)
-...
-
 ================================================================================
-5) WEBSTACK HARDENING / INTERNAL-ONLY TESTS (aus T12)
+4) WEBSTACK HARDENING / INTERNAL-ONLY TESTS
 ================================================================================
-
-Version: v0.2
-Priority: MUST
 
 ## 1) Binding scope
 - OpenResty only listens on service-IP and/or VPN nets
@@ -105,15 +91,9 @@ Priority: MUST
 - Port scan from WAN: no panel ports reachable
 - From admin net: panel reachable
 
-## 3) Changelog (Task-Historie)
-...
-
 ================================================================================
-6) MTU/MSS/OFFLOAD DEFAULTS + TESTS (aus T13)
+5) MTU/MSS/OFFLOAD DEFAULTS + TESTS
 ================================================================================
-
-Version: v0.1
-Priority: SHOULD
 
 ## 1) MTU/MSS tests
 - Verify no PMTU blackhole
@@ -123,12 +103,12 @@ Priority: SHOULD
 - Default offload settings applied
 - Validate no checksum issues
 
-## 3) Changelog (Task-Historie)
-...
-
 ================================================================================
-7) CHANGELOG
+6) CHANGELOG
 ================================================================================
+- v1.3 (2026-01-09): Security-kritische E2E Tests ergänzt: Verify-Wall/Claim/IP-Bind/UNCLAIMED_OVERDUE/claim_deadline Hard-Stop.
+- v1.2 (2026-01-09): Terminologie-Regel umgesetzt: unqualifiziertes „token“ im SimUse-Testtext zu „claim_token“ präzisiert.
+- v1.1 (2026-01-09): Test-Semantik korrigiert: SimUse bezieht sich auf vpn_connection_id/subaccount_login (AAA). Klarstellung: token ist Claim-only und kein Login-Credential.
 - v1.0 (2026-01-07): Neu angelegt. T09–T13 in einen Block konsolidiert (ohne inhaltliche Änderungen, nur Bündelung).
 ================================================================================
 END BLOCK B310
