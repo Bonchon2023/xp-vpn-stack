@@ -1,8 +1,8 @@
 BLOCK: B166_POLICY_APPLY_RECONCILE
-VERSION: v1.6
+VERSION: v1.9
 STATUS: ACTIVE
 OWNER: Marco + ChatGPT
-LAST-UPDATE: 2026-01-07
+LAST-UPDATE: 2026-01-09
 
 ================================================================================
 1) ZWECK
@@ -38,7 +38,19 @@ LAST-UPDATE: 2026-01-07
 - Runtime-Apply ist nur für aktive Sessions möglich.
 - Aktive Sessions werden über Mapping-Files aus B165 ermittelt:
   - /run/vpn-sessions/<ppp_if>.env (volatile)
-  - Enthält mindestens: CONNECTION_ID, PPP_IF, CLIENT_IP, SESSION_ID
+- Enthält mindestens:
+  - PPP_IF=pppX
+  - CLIENT_IP=10.77.x.y
+  - CONNECTION_ID=<int>
+  - SESSION_ID=<string>   (lokaler Identifier; nicht führend für Runtime-Aktivität)
+  - START_TS=<unix>
+  - PPPD_PID=<int>        (MUST Kill-Handle; pppd Prozess-PID dieser Session)
+- PPPD_PID Herkunft (MUST):
+  - PPPD_PID MUSS aus dem von pppd/ip-up bereitgestellten Environment stammen.
+  - FORBIDDEN: pgrep/ps zur PID-Ermittlung (Race-Condition / falscher Prozess möglich).
+- PPPD_PID ist die kanonische Runtime-Referenz für den Fail-Safe "PPP Session Kill".
+  - Safety-Check (MUST): Vor einem Kill MUSS zusätzlich PPP_IF + START_TS aus dem Mapping plausibilisiert werden (PID-Reuse-Schutz).
+- SESSION_ID bleibt rein diagnostisch (Logs/UI) und ist KEIN Kill-Handle.
 - Runtime-Aktivität (KANONISCH, Definition siehe B165/B167):
   - "connection_id aktiv?" => true genau dann, wenn irgendein /run/vpn-sessions/*.env diese CONNECTION_ID enthält.
   - Diese Runtime-Quelle ist führend für Apply (online/offline), Reconcile und Safety-Checks (Janitor-Integration).
@@ -86,6 +98,38 @@ Ablauf: vpn-policy-apply --connection-id=<id>
 - tc:
   - speed_profile auf PPP_IF anwenden (tc qdisc/filters replace)
   - falls kein speed limit: definierte Default/cleanup anwenden
+
+3.1) HARD CUT: STATE-FLUSH + FAIL-SAFE (IMMEDIATE ENFORCEMENT für ESTABLISHED Flows)
+- Ziel: Wenn restricted_effective=true wird, müssen auch bereits ESTABLISHED Flows sofort enden (kein Soft Cut).
+- Trigger: Hard Cut nur bei Transition UNRESTRICTED -> RESTRICTED (idempotent, nicht bei jedem Apply).
+  - old_kernel_restricted = (CLIENT_IP ist vor dem Apply bereits Element von restricted_v4)  [Kernel-Pre-Check]
+  - Pre-Check MUSS vor jeder Änderung am Set erfolgen (sonst ist die Transition-Erkennung nicht zuverlässig).
+  - new_restricted = restricted_effective (aus SQL)
+- Kritische Reihenfolge (Race-sicher, MUST):
+  1) Policy Update: nftables/tc Enforcement setzen (Restricted-Set + Speed), sodass die Blockade im Kernel aktiv ist
+  2) Hard Cut auslösen, aber nur wenn (old_kernel_restricted=false AND new_restricted=true)
+  3) Audit/Log: reason + connection_id + client_ip + "hard_cut=1" + Methode/Outcome
+- Primärmechanismus (conntrack-first, MUST):
+  - Conntrack-States der CLIENT_IP löschen (bidirektional), damit "ct state established,related accept" nicht als Bypass wirken kann.
+  - Flush Scope (verbindlich):
+    - Es müssen ALLE Conntrack-Einträge gelöscht werden, die die CLIENT_IP enthalten (Source UND Destination / orig UND reply).
+    - Implementation Note: z.B. conntrack delete für src + dst (oder äquivalente Netlink/API Calls).
+- Preflight (MUST):
+  - vpn-policy-apply MUSS deterministisch erkennen, ob Conntrack-Flush möglich ist (Tooling/Capabilities vorhanden).
+  - Wenn Conntrack-Flush "unavailable" ist (Tool fehlt / keine Rechte / nicht ausführbar), gilt der Primärmechanismus als nicht verfügbar und der Fail-Safe ist sofort auszuführen.
+- Fail-Safe (MUST): PPP Session Kill, falls Flush fehlschlägt oder unavailable ist
+  - Wenn der Conntrack-Flush fehlschlägt ODER nicht verfügbar ist, MUSS die aktive PPP-Session sofort beendet werden (Fail-Safe "Notbremse").
+  - Die Ziel-Session ist kanonisch über die Runtime-Mapping-Daten identifiziert:
+    - PPPD_PID (MUST Kill-Handle) + PPP_IF + START_TS aus /run/vpn-sessions/<ppp_if>.env
+    - SESSION_ID ist optional (nur Diagnose), NICHT Kill-Handle
+  - Erwartung: "Wo kein PPP_IF ist, kann kein Traffic fließen" => Hard Cut ist deterministisch erfüllt.
+- Fehlerbehandlung (STRICT, Single Target):
+  - Wenn Hard Cut getriggert ist (Transition UNRESTRICTED->RESTRICTED):
+    - Wenn Flush erfolgreich: OK.
+    - Wenn Flush fehlschlägt oder unavailable: PPP Session Kill MUSS versucht werden.
+      - Wenn PPP Kill erfolgreich: OK (Hard Cut erfüllt), aber Audit/Log MUSS "hard_cut_fallback=ppp_kill" setzen.
+      - Wenn PPP Kill ebenfalls fehlschlägt: RUNTIME_APPLY_ERROR (Exit 4).
+  - Begründung: Manual/Quota/Expiry/Unclaimed-Overdue müssen wirklich "hard" sofort wirken. Silent Failure ist inakzeptabel.
 
 ================================================================================
 7) APPLY-LOGIK (CUSTOMER SCOPE, OPTIONAL)
@@ -137,9 +181,26 @@ Ablauf:
 - Baue aus Schritt (1)+(2) die Sollmenge:
   - Für jede aktive Session:
     - wenn SQL restricted_effective=true -> CLIENT_IP in desired_restricted_ips aufnehmen
-- Setze Kernel-Zustand deterministisch auf Soll:
-  - restricted_v4 FLUSH (Inhalt leeren)
-  - desired_restricted_ips vollständig als Elemente hinzufügen
+- Setze Kernel-Zustand deterministisch auf Soll (EXAKT, ohne Leak-Window):
+  - Ermittle Kernel-Istzustand:
+    - current_restricted_ips = Elemente aus restricted_v4 (Kernel)
+  - Delta bestimmen:
+    - to_add = desired_restricted_ips \ current_restricted_ips
+    - to_del = current_restricted_ips \ desired_restricted_ips
+  - Set-Update (deterministisch):
+    - MUST: Update in EINER atomaren nftables Transaktion/Commit (ein einziger nft-Batch/Netlink-Commit).
+    - to_del löschen (stale Elemente entfernen)
+    - to_add hinzufügen (fehlende Elemente ergänzen)
+    - Hinweis: "FLUSH + rebuild" ist nur erlaubt, wenn Flush+Add garantiert im selben atomaren Commit passiert (kein separater Flush-Call).
+    - HARD CUT bei Drift-Fix (best effort):
+      - Für jede IP in to_add (neu restricted durch Reconcile): nach erfolgreichem nft-Commit MUSS versucht werden,
+        Conntrack-States der IP zu löschen (bidirektional), damit auch bestehende ESTABLISHED Flows sofort gekappt werden.
+      - Wenn Conntrack-Flush fehlschlägt oder unavailable ist:
+        - Fail-Safe SHOULD: PPP Session Kill für die betroffene aktive Session (über Mapping: connection_id/ppp_if/session_id aus Schritt 1),
+          um Hard Cut deterministisch zu erzwingen.
+      - Fehlerbehandlung im Reconcile:
+        - Flush fail, aber PPP Kill erfolgreich => log WARN ("hard_cut_fallback=ppp_kill"), Reconcile läuft weiter.
+        - Flush fail und PPP Kill fail => log ERROR, Reconcile läuft weiter; Ergebnis "partial" (Exit 1) wenn solche Fehler auftraten.
 Ergebnis:
 - Keine Drift möglich: stale IPs verschwinden garantiert
 - Unlock/Verify/Quota wirkt spätestens <=5 Minuten, auch wenn Event verpasst wurde
@@ -179,8 +240,11 @@ Trigger 4: Reconcile Timer (systemd, 5 Minuten)
 ================================================================================
 - Single Target (ip-up, Panel Event, optional customer scope) = STRICT:
   - nft/tc Fehler => harter Fehler
+  - conntrack (Hard Cut Flush) Fehler ist ALLEIN kein harter Fehler, sofern der Fail-Safe PPP Session Kill erfolgreich war (Hard Cut erfüllt).
+  - Harte Fehlerbedingung (Exit 4) nur wenn Hard Cut getriggert ist UND (Flush failed/unavailable) UND (PPP Kill failed).
 - Reconcile All = BEST EFFORT:
   - korrigiert so viel wie möglich; einzelne Fehler verhindern nicht die Korrektur anderer Sessions
+  - conntrack flush Fehler für einzelne IPs: log + continue; Ergebnis "partial" (Exit 1) wenn Fehler auftraten
   - kann "partial" melden (Exit 1), aber beendet erfolgreich, nachdem es gearbeitet hat
 
 ================================================================================
@@ -226,6 +290,18 @@ Offline ist KEIN Fehler:
 ================================================================================
 - Connect Apply Test: PPP connect -> ip-up ruft single apply -> restricted/tc sofort gesetzt.
 - Panel Event Test: Quota reset/refill oder Expiry extend oder Manual Restrict/Unrestrict -> apply -> restricted_v4 sofort angepasst.
+- Hard Cut (ESTABLISHED) Test: Starte einen großen Download/Stream über VPN (Flow ESTABLISHED). Setze restricted_effective=true (Quota/Manual/Expiry) und triggere apply.
+  Erwartung: Datenfluss wird sofort unterbrochen (Conntrack-Flush), danach nur allowlist zu 10.77.0.1 möglich.
+- Hard Cut Fallback Test (Flush unavailable/fail):
+  - Simuliere Conntrack-Flush nicht verfügbar oder fehlschlagend (Tool/Cap/Permission).
+  - Setze restricted_effective=true und triggere single apply.
+  - Erwartung: PPP Session Kill greift deterministisch; Traffic stoppt sofort; Audit/Log zeigt "hard_cut_fallback=ppp_kill".
+- Reconcile Delta Hard Cut Test: Simuliere missed event:
+  - Client ist restricted_effective=true in SQL, aber CLIENT_IP ist manuell aus restricted_v4 entfernt.
+  - Starte Datenfluss (ESTABLISHED) ins WAN.
+  - Reconcile läuft: IP kommt zurück ins Set (to_add) UND Flow wird sofort gekappt (Conntrack-Flush im Reconcile).
+- Atomic Update Safety Test: Während Reconcile läuft darf kein Leak-Window entstehen (kein Zeitraum, in dem restricted_v4 "leer" ist, obwohl desired non-empty).
+  Validierung pragmatisch: Dauertraffic + paralleles Reconcile; es darf niemals WAN-Traffic für restricted Clients durchkommen.
 - Missed Event Drift Test: Panel Änderung ohne apply -> Reconcile korrigiert <=5 Minuten.
 - Stale Cleanup Test: Disconnect ohne cleanup -> Reconcile entfernt stale IP aus restricted_v4.
 - SQL Down Test: apply/reconcile -> Exit 2; keine neuen VPN-Logins (Fail-Closed). Nach DB up -> Reconcile korrigiert.
@@ -233,11 +309,19 @@ Offline ist KEIN Fehler:
   - Single apply: nft Fehler -> Exit 4
   - Reconcile: ein Session-Fehler -> Exit 1, andere Sessions werden korrigiert
 - Stale /run Mapping Purge Test: /run enthält pppX.env aber /sys/class/net/pppX fehlt -> Reconcile löscht Mapping -> verhindert false "live" Safety-Blockade.
-- Restricted Set Rebuild Test: restricted_v4 enthält manuell/stale IPs -> Reconcile flush+rebuild -> Set enthält exakt desired_restricted_ips (aktive+restricted=true), sonst nichts.
+- Restricted Set Rebuild Test: restricted_v4 enthält manuell/stale IPs -> Reconcile delta-update (to_del/to_add, atomarer Commit) -> Set enthält exakt desired_restricted_ips (aktive+restricted=true), sonst nichts.
 
 ================================================================================
 14) CHANGELOG
 ================================================================================
+- v1.9 (2026-01-09): Kill-Handle kanonisiert: PPPD_PID als MUST, mit Plausibilitätscheck über PPP_IF + START_TS; SESSION_ID ausdrücklich nur Diagnose.
+  STRICT-Semantik präzisiert: Conntrack-Flush-Fail ist nicht fatal, wenn PPP-Kill erfolgreich; Exit 4 nur bei Double-Fail.
+- v1.8 (2026-01-09): Hard Cut erweitert um Fail-Safe: conntrack-first + PPP Session Kill bei Flush failure/unavailable (deterministisch).
+  Preflight-Regel ergänzt (Flush availability), Failure-Semantik präzisiert (Single Target: Kill-success = OK mit Audit-Flag; double-fail = Exit 4).
+  Reconcile Hard-Cut erweitert um optionalen PPP-Kill-Fallback; Tests um Fallback-Fall ergänzt.
+- v1.7 (2026-01-09): HARD CUT spezifiziert: Conntrack-Flush bei Transition UNRESTRICTED->RESTRICTED (enforce->flush, bidirektionaler Scope, STRICT in Single Apply).
+  Reconcile erweitert um Delta-Erkennung (to_add/to_del) + best-effort Hard Cut für newly restricted IPs.
+  Restricted-Set Update als atomare nft-Transaktion/Commit festgenagelt (kein Leak-Window). Tests entsprechend erweitert.
 - v1.6 (2026-01-07): Concurrency/Singe-Writer Regeln ergänzt (TEMPFAIL_LOCKED Semantik + Stale-Lock Handling), ohne Apply/Reconcile-Logik zu ändern.
 - v1.5: Kernel-Triggerliste bereinigt (Verify entfernt, Unclaim+Manual ergänzt); Trigger 3 Panel Events strukturell korrigiert + Manual Restrict/Unrestrict als Apply-Event ergänzt; Runtime-Aktivitätsdefinition pro connection_id (scan /run/vpn-sessions/*.env) als kanonisch dokumentiert (B165/B167).
 - v1.4: Gate#1/Gate#2-Reste entfernt; restricted_reason Beispiele auf QUOTA/EXPIRY/MANUAL/UNCLAIMED_OVERDUE aktualisiert; Customer-Scope Zweck auf Bulk-Apply (ohne Gate#2) korrigiert; Tests bereinigt (Verify done ist App-Layer, kein Apply).

@@ -2,7 +2,7 @@ vpn_masterkonzept/blocks/B150_TITLE: Walled Garden / Restricted Mode (Quota/Expi
 ================================================================================
 BLOCK-ID: B150
 TITLE: Walled Garden / Restricted Mode (Quota/Expiry/Manual)
-VERSION: v1.8
+VERSION: v1.11
 STATUS: ACTIVE
 PRIORITY: MUST
 OWNER-INTENT: Statt "Internet kaputt" eine klare Portal-Seite zeigen (HARD Enforcement für Restricted Reasons: Quota/Expiry/Manual/UNCLAIMED_OVERDUE).
@@ -10,10 +10,12 @@ OWNER-INTENT: Statt "Internet kaputt" eine klare Portal-Seite zeigen (HARD Enfor
 
 1) ZWECK
 - Wenn Restricted Mode aktiv ist (Quota / Expiry / Manual / UNCLAIMED_OVERDUE):
-  - nur Portal/DNS erlauben
-  - Rest blocken
+  - nur Service-IP Allowlist erlauben (Portal/DNS/NTP/ICMP ausschließlich zu 10.77.0.1)
+  - Rest blocken (kein WAN, keine anderen VPN-Clients)
 - Bootstrap/Self-Heal MUST: Auch im Restricted (insb. UNCLAIMED_OVERDUE) muss das Panel/Portal auf 10.77.0.1:80/443 erreichbar bleiben, damit der User Verify+Claim durchführen und wieder in FULL kommen kann.
   - User bekommt klare Anweisung im Panel (Reason + Next Step)
+- DNS ist im Restricted Mode zwingend erlaubt, weil das Panel/Portal in der Praxis über FQDN genutzt wird (z.B. vpn.status -> 10.77.0.1).
+  B210 erzwingt DNS-Port 53 (udp+tcp) per DNAT auf AdGuardHome, unabhängig von Client-DNS-Einträgen.
 - Onboarding nutzt KEIN Gate#1/Gate#2 Restricted Enforcement mehr:
   - Email-Verifikation wird über Verify-Wall im Panel umgesetzt (B155/B280), nicht über nftables.
 
@@ -26,13 +28,52 @@ OWNER-INTENT: Statt "Internet kaputt" eine klare Portal-Seite zeigen (HARD Enfor
     - nur 10.77.0.1:80/443/53/123 erlauben
     - alles andere blocken (Full-Tunnel bleibt, aber Walled Garden)
 
-3.x) Restricted Allowlist (KANONISCH, SERVICE-IP ONLY)
+2.1) nftables Hook-Placement + Reihenfolge (KANONISCH)
+WICHTIG (Pfad-Trennung):
+- Traffic zu 10.77.0.1 (Service-IP) läuft über nftables "input" (lokales Ziel), nicht über "forward".
+- Daher MUSS Restricted Mode zweifach enforced werden:
+  1) input (iif ppp*): nur Allowlist-Ports zu 10.77.0.1 erlauben, alles andere an 10.77.0.1 droppen (z.B. SSH etc.).
+  2) forward: sobald saddr in restricted_v4 -> WAN-Forward droppen (kein Internet) + Forward zu anderen VPN-Clients droppen (Peer-Isolation bleibt wirksam).
+- Restricted Mode MUSS im nftables "forward"-Pfad vor dem normalen Full-Tunnel Forward (B120) ausgewertet werden.
+- Begründung: Wenn B120 (Forward->WAN allow) vor dem Restricted-Check kommt, kann ein restricted Client trotzdem ins Internet.
+
+Kanonische Reihenfolge im forward chain (High-Level):
+1) ct state established,related accept
+   - Performance-Reason: bleibt früh.
+   - Wichtig: HARD CUT verhindert Established-Bypass (Conntrack-Flush bei Eintritt in Restricted; siehe 2.2 / B166).
+
+2) Peer-Isolation Drop (B130) (user->user drop)
+
+3) Restricted Enforcement (B150) (Forward-Pfad):
+   - Wenn saddr in restricted_v4:
+     - DROP Forward nach WAN/ens13 (kein Internet)
+     - DROP Forward zu anderen VPN-Clients (Peer-Isolation bleibt wirksam)
+   - Hinweis: Zugriff auf 10.77.0.1 (DNS/WEB/NTP/ICMP) ist Service-IP Zugriff und wird im INPUT-Pfad geregelt
+     (siehe 2.3 Restricted Allowlist + nft_service_ip_scopes.txt).
+
+4) Normaler Full-Tunnel Forward + NAT (B120) für nicht-restricted Clients
+
+2.2) ENFORCEMENT-VERHALTEN (HARD CUT, "IMMEDIATE" DEFINITION)
+- Der Wechsel in den Restricted Mode (egal aus welchem Grund: QUOTA / EXPIRY / MANUAL / UNCLAIMED_OVERDUE) ist ein HARD CUT.
+- Bedeutung: Bestehende Verbindungen (ESTABLISHED Flows) dürfen NICHT weiterlaufen. Es gibt keine Grace Period für laufende Downloads/Streams.
+- Scope: Der Hard Cut betrifft ALLE Verbindungen/States der Client-IP (auch solche, die im Restricted Mode prinzipiell erlaubt wären, z.B. DNS/Panel/NTP).
+  - Begründung: Maximale Sicherheit + deterministisches Verhalten.
+  - Erwartetes Verhalten: Erlaubte Services reconnecten automatisch und werden danach gegen die Restricted-Allowlist geprüft und zugelassen.
+- Technische Umsetzung (verbindlich, siehe B166):
+  - Beim Transition von UNRESTRICTED -> RESTRICTED wird nach dem Kernel-Enforcement (nftables/tc) primär der Conntrack-State der Client-IP gelöscht (bidirektional).
+  - Falls Conntrack-Flush fehlschlägt oder unavailable ist, MUSS als Fail-Safe die PPP-Session der betroffenen aktiven Verbindung beendet werden (PPP Session Kill),
+    damit der Hard Cut deterministisch erfüllt ist.
+  - Dadurch kann "ct state established,related accept" nicht als Bypass wirken, obwohl es früh im Ruleset steht.
+- Safety-Net (Drift-Fix): Wenn Reconcile eine zuvor nicht-restricted IP wieder als restricted erkennt (missed event),
+  MUSS der Hard Cut für genau diese neu-restricted IP ebenfalls ausgelöst werden (B166; im Reconcile best-effort, aber verpflichtend zu versuchen).
+
+2.3) Restricted Allowlist (KANONISCH, SERVICE-IP ONLY)
 Wenn saddr ∈ restricted_v4 gilt:
 - ALLOW -> 10.77.0.1:
   - DNS: udp/53 + tcp/53
   - WEB: tcp/80 + tcp/443
   - NTP: udp/123
-  - ICMP: echo-request/echo-reply nur zu 10.77.0.1 (Diagnose)
+  - ICMP: echo-request an 10.77.0.1 + dazugehörige echo-reply Antworten von 10.77.0.1 (Diagnose)
 - DROP:
   - alles andere (insb. forward nach WAN/ens13 und zu anderen VPN-Clients)
 Hinweis:
@@ -40,32 +81,16 @@ Hinweis:
 - NTP ist für XP/Cert/TLS Stabilität erforderlich.
 - DNS-Zwang (B210) ist kompatibel: DNAT muss udp+tcp 53 umfassen und auf ppp* in nat prerouting greifen; Restricted erlaubt DNS (udp+tcp 53) ausschließlich zu 10.77.0.1.
 
+2.4) Sync/Apply + Reconcile Safety-Net (KANONISCH)
 - Sync/Apply:
   - Beim Connect (ip-up) MUSS ein Sync erfolgen: Client-IP wird anhand SQL in restricted_v4 hinzugefügt/entfernt.
-  - Bei Statusänderungen über Panel (Claim/Unclaim/Quota/Expiry/Manual) MUSS ein Sync erfolgen, damit Wirkung sofort greift.
+- Bei Statusänderungen über Panel (Claim/Unclaim/Quota/Expiry/Manual) MUSS ein Sync erfolgen,
+  damit Wirkung sofort greift (HARD CUT: Enforcement setzen + Conntrack-State flush bei Eintritt in Restricted; siehe 2.2 und B166).
   - Hinweis: Verify-Wall (Email-Verify) ist App-Layer und KEIN Kernel-Restricted-Trigger; dafür ist kein nftables Sync nötig.
 - Reconcile Safety-Net (Option B):
   - Zusätzlich MUSS ein periodischer Reconcile laufen (z.B. alle 5 Minuten), der den Restricted-Zustand aus SQL deterministisch neu aufbaut.
   - Ziel: Drift-Reparatur (wenn Hook/Panel-Trigger ausfällt), stale IPs entfernen, konsistenter Ist-Zustand.
   - Reconcile ist idempotent: wiederholtes Anwenden führt immer zum gleichen Ergebnis.
-
-2.1) nftables Hook-Placement + Reihenfolge (KANONISCH)
-WICHTIG (Pfad-Trennung):
-- Traffic zu 10.77.0.1 (Service-IP) läuft über nftables "input" (lokales Ziel), nicht über "forward".
-- Daher MUSS Restricted Mode zweifach enforced werden:
-  1) input (iif ppp*): nur Allowlist-Ports zu 10.77.0.1 erlauben, alles andere an 10.77.0.1 droppen (z.B. SSH etc.).
-  2) forward: sobald saddr in restricted_v4 -> WAN-Forward droppen (nur Allowlist zu 10.77.0.1 erlauben).
-- Restricted Mode MUSS im nftables "forward"-Pfad vor dem normalen Full-Tunnel Forward (B120) ausgewertet werden.
-- Begründung: Wenn B120 (Forward->WAN allow) vor dem Restricted-Check kommt, kann ein restricted Client trotzdem ins Internet.
-
-Kanonische Reihenfolge im forward chain (High-Level):
-1) ct state established,related accept
-2) Peer-Isolation Drop (B130) (user->user drop)
-3) Restricted Enforcement (B150):
-   - Wenn saddr in restricted_v4:
-     - allow only to 10.77.0.1:80/443 + 53/tcp+udp + 123/udp + ICMP
-     - drop alles andere (insb. Forward nach ens13 / WAN)
-4) Normaler Full-Tunnel Forward + NAT (B120) für nicht-restricted Clients
 
 3) GRENZEN
 - Primärmechanik: Firewall allowlist (kein DNS cache chaos).
@@ -89,7 +114,7 @@ Hinweis:
   - 10.77.0.1:53
   - udp/123 to 10.77.0.1
   - tcp/53 to 10.77.0.1
-  - ICMP echo to 10.77.0.1
+  - ICMP echo-request zu 10.77.0.1 (+ echo-reply Antworten)
 
 6) OUTPUTS
 - For blocked users:
@@ -97,7 +122,8 @@ Hinweis:
   - drop everything else to WAN
 
 7) MUST (immer, da HARD Enforcement)
-- Must be immediate (no DNS TTL issue)
+- Must be immediate HARD CUT (bestehende ESTABLISHED Flows werden beim Eintritt in Restricted terminiert; kein "Soft Cut").
+  Umsetzung: Conntrack-Flush nach Enforcement (B166).
 - Must show portal page with reason + next step
 
 8) OPTIONAL
@@ -111,14 +137,23 @@ Hinweis:
 10) TESTS
 - Toggle expiry -> user gets portal instantly.
 - Toggle back -> internet works immediately.
--    Verify-Wall ist App-Layer (B155/B280) und unabhängig vom Restricted-Set: nftables Restricted wird durch Quota/Expiry/Manual/UNCLAIMED_OVERDUE gesteuert.
+- Verify-Wall ist App-Layer (B155/B280) und unabhängig vom Restricted-Set: nftables Restricted wird durch Quota/Expiry/Manual/UNCLAIMED_OVERDUE gesteuert.
 - Quota reset/renew -> restricted Set wird entfernt -> Internet sofort frei.
 - Ordering Test: Client-IP in restricted_v4 -> darf NICHT über B120 ins WAN forwarden; nur 10.77.0.1:80/443/53/123 ist möglich.
-- Restricted Allowlist Test: restricted client kann DNS (udp+tcp 53) + Web (80/443) + NTP (123) + ICMP zu 10.77.0.1, aber NICHT ins WAN.
+- Hard Cut (ESTABLISHED) Test: Starte einen laufenden Download/Stream (Flow muss ESTABLISHED sein) und setze dann restricted_effective=true (Quota/Manual/Expiry).
+  Erwartung: Datenfluss wird SOFORT unterbrochen (Conntrack-Flush), danach sind nur noch 10.77.0.1:80/443/53/123 + ICMP erreichbar.
+- Restricted Allowlist Test: restricted client kann DNS (udp+tcp 53) + Web (80/443) + NTP (123) + ICMP echo-request zu 10.77.0.1 (+ replies), aber NICHT ins WAN.
 - UNCLAIMED_OVERDUE Test: unclaimed_grace_until überschritten (customer_id NULL) -> Client-IP landet im restricted_v4 Set -> nur Panel/DNS/NTP zu 10.77.0.1, kein WAN.
 - Input-Pfad Test (lokale Services): restricted client darf NICHT auf andere Ports von 10.77.0.1 (z.B. tcp/22 SSH) zugreifen; nur 80/443/53/123 + ICMP echo sind erlaubt.
 
 11) CHANGELOG
+- v1.11: Zwecktext an Allowlist angepasst (Restricted erlaubt Service-IP Allowlist: Portal/DNS/NTP/ICMP zu 10.77.0.1).
+  ICMP-Formulierung präzisiert (echo-request + replies) um Missverständnisse zu vermeiden.
+  Struktur: Sync/Apply + Reconcile als 2.4 klar von Allowlist (2.3) getrennt.
+- v1.10: DNS/FQDN-Recovery-Begründung präzisiert (Panel per FQDN; DNS enforcement via B210 DNAT 53).
+  Hard Cut Umsetzung erweitert: conntrack-first + PPP Session Kill Fail-Safe bei Flush failure/unavailable (Referenz B166).
+- v1.9: "Immediate" als HARD CUT präzisiert (ESTABLISHED Flows müssen sofort enden) + technische Umsetzung via Conntrack-Flush in B166 verankert (enforce->flush, bidirektional).
+        Reihenfolge/Struktur in Abschnitt 2 bereinigt (2.1/2.2/2.3), Forward/Input Semantik klargestellt. Tests um Hard-Cut-Established ergänzt.
 - v1.8: Enforcement-Pfade präzisiert: Restricted Mode MUSS sowohl im input (lokale Service-IP 10.77.0.1) als auch im forward (WAN) greifen; zusätzlicher Test für Blocken nicht-allowlist Ports auf 10.77.0.1 ergänzt.
 - v1.7: Textdrift behoben: Zweck nennt nun Quota/Expiry/Manual/UNCLAIMED_OVERDUE. Sync/Apply Trigger bereinigt (Verify ist App-Layer, kein Kernel-Sync); Claim/Unclaim/Quota/Expiry/Manual bleiben Kernel-relevant. (Optional: Bootstrap/Self-Heal Satz ergänzt.)
 - v1.6: Restricted-Triggerliste erweitert um UNCLAIMED_OVERDUE (nach unclaimed_grace_until). "gate flags" aus INPUTS entfernt; Tests entsprechend ergänzt.

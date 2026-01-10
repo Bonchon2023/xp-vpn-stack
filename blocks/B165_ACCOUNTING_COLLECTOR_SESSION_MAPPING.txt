@@ -1,8 +1,8 @@
 BLOCK: B165_ACCOUNTING_COLLECTOR_SESSION_MAPPING
-VERSION: v1.2
+VERSION: v1.5.1
 STATUS: ACTIVE
 OWNER: Marco + ChatGPT
-LAST-UPDATE: 2026-01-07
+LAST-UPDATE: 2026-01-10
 
 ================================================================================
 1) ZWECK
@@ -30,10 +30,20 @@ LAST-UPDATE: 2026-01-07
     - CONNECTION_ID=<int>
     - SESSION_ID=<string>   (lokaler Identifier; kann = RADIUS Acct-Session-Id sein, ist aber für Runtime-Aktivität nicht führend)
     - START_TS=<unix>
+    - PPPD_PID=<int>      (MUST Kill-Handle; pppd Prozess-PID dieser Session)
+- Integrität / Permissions (MUST):
+  - /run/vpn-sessions/ und Mapping-Files MÜSSEN so berechtigt sein (chmod/chown), dass ausschließlich root / der privilegierte VPN-Hook
+    schreibend zugreifen darf.
+  - Web-Services / unprivilegierte User (z.B. www-data) DÜRFEN niemals write/create/modify können (Manipulation muss auf FS-Ebene ausgeschlossen sein).
+- Zweck:
+  - PPPD_PID ist der deterministische Fail-Safe Kill-Handle für "fail-closed bis apply" (B167) und Hard-Cut Fallback (B166/B150).
 - Bei PPP Disconnect (ip-down Hook) wird /run/vpn-sessions/<ppp_if>.env entfernt.
-- Runtime-Aktivitätsprüfung (für Janitor/Locks):
-  - "connection_id ist aktiv" gilt genau dann, wenn irgendein /run/vpn-sessions/*.env existiert, dessen CONNECTION_ID=<id> ist.
-  - Diese Runtime-Quelle ist führend für B168/B169 Integrationschecks (keine DB-Heuristik).
+- Runtime-Aktivitätsprüfung (für Janitor/Locks) (KANONISCH, konsistent zu B168/B169):
+  - Eine "connection_id ist aktiv" gilt genau dann, wenn mindestens ein VALID Runtime-Mapping in /run/vpn-sessions/*.env existiert,
+    dessen CONNECTION_ID=<id> ist.
+  - VALID bedeutet: Mapping ist nicht nur vorhanden, sondern gegen Kernel-Realität validiert (Interface/Prozess/START_TS) – Definition siehe B168.
+  - Konsequenz: Bloße Dateiexistenz ist NICHT ausreichend für Sicherheitsentscheidungen (Ghost-File Problem).
+  - Diese Runtime-Quelle (VALID Mapping) ist führend für B168/B169 Integrationschecks (keine DB-Heuristik).
 - Hinweis: stale Mapping-Files werden zentral durch Reconcile (B166) bereinigt (PPP_IF Existenzcheck).
 ================================================================================
 4) DURABLE ACCOUNTING STATE + SPOOL
@@ -46,23 +56,39 @@ LAST-UPDATE: 2026-01-07
     - pending_rx_bytes
     - pending_tx_bytes
     - last_flush_ts
-- Durable Spool/Journal (DB-Down/Retry):
-  - Pfad: /var/lib/vpn-accounting/spool.log (append-only)
-- Spool Policy (KANONISCH, Anforderungen):
-  - Ziel: Bei DB-Ausfall keine Datenverluste, keine Endlos-Wachstumsfalle (Disk-Full).
-  - Idempotenz/De-Dup MUSS möglich sein:
-    - Ein Replay darf quota_used nicht doppelt erhöhen (z.B. Schlüssel: connection_id + timestamp + delta_seq oder session_id + flush_window).
-  - Backpressure MUSS definiert werden:
-    - Max-Spool-Größe (MB/GB) + Max-Alter ältester Eintrag (Zeit) => ab dann Alert (siehe Logging/Monitoring).
-  - Observability:
-    - spool backlog size + oldest record age müssen messbar sein (für /diag/Monitoring später).
-  - Replay-Verhalten:
-    - Wenn DB wieder up: seriell drainen (geordnet), mit Backoff/Rate-Limit, um DB nicht zu fluten.
-- Offene Parameter (bewusst offen, später zu entscheiden):
-  - Max-Spool-Größe
-  - Retention (Tage) + Rotation (Dateigröße)
-  - Replay Rate Limit / Backoff-Strategie
-  - Einträge: timestamp + connection_id + delta_bytes
+- Durable Spool/Journal (DB-Down/Retry) (KANONISCH, HYBRID):
+  - Pfad (Basis): /var/lib/vpn-accounting/
+  - Aktives Journal: /var/lib/vpn-accounting/spool.log (append-only innerhalb der aktiven Datei)
+  - Rotation/History: /var/lib/vpn-accounting/spool.d/ (rotierte Segmente, ältestes Segment wird zuerst gelöscht)
+  - Ziel:
+    - Bei DB-Ausfall: Deltas gehen NICHT verloren.
+    - Gleichzeitig: keine Endlos-Wachstumsfalle (Disk-Full) -> lokale Safety Ceilings greifen IMMER.
+- SQL-first Settings (Policy-Quelle):
+  - Retention/Replay/RateLimit SOLLEN aus SQL Settings geladen werden (Control-Plane).
+  - Wenn SQL nicht erreichbar: klar markierte Notfall-Fallbacks sind zulässig (MUST: als Fallback gekennzeichnet).
+  - Wichtig: SQL-first darf lokale Disk-Safety niemals aushebeln.
+- Lokale Safety Ceilings (Physik-Grenze, IMMER aktiv):
+  - SPOOL_HARD_MAX_BYTES (MUST)
+  - SPOOL_HARD_MAX_AGE_SECONDS (MUST)
+  - Diese Ceilings gelten unabhängig von SQL Settings (Physik > Policy).
+- Ceiling-Hit Verhalten (MUST, Entscheidung getroffen):
+  - Drop/Ring-Buffer MUST:
+    - Bei Überschreitung von SPOOL_HARD_MAX_BYTES oder SPOOL_HARD_MAX_AGE_SECONDS MUSS Platz geschaffen werden,
+      indem die ältesten Spool-Segmente gelöscht/rotiert werden ("drop oldest"), bis wieder unter dem Ceiling.
+    - Das aktive spool.log bleibt dabei append-only; Ring-Buffer gilt über die Segmente in spool.d/.
+  - Alert MUST:
+    - Jeder Ceiling-Hit MUSS einen Alert auslösen (siehe B330), inkl. Metriken:
+      - current_spool_bytes
+      - oldest_spool_age_seconds
+      - ceiling_bytes / ceiling_age_seconds
+- Idempotenz/De-Dup (MUST):
+  - Ein Replay darf quota_used nicht doppelt erhöhen.
+  - Es MUSS ein deterministischer Replay-Key existieren (z.B. session_id + flush_window oder connection_id + flush_window + delta_seq).
+- Observability (MUST):
+  - spool backlog size (bytes) + oldest record age (seconds) müssen messbar sein (für /diag/Monitoring später).
+- Replay-Verhalten (MUST/SOLL):
+  - Wenn DB wieder up: seriell drainen (geordnet), mit Backoff/Rate-Limit, um DB nicht zu fluten.
+  - Replay/Drain SOLL SQL-first Settings nutzen; wenn SQL nicht erreichbar -> Fallback-Notwerte.
 
 ================================================================================
 5) COLLECTOR LIFECYCLE (GLOBAL)
@@ -71,33 +97,50 @@ LAST-UPDATE: 2026-01-07
   - Trigger: systemd timer alle 300s
   - Ablauf:
     - Liste aktiver pppX via /run/vpn-sessions/*.env
+    - Collector MUSS non-VALID Mappings ignorieren / als inaktiv behandeln (VALID-Definition siehe B168; File-Existenz allein reicht nicht).
     - Lesen rx/tx counters: /sys/class/net/pppX/statistics/{rx_bytes,tx_bytes}
     - Delta = current - last (aus durable state)
     - DB up:
       - Batch-Commit in einer Transaktion: quota_used += delta (pro connection_id)
       - Update durable state (last_*, pending=0)
     - DB down:
-      - pending_* aufaddieren + spool.log append
+      - pending_* aufaddieren + spool append (unterliegt lokalen Safety Ceilings + Drop/Ring-Buffer MUST gemäß Abschnitt 4)
       - Kein Auth-Fallback (B050 Fail-Closed bleibt)
 - Disconnect Handling (ip-down):
   - Final read rx/tx, final delta berechnen
-  - Einmaliger Commit-Versuch; bei DB down -> spool append
+  - Einmaliger Commit-Versuch; bei DB down -> spool append (unterliegt lokalen Safety Ceilings + Drop/Ring-Buffer MUST gemäß Abschnitt 4)
   - Cleanup /run mapping
 - Wiring (PPP Hooks + systemd collector timer/service) ist in B167 verbindlich definiert.
 
 ================================================================================
 6) TESTS
 ================================================================================
-- Mapping Test: pppX verbindet -> /run/vpn-sessions/pppX.env existiert und enthält CONNECTION_ID + SESSION_ID.
+- Mapping Test: pppX verbindet -> /run/vpn-sessions/pppX.env existiert und enthält mindestens:
+  - PPP_IF
+  - CLIENT_IP
+  - CONNECTION_ID
+  - START_TS
+  - PPPD_PID
+  (SESSION_ID optional/diagnostisch)
+- PID Source Test (FORBIDDEN pgrep/ps):
+- Permissions Test: Nicht-root (z.B. www-data) darf /run/vpn-sessions/ nicht erstellen/manipulieren (Write/Create MUSS fehlschlagen).
+- Spool Ring-Buffer Test: Sehr kleine Ceilings + DB down -> älteste Segmente werden gedroppt (drop oldest), neue Deltas werden weiter angenommen, Alert „Ceiling Hit“ wird ausgelöst.
+  - PPPD_PID MUSS aus pppd/ip-up Environment stammen (kein pgrep/ps erlaubt).
+  - Erwartung: Implementierung nutzt ausschließlich env/Hook-Kontext für PPPD_PID (Race-sicher).
 - Collector Test: alle 300s werden Deltas korrekt berechnet und als Batch committed.
-- DB Down Test: DB stoppen -> spool.log wächst, pending wächst; nach DB recovery wird nachgetragen.
+- DB Down Test: DB stoppen -> Spool wächst bis Ceiling; bei Ceiling Hit Drop/Ring-Buffer greift + Alert; nach DB recovery wird idempotent nachgetragen.
 - Reboot Test: DB down + reboot -> spool/state bleibt; nach DB recovery wird korrekt nachgetragen.
 - Runtime Index Test (connection_id):
-  - Wenn /run/vpn-sessions/pppX.env CONNECTION_ID=123 enthält, gilt connection_id=123 als aktiv (scan *.env).
-  - Wenn kein *.env diese CONNECTION_ID enthält, gilt sie als inaktiv (wichtig für B168 Lock-Leiche Backstop).
+  - Wenn ein VALID Runtime-Mapping in /run/vpn-sessions/pppX.env existiert und CONNECTION_ID=123 enthält, gilt connection_id=123 als aktiv (scan *.env + VALID-Check).
+  - Wenn kein VALID Mapping diese CONNECTION_ID enthält, gilt sie als inaktiv (wichtig für B168 Lock-Leiche Backstop).
+
 ================================================================================
 7) CHANGELOG
 ================================================================================
+- v1.5.1 (2026-01-10): Header (LAST-UPDATE) korrigiert. Collector-Norm ergänzt: non-VALID Mappings ignorieren. Runtime Index Test auf VALID umgestellt (konsistent zu B168).
+- v1.5 (2026-01-10): Runtime-Aktivität auf VALID Runtime-Mapping (B168) umgestellt (File-exists reicht nicht). Permissions/Integrität für /run/vpn-sessions als MUST ergänzt. Collector-DB-down Text auf Ceilings + Drop/Ring-Buffer normiert. Tests um Permissions + Ring-Buffer/Ceiling Hit erweitert.
+- v1.4 (2026-01-09): TESTS aktualisiert: Mapping-Test prüft nun START_TS + PPPD_PID (MUST) statt nur CONNECTION_ID/SESSION_ID. Zusätzlicher Testpunkt zur Absicherung "PPPD_PID nur aus env, pgrep/ps FORBIDDEN".
+- v1.3 (2026-01-09): Session-Mapping um PPPD_PID (MUST) erweitert (Quelle: pppd/ip-up env; pgrep verboten). Spool-Policy auf HYBRID kanonisiert: SQL-first Settings + lokale Safety Ceilings (immer aktiv) + Drop/Ring-Buffer MUST bei Ceiling-Hit inkl. Alert/Observability/Replay-Normen.
 - v1.2 (2026-01-07): Spool-Policy-Anforderungen ergänzt (Backpressure/Idempotenz/Observability/Replay), ohne bestehende Pfade/Mechanik zu ändern.
 - v1.1 (2026-01-07): Runtime-Aktivitätsdefinition pro connection_id ergänzt (scan /run/vpn-sessions/*.env). SESSION_ID Bedeutung präzisiert (nicht führend für Aktivitätschecks). Tests um Runtime-Index/Janitor-Integration erweitert.
 - v1.0: initial

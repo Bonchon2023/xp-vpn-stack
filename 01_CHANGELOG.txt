@@ -4,6 +4,39 @@ MASTER CHANGELOG
 ================================================================================
 ERRATA (KANONISCHKEIT): Der Changelog kann historische Begriffe enthalten. Maßgeblich für den aktuellen Stand sind MASTER/Glossar/Blocks. Historische Begriffe sind nicht kanonisch.
 
+- v2.3.0 (2026-01-10):
+  - Enforcement-Konsistenz (Hard Cut, established flows):
+    - Restricted Mode ist „HARD CUT“: laufende Datenströme werden sofort unterbrochen (kein Soft-Cut-Auslaufenlassen).
+    - Technischer Mechanismus: conntrack-Flush bei Statuswechsel FULL -> RESTRICTED, damit established/related nicht „durchrutschen“.
+    - Race-sichere Reihenfolge normiert: zuerst Policy/Kernel-Enforcement aktivieren, dann conntrack flush.
+    - Flush-Scope bidirektional normiert (Source + Destination), damit keine „Geisterstates“ verbleiben.
+    - Fail-Safe (MUST): wenn conntrack-Flush fehlschlägt -> PPP-Session-Kill als deterministische Notbremse (fail-closed).
+    - Failure-Semantik: doppelter Fehlschlag (Flush + Kill) ist FATAL (Monitoring/Alert Pflicht).
+    - DoD/Tests ergänzt: Hard-Cut wirkt bei laufendem Download; Simulations-Test „Flush fail“ muss PPP-Kill auslösen; Recovery-Pfad verifiziert.
+    - Betroffene Blocks: B150 (Walled Garden), B166 (Policy Apply / Reconcile).
+  - Ops-Hardening „Session Identität“ + Lock Contention:
+    - Kill-Handle kanonisiert: PPPD_PID MUST + PPP_IF + START_TS (PID-Reuse Schutz über START_TS/Validierung).
+    - ip-up Verhalten kanonisiert: bounded retry/backoff + fail-closed default bis policy-apply erfolgreich; bei Apply-Failure Session terminieren.
+    - „No pgrep“ normiert: PPPD_PID muss aus pppd/ip-up Kontext/Env stammen, nicht via Prozesssuche (Race-Schutz).
+    - Betroffene Blocks: B165 (Accounting/Session Mapping), B167 (Wiring Hooks / systemd).
+  - Disk-/Logging-Safety & Retention:
+    - Hybrid-Modell normiert: SQL-first Settings als Policy-Quelle + lokale Safety Ceilings (max bytes/age) als physische Obergrenze.
+    - Spool-Ceiling Verhalten entschieden: Drop/Ring-Buffer MUST (Drop Oldest) + zwingender Alert bei Ceiling-Hit.
+    - Deterministische Retention-Aussagen (Tage/Bytes statt „keep short“), keine „silent failure“ bei Disk-Full.
+    - Betroffener Block: B330 (Logging/Monitoring/Retention/Alerts).
+  - Stale-Session Management „kernel truth“ + DoS-Schutz:
+    - Janitor vertraut nicht mehr blind /run-Artefakten: Mapping muss VALID sein (Interface-Existenz + PID-Validierung + START_TS).
+    - Integritätsschutz MUST: /run/vpn-sessions root-only write (chmod/chown normativ), Manipulation durch Web-User ausgeschlossen.
+    - On-Demand Janitor (Login-getriggert) darf kein SQL-DoS werden: cached values oder sichere Fallbacks bevorzugen.
+    - DoD/Tests ergänzt: Zombie-File cleanup, Live-Session non-cleanup, PID-reuse/StartTS, DB-unreachable fallback.
+    - Betroffene Blocks: B168 (Stale Session Janitor), B169 (Login-Flow / On-demand Janitor).
+  - DNS Enforcement Privacy/Debug:
+    - „Counters ohne Logs“ als Option B aufgenommen (aggregierte Pakete/Bytes statt per-client forensischer Logs) – Diagnosefähigkeit ohne PII.
+    - Betroffener Block: B210 (DNS Enforcement DNAT53).
+  - Panel Security (falls bereits umgesetzt im Repo-Stand dieser Runde):
+    - Session-Regeneration nach Login UND nach Verify-Success; Recheck-Strategie (state-changing hart, GET cachebar); SQL-first TTLs/Limits.
+    - Betroffener Block: B285 (Panel Security Model).
+
 - v2.2.0 (2026-01-09):
   - Security-kritischer Konsistenzfix: Token=Claim-only + MSCHAPv2/NT-Hash, fileübergreifend):
   - Glossar: Token-Begriffe entkoppelt und hart präzisiert (claim_token/claim_token_hash ausschließlich Claim; csrf_token/session_token nur Panel). „Token“ unqualifiziert verboten.

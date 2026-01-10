@@ -1,8 +1,8 @@
 BLOCK: B167_WIRING_HOOKS_SYSTEMD
-VERSION: v1.9
+VERSION: v1.12.1
 STATUS: ACTIVE
 OWNER: Marco + ChatGPT
-LAST-UPDATE: 2026-01-09
+LAST-UPDATE: 2026-01-10
 
 ================================================================================
 1) ZWECK
@@ -27,8 +27,10 @@ LAST-UPDATE: 2026-01-09
 - Runtime Mapping (volatile):
   - /run/vpn-sessions/<ppp_if>.env   (B165)
 - Runtime-Aktivität (KANONISCH):
-  - "connection_id aktiv?" => true genau dann, wenn irgendein /run/vpn-sessions/*.env diese CONNECTION_ID enthält (Definition siehe B165).
-  - Diese Runtime-Quelle ist führend für Janitor/Safety Checks (B168/B169) und Reconcile.
+  - "connection_id aktiv?" => true genau dann, wenn mindestens ein VALID Runtime-Mapping in /run/vpn-sessions/*.env existiert,
+    dessen CONNECTION_ID=<id> ist (Definition VALID siehe B168; B165 ist darauf abgestimmt).
+  - Konsequenz: Bloße Dateiexistenz ist NICHT ausreichend (Ghost-File Problem).
+  - Diese Runtime-Quelle (VALID Mapping) ist führend für Janitor/Safety Checks (B168/B169) und Reconcile.
 - Durable Accounting State + Spool:
   - /var/lib/vpn-accounting/         (B165)
 
@@ -41,7 +43,14 @@ LAST-UPDATE: 2026-01-09
 MUSS ausführen (Reihenfolge):
 1) Session-Mapping erzeugen/aktualisieren (B165):
    - /run/vpn-sessions/<ppp_if>.env
-   - Muss enthalten: CONNECTION_ID (CONNECTION_ID wird vorher per SQL Lookup gemäß Regel unten ermittelt), PPP_IF, CLIENT_IP, SESSION_ID, START_TS
+   - Muss enthalten (MINIMUM, MUST):
+     - CONNECTION_ID (wird vorher per SQL Lookup gemäß Regel unten ermittelt)
+     - PPP_IF
+     - CLIENT_IP
+     - START_TS
+     - PPPD_PID
+   - Optional (nur Diagnose, kein Kill-Handle):
+     - SESSION_ID
 
 2) Policy sofort anwenden (B166, STRICT):
    - vpn-policy-apply --connection-id=<CONNECTION_ID>
@@ -51,13 +60,44 @@ Regel:
 - Fallbacks (nur wenn PEERNAME leer):
   - USER
   - PPPLOGNAME
-- Wenn PPP Username nicht ermittelbar ist => Mapping wird NICHT geschrieben und vpn-policy-apply wird NICHT ausgeführt (Fehler -> Diagnose).
+- Wenn PPP Username nicht ermittelbar ist => Mapping wird NICHT geschrieben und vpn-policy-apply wird NICHT ausgeführt.
+  FAIL-CLOSED (MUST): ip-up MUSS die PPP-Session sofort beenden (PPP-kill), damit kein unpoliced window entsteht (Fehler -> Diagnose + Alert gemäß B330).
+  PPP-kill erfolgt deterministisch über PPPD_PID aus dem pppd/ip-up Environment (FORBIDDEN: pgrep/ps).
 - ip-up ermittelt CONNECTION_ID deterministisch per SQL Lookup über den authentifizierten PPP Username.
 - Der PPP Username MUSS identisch sein mit vpn_connections.subaccount_login (eindeutig/UNIQUE).
 - Lookup (konzeptionell):
   - - SELECT id FROM vpn_connections WHERE subaccount_login=<PPP_USERNAME> AND status IN ('PREPROVISIONED','CLAIMED');
-- Wenn Lookup fehlschlägt (kein Treffer / mehrere Treffer) => Mapping wird NICHT geschrieben und vpn-policy-apply wird NICHT ausgeführt (Fehler -> Diagnose).
-- Da DB-down Fail-Closed ist (B050), ist SQL Lookup im ip-up konzeptionell zulässig.
+- Wenn Lookup fehlschlägt (kein Treffer / mehrere Treffer / SQL nicht erreichbar) => Mapping wird NICHT geschrieben und vpn-policy-apply wird NICHT ausgeführt.
+  FAIL-CLOSED (MUST): ip-up MUSS die PPP-Session sofort beenden (PPP-kill), damit kein unpoliced window entsteht (Fehler -> Diagnose + Alert gemäß B330).
+   - PPP-kill erfolgt deterministisch über PPPD_PID aus dem pppd/ip-up Environment (MUST).
+     Das Mapping (B165) ist nur Spiegel/Diagnose und darf kein Hard-Dependency für den Kill sein.
+- Da DB-down Fail-Closed ist (B050), ist SQL Lookup im ip-up konzeptionell zulässig. Konsequenz: Wenn SQL down ist, muss Connect scheitern (PPP wird gekillt).
+
+3) Lock-Contention Handling + fail-closed bis Apply (KANONISCH, MUST):
+   Ziel:
+   - Es darf keinen Zustand geben, in dem eine PPP-Session "hoch" ist, aber die Kernel-Policy nicht zuverlässig angewendet wurde.
+
+   Bounded Retry/Backoff (MUST):
+   - Wenn vpn-policy-apply mit TEMPFAIL_LOCKED endet, MUSS ip-up bounded retry/backoff ausführen.
+   - Es MUSS ein max_total_time_window geben (bounded, kein endloses Warten).
+
+   Zeitfenster (XP-Operability, MUST/SHOULD, SQL-first):
+   - max_total_time_window SOLL (wenn SQL verfügbar) aus SQL-Settings gelesen werden.
+   - Performance-Schutz (MUST): Wenn SQL-Settings nicht schnell (mit kleinem Timeout) abrufbar sind, MUSS ip-up sofort den Fallback nutzen
+     (kein zusätzlicher SQL-Wait im Connect-Pfad; verhindert DoS/Latenz bei Login-Flooding).
+   - max_total_time_window MUSS hart gecappt sein auf <= 15 Sekunden.
+   - Notfall-Default (Fallback, klar markiert): default SHOULD = 10 Sekunden, falls SQL-Settings nicht verfügbar sind.
+
+   fail-closed (MUST):
+   - Wenn vpn-policy-apply innerhalb des max_total_time_window nicht SUCCESS liefert (weiterhin TEMPFAIL_LOCKED oder Error),
+     MUSS ip-up die PPP-Session beenden (PPP-kill), damit kein unpoliced window entsteht.
+   - PPP-kill erfolgt deterministisch über PPPD_PID aus dem pppd/ip-up Environment (MUST).
+     Mapping (B165) ist nur Spiegel/Diagnose und darf kein Hard-Dependency für den Kill sein.
+   - Wenn PPP-kill fehlschlägt: FATAL -> Alert/Logging (B330), weil das ein Sicherheitsbruch wäre (Session bleibt trotz fail-closed Forderung aktiv).
+
+   PPPD_PID Quelle (MUST):
+   - PPPD_PID MUSS aus pppd/ip-up Environment stammen.
+   - FORBIDDEN: pgrep/ps zur PID-Ermittlung.
 
 ================================================================================
 4) DISCONNECT TRIGGER (ip-down)
@@ -229,6 +269,7 @@ Kanonisch:
 9) TESTS (WIRING)
 ================================================================================
 - ip-up Test: Mapping file wird erstellt + vpn-policy-apply wird aufgerufen.
+  - Mapping-Minimum ist erfüllt: CONNECTION_ID, PPP_IF, CLIENT_IP, START_TS, PPPD_PID vorhanden; SESSION_ID optional.
 - ip-down Test: Final flush + cleanup + mapping removal.
 - Panel Event Test: Policy Änderung -> sofort vpn-policy-apply Aufruf.
 - Timer Test: Reconcile läuft alle 5 Minuten; Accounting Collector alle 300s.
@@ -238,10 +279,17 @@ Kanonisch:
 - Start-Order Test: Nach Boot sind network-online, strongSwan, xl2tpd, freeradius aktiv bevor boot-reconcile läuft.
 - Early-Reconcile Protection Test: boot-reconcile läuft nicht bevor network-online erreicht ist; optional Delay verhindert "0 pppX" Fehlzustand.
 - DB Down Boot Test: DB down beim Boot -> Services starten trotzdem; Auth fail-closed; collector/janitor skippen best effort ohne Loop/Spam.
+- Lock-Contention Test (TEMPFAIL_LOCKED): vpn-policy-apply Lock künstlich belegt -> ip-up macht bounded retry/backoff -> wenn kein SUCCESS innerhalb Window: PPP-kill (fail-closed) erfolgt deterministisch.
+- Apply-Failure Test: vpn-policy-apply liefert Error/Timeout -> ip-up beendet Session (fail-closed) -> kein Traffic-Fluss ohne Policy.
+- PPPD_PID Source Test: PPPD_PID wird aus pppd/ip-up Environment übernommen; pgrep/ps wird nicht benutzt (Audit-Check).
 
 ================================================================================
 10) CHANGELOG
 ================================================================================
+- v1.12.1 (2026-01-10): Präzisierung: PPP-kill darf nicht vom Runtime-Mapping abhängen; PPPD_PID Quelle ist pppd/ip-up Environment, Mapping nur Spiegel/Diagnose. ip-up Zeitfenster: SQL-Settings nur bei „schnell verfügbar“, sonst sofort Fallback (keine Connect-Latenz/DoS). Konsistenzfix: fail-closed Kill-Quelle präzisiert (PPPD_PID aus pppd/ip-up env, nicht aus Mapping).
+- v1.12 (2026-01-10): Runtime-Aktivitätsdefinition auf VALID Mapping umgestellt (konsistent zu B165/B168; Ghost-Files sind kein Aktivitätsbeweis). ip-up Fail-Closed gehärtet: Wenn PPP Username nicht ermittelbar ist oder SQL Lookup fehlschlägt/DB down ist, MUSS die PPP-Session deterministisch via PPPD_PID (env) gekillt werden (kein unpoliced window).
+- v1.11 (2026-01-09): ip-up Mapping-Minimum kanonisiert: PPPD_PID + START_TS (MUST), SESSION_ID nur optional/diagnostisch (kein Kill-Handle). Lock-Contention Zeitfenster SQL-first präzisiert (SQL Setting bevorzugt, Hard Cap <=15s, Fallback default SHOULD 10s). Tests um Mapping-Minimum ergänzt.
+- v1.10 (2026-01-09): ip-up kanonisiert: bounded retry/backoff bei TEMPFAIL_LOCKED + fail-closed bis Apply (bei ausbleibendem SUCCESS -> PPP-kill via PPPD_PID). Mapping-Inhalt um PPPD_PID ergänzt. Zeitfenster normiert (MUST <= 15s, default SHOULD 10s). PPPD_PID Quelle aus pppd/ip-up env; pgrep verboten.
 - v1.9 (2026-01-09): ip-up SQL Lookup korrigiert: status='ACTIVE' entfernt; Statusfilter an State-Machine (PREPROVISIONED/CLAIMED) angepasst.
 - v1.8 (2026-01-07): Locking im Reconcile Wiring von OPTIONAL auf MUST hochgestuft + Single-Writer Regeln konkretisiert (TEMPFAIL_LOCKED + Stale-Lock).
 - v1.7: Panel-Event-Trigger korrigiert: Verify entfernt (App-Layer), Kernel-Trigger sind Claim/Unclaim/Quota/Expiry/Manual/Speed; Gate2-Begriff entfernt. Runtime-Aktivitätsdefinition pro connection_id (scan /run/vpn-sessions/*.env) explizit als kanonisch referenziert (B165).

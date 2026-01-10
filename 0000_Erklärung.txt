@@ -1,6 +1,6 @@
-0000_Erklärung.txt (v2.2.0)
+0000_Erklärung.txt (v2.3.0)
 
-00_MASTER_v2.2.0.txt (Inhalt/Format)
+00_MASTER_v2.3.0.txt (Inhalt/Format)
 
 Ziel: Das ist die Datei, die du immer “komplett” rausgeben kannst, wenn du sagst „gib mir das ganze Konzept“.
 Sie enthält keine Details doppelt, sondern verweist auf Blocks.
@@ -17,7 +17,7 @@ Blockliste (IDs + Titel)
 
 Abhängigkeiten (Graph in Textform)
 
-“Aktive Entscheidungen” (z.B. OpenResty fix, SQL-first fix)
+“Aktive Entscheidungen” (z.B. OpenResty fix, SQL-first fix, Restricted Hard-Cut (conntrack+PPP-kill Fail-Safe), Hybrid Retention+Ring-Buffer (Drop Oldest), Stale-Session Janitor VALID-Mapping+Permissions+On-Demand Cache/Fallback)
 
 Tasks-Hybrid:
 - 0_MASTERKONZEPT_V2_ANALYSE.md ist die Abarbeitungs-Datei.
@@ -190,3 +190,21 @@ Restricted Mode (Kernel / nftables) ist davon getrennt und wird nur aktiv durch:
 Policy-Enforcement ist deterministisch (B166/B167): Drift wird über Reconcile (<=5min) verhindert.
 
 Stale-Session/SimUse Lockout wird aktiv gelöst (B168/B169) statt “weicher SimUse” oder “parallel sessions”.
+
+
+Wichtig (v2.3-Update, explizit):
+
+Restricted Mode Enforcement ist HARD CUT (MUST):
+- Bei State-Change FULL -> RESTRICTED MUSS Enforcement „sofort“ auch für established flows wirken.
+- Mechanismus: Policy/Kernel-Enforcement aktivieren -> conntrack flush (bidirektional: Source+Destination) -> danach greifen Regeln auch für ehemals established Flows.
+- Fail-Safe (MUST): Wenn conntrack-flush scheitert -> PPP-Session kill (fail-closed, deterministisch).
+- Doppel-Fehlschlag (flush fail + kill fail) ist FATAL (Alert/Monitoring Pflicht).
+
+Logging/Retention/Spool Safety ist Hybrid (MUST):
+- SQL-first Settings sind Policy-Quelle; lokale Safety Ceilings sind Physik-Grenze (effective = min(SQL, local ceiling)).
+- Bei Ceiling-Hit (Spool/Logs) gilt Drop/Ring-Buffer (Drop Oldest) MUST + zwingender Alert.
+
+Stale-Session Management ist „Kernel-Truth“ (MUST):
+- Mapping-Dateien sind nur gültig, wenn VALID (Interface-Existenz + PID + START_TS / PID-Reuse Schutz).
+- /run/vpn-sessions/ Integritätsschutz (MUST): root-only write (chmod/chown normativ), keine Manipulation durch Web-User.
+- On-Demand Janitor (Login-getriggert) soll Cache/Fallback nutzen, um SQL-DoS im Login-Pfad zu vermeiden (SHOULD).

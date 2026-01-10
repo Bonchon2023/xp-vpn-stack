@@ -2,7 +2,7 @@ vpn_masterkonzept/blocks/B210_DNS_ENFORCEMENT_DNAT53.txt
 ================================================================================
 BLOCK-ID: B210
 TITLE: DNS Enforcement (DNAT 53)
-VERSION: v1.6
+VERSION: v1.7
 STATUS: ACTIVE
 PRIORITY: MUST
 OWNER-INTENT: "Idiotensicher" DNS egal was User einträgt.
@@ -13,7 +13,15 @@ OWNER-INTENT: "Idiotensicher" DNS egal was User einträgt.
 - Gilt für ALLE ppp* Clients (User/Admin/restricted), damit DNS immer über AdGuardHome läuft.
 
 2) GRENZEN
-- Aktivieren erst wenn DNS stack stabil.
+- Aktivieren erst wenn DNS stack stabil (B200).
+- Dieses Enforcement betrifft NUR klassisches DNS über UDP/TCP Port 53.
+  - DoH (HTTPS/443), DoT (TCP/853) und DoQ sind NICHT Teil dieses Blocks.
+  - Falls später ein "Total-DNS-Lockdown" gewünscht ist, ist das eine separate Outbound-Policy-Entscheidung (eigener Block/Decision).
+- IPv4-only: Dieser Block beschreibt DNS-Enforcement für IPv4.
+  - Konzept-Policy: IPv6 ist serverseitig deaktiviert/gedroppt (Stealth).
+  - Falls IPv6 jemals aktiviert wird, muss DNS-Enforcement für IPv6 explizit ergänzt werden, sonst potentieller DNS-Leak über v6.
+- DNAT betrifft nur eingehenden Client-Traffic auf iifname "ppp*".
+  - Server-eigene DNS Queries (OUTPUT) sind nicht Teil dieses DNAT und werden über lokale Resolver-Config gesteuert (z.B. Unbound).
 
 3) ABHÄNGIGKEITEN
 - Requires: B200, B120, B150, docs/nft_service_ip_scopes.txt
@@ -34,19 +42,30 @@ OWNER-INTENT: "Idiotensicher" DNS egal was User einträgt.
 - Daher MUSS Restricted Allowlist im input (B150 + docs/nft_service_ip_scopes.txt) explizit UDP+TCP 53 zu 10.77.0.1 erlauben, sonst bricht DNS-Enforcement (insbesondere im Restricted Mode).
 
 7) OPTIONAL
-- Kein nftables syslog logging fuer "external DNS attempts" (Noise/Logspam). DNS-Transparenz erfolgt ueber AdGuardHome Logs; optional spaeter nur Counters, falls Bedarf.
+- Kein nftables syslog logging fuer "external DNS attempts" (Noise/Logspam).
+- DNS-Transparenz erfolgt ueber AdGuardHome Logs.
+- Option B (Nice-to-have, Debug ohne Forensik):
+  - Es duerfen Counters (aggregierte Pakete/Bytes) an den DNS-DNAT-Regeln vorhanden sein (UDP/53 und TCP/53 getrennt).
+  - Keine Ziel-IPs/Domains/PII erfassen, keine syslog/kernel logs.
+  - Zweck: Debug "Sendet der Client ueberhaupt klassisches DNS (Port 53)?" vs. "Problem nach DNAT (Input-Allowlist/DNS-Dienst/Upstream/MTU)".
 
 8) FEHLERBILDER
 - Some apps use DoH -> not covered by DNS enforcement (later policy decision).
 - IPv6: Dieser Block ist IPv4-only. Konzept-Policy: IPv6 ist serverseitig deaktiviert/gedroppt (Stealth). Falls IPv6 jemals aktiviert wird, muss DNS-Enforcement fuer IPv6 explizit ergaenzt werden (oder IPv6 DNS/Traffic generell droppen), sonst potentieller DNS-Leak ueber v6.
+- MTU/Fragmentierung/EDNS0: grosse DNS-Antworten droppen (z.B. DNSSEC/EDNS0) -> DNS wirkt "kaputt", obwohl DNAT korrekt ist. Dann MTU/MSS/Fragmentation prüfen (B090 Kontext).
 
 9) TESTS
 - Client set DNS 8.8.8.8 -> still uses 10.77.0.1.
 - TCP DNS Test: Client erzeugt DNS über tcp/53 (z.B. große Antwort / erzwungen) -> wird ebenfalls zu 10.77.0.1 umgebogen.
 - Restricted Input Test:
   - Client ist restricted (Portal-Only) + setzt DNS manuell auf 8.8.8.8 -> DNS funktioniert trotzdem (DNAT auf 10.77.0.1:53) und input-allowlist lässt tcp/udp 53 zu.
+- Negativtest (DoH): Wenn ein Client ausschliesslich DoH nutzt, steigen UDP/TCP-53 Counters nicht (falls Option B aktiv) und DNAT greift nicht. Erwartung: klassisches DNS bleibt erzwungen, DoH ist out-of-scope.
+- Optional Counter-Test (wenn Option B aktiv):
+  - UDP/53 Counter steigt bei DNS-Queries.
+  - TCP/53 Counter steigt bei TCP-DNS-Fallback.
 
 10) CHANGELOG
+- v1.7 (2026-01-09): Scope/Grenzen präzisiert (nur UDP/TCP 53; DoH/DoT/DoQ out-of-scope; IPv4-only + IPv6 Policy klar); OPTIONAL Option B Counters (no logs) konkretisiert; Tests um DoH-Negativtest + optional Counter-Test ergänzt; MTU/EDNS0 Randfall ergänzt.
 - v1.6 (2026-01-07): T06 Referenzen entfernt/ersetzt durch docs/nft_service_ip_scopes.txt (Dependencies + MUST Input-Allowlist Bezug). Keine Logikänderung.
 - v1.5: Pfadpräzisierung ergänzt: DNS nach DNAT läuft über filter input (dst=10.77.0.1:53). Deshalb muss Restricted Allowlist im input (B150/T06) UDP+TCP 53 zu 10.77.0.1 erlauben; Tests um Restricted/Input-Fall erweitert; T06 als Dependency ergänzt.
 - v1.4: IPv6 Klarstellung ergaenzt: B210 ist IPv4-only; IPv6 ist per Policy deaktiviert/gedroppt, sonst waere v6 DNS Enforcement notwendig.

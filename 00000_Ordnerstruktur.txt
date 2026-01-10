@@ -1,8 +1,8 @@
 vpn_masterkonzept/
 ├─ 00000_Ordnerstruktur.txt
 ├─ 0000_Erklärung.txt
-├─ 000_MASTER-KONZEPT v2.2 (ZEILENFEST).txt
-├─ 00_MASTER_v2.2.txt
+├─ 000_MASTER-KONZEPT v2.3 (ZEILENFEST).txt
+├─ 00_MASTER_v2.3.txt
 ├─ 01_CHANGELOG.txt
 ├─ 02_GLOSSAR.txt
 ├─ 03_ASSUMPTIONS_AND_RULES.txt

@@ -1,8 +1,8 @@
 BLOCK: B168_STALE_SESSION_JANITOR
-VERSION: v1.5
+VERSION: v1.6.1
 STATUS: ACTIVE
 OWNER: Marco + ChatGPT
-LAST-UPDATE: 2026-01-07
+LAST-UPDATE: 2026-01-09
 
 ================================================================================
 1) ZWECK
@@ -23,8 +23,15 @@ LAST-UPDATE: 2026-01-07
 3) VORAUSSETZUNG: INTERIM UPDATES
 ================================================================================
 - FreeRADIUS muss Interim Updates schreiben, damit acctupdatetime frisch ist.
-- Vorgabe:
-  - Acct-Interim-Interval = 300s
+
+- Acct-Interim-Interval ist ein SQL-first Parameter (Policy-Quelle: DB).
+- Lokale Safety-Fallbacks (MUST):
+  - DEFAULT/FALLBACK: 300s
+  - Safety Caps (MUST): Die Implementierung MUSS MIN/MAX Grenzen erzwingen, die niemals durch SQL übersteuert werden dürfen
+    (Physik > Policy; Ziel: keine extremen/instabilen Werte).
+
+- Hinweis (Konsistenzregel, MUST):
+  - STALE_THRESHOLD_SECONDS muss in plausibler Relation zum effektiven Interim stehen (siehe 4).
 
 ================================================================================
 4) DEFINITIONEN (KANONISCH)
@@ -35,22 +42,28 @@ DB-Sicht "aktiv":
 
 DB-Sicht "stale":
 - stop_time IS NULL
-- UND NOW() - acctupdatetime > STALE_THRESHOLD
+- UND NOW() - acctupdatetime > STALE_THRESHOLD_SECONDS
 
-Vorgabe:
-- STALE_THRESHOLD = 900s (3 * 300s)
+Parameter (Hybrid, MUST):
+- STALE_THRESHOLD_SECONDS ist SQL-first (Policy-Quelle: DB).
+- DEFAULT/FALLBACK: 900s (typisch: 3 * 300s)
+- Safety Caps (MUST):
+  - STALE_THRESHOLD_SECONDS MUSS >= 2 * (Acct-Interim-Interval_effective) sein (sonst false positives).
+  - STALE_THRESHOLD_SECONDS MUSS <= (lokal definierter Maximalwert) sein (Physik-Grenze; Schutz vor „nie stale“).
 
 ================================================================================
 5) JANITOR / SWEEPER (SYSTEMD TIMER)
 ================================================================================
-- Ein periodischer Janitor läuft alle 5 Minuten.
+- Ein periodischer Janitor läuft regelmäßig (DEFAULT/FALLBACK: alle 5 Minuten; effektiv gemäß SQL-first Parameter, siehe Intervall).
 - Aufgabe:
   - identifiziert stale radacct Einträge
   - setzt stop_time, um Simultaneous-Use wieder freizugeben
   - markiert optional acctterminatecause (für Diagnose)
 
-Intervall:
-- Janitor-Intervall = 5 Minuten
+Intervall (Hybrid, MUST):
+- Janitor-Intervall ist SQL-first (Policy-Quelle: DB).
+- DEFAULT/FALLBACK: 5 Minuten
+- Safety Caps (MUST): Die Implementierung MUSS MIN/MAX Grenzen erzwingen (Physik-Grenze; Schutz vor zu aggressiv / zu selten).
 
 ================================================================================
 5.1) ON-DEMAND CLEANUP (SINGLE TARGET, LOGIN-PATH)
@@ -65,23 +78,40 @@ Konzept-Aufruf (CLI):
 
 Verhalten:
 - BEST EFFORT: Wenn DB down -> Cleanup kann nicht laufen (Fail-Closed blockiert ohnehin neue Logins).
-- SAFETY bleibt STRICT: Niemals schließen, wenn Runtime-Mapping (/run/vpn-sessions/*) für diese Session/Connection existiert (siehe 6).
+- SAFETY bleibt STRICT: Niemals schließen, wenn ein VALID Runtime-Mapping (/run/vpn-sessions/*) für diese Session/Connection existiert (Definition siehe 6)..
 - Der globale Timer bleibt als Backstop/Repair-Schleife bestehen.
 - Die konkrete Platzierung/Reihenfolge im FreeRADIUS Login-Pfad (inkl. 2-stufigem Retry) ist in B169 fest definiert.
 - Rate-Limit/Cache/Timeout Parameter für On-Demand Aufrufe sind in B169 kanonisch definiert.
+- Performance-Schutz / DoS-Defense (SHOULD):
+  - Im On-Demand Pfad (Login-getriggert) SOLLTEN SQL-first Parameter (z.B. STALE_THRESHOLD, INTERIM, JANITOR-INTERVALL)
+    nicht pro Login-Versuch frisch aus der DB gelesen werden.
+  - On-Demand SOLLTE Cached Values oder direkt die sicheren Fallback-Werte nutzen, um Login-Latenz und DB-Last zu minimieren.
 
 
 ================================================================================
 6) SAFETY CHECK (EMPFOHLEN, DEFAULT: JA)
 ================================================================================
-- Bevor der Janitor eine Session "schließt", wird geprüft:
-  - existiert die Session/Connection aktuell im Runtime-Mapping (/run/vpn-sessions/*) (B165)?
-- Wenn JA:
-  - nicht schließen (vermeidet false positives)
-- Wenn NEIN:
-  - schließen (stop_time setzen)
-
-Match-Kriterium: Mapping enthält CONNECTION_ID; Janitor schließt nur, wenn keine aktive Mapping-Datei mit derselben CONNECTION_ID existiert.
+- Bevor der Janitor eine Session "schließt", wird geprüft, ob ein Runtime-Mapping existiert UND ob dieses Mapping VALID ist.
+- VALID bedeutet (MUST):
+  - Ein Mapping darf nicht nur als Datei existieren, sondern MUSS zur Kernel-Realität passen.
+  - Ein Mapping gilt als VALID, wenn mindestens eine der folgenden Bedingungen erfüllt ist:
+    1) PPP_IF existiert im Kernel (Interface-Check), ODER
+    2) PPPD_PID existiert UND START_TS passt (PID-Reuse Schutz), ODER
+    3) (Fallback, SHOULD) Mapping ist "frisch" (mtime/age <= kurzes Runtime-Window), falls (1)/(2) technisch nicht möglich sind.
+PID-Reuse Schutz (MUST):
+- Bei der Prüfung der PPPD_PID DARF NICHT allein auf die Existenz der PID vertraut werden.
+- Es MUSS zusätzlich START_TS plausibel matchen (oder der Prozess eindeutig als pppd identifizierbar sein),
+  um PID-Wiederverwendung nach Crash/Reboot auszuschließen.
+- Entscheidung:
+  - Wenn VALID: NICHT schließen (vermeidet false positives / Live-Session Kill).
+  - Wenn nicht VALID (inkl. "Datei existiert, aber Check fail"): Mapping gilt als nicht vorhanden -> schließen (stop_time setzen).
+Integritätsschutz / Permissions (MUST):
+- Das Verzeichnis /run/vpn-sessions/ und alle Mapping-Dateien MÜSSEN so berechtigt sein (chmod/chown),
+  dass ausschließlich der privilegierte VPN-Pfad (ip-up/root bzw. dedizierter privileged service user) schreibend zugreifen darf.
+- Manipulation durch User oder Web-Services (z.B. www-data) MUSS auf Dateisystemebene ausgeschlossen sein.
+Match-Kriterium (MUST):
+- Mapping enthält CONNECTION_ID; als "Runtime-Mapping vorhanden" zählt nur eine aktive Mapping-Datei mit derselben CONNECTION_ID,
+  die zusätzlich VALID ist (Definition siehe oben).
 
 ================================================================================
 6.5) INTEGRATION: ATOMARER SESSION-LOCK (active_session_locks, B055/B056)
@@ -94,8 +124,7 @@ Regel (MUST, um "Lock-Leichen" zu vermeiden):
 - Wenn B168 eine stale Session für einen subaccount_login schließt (stop_time=NOW()):
   - DANN MUSS zusätzlich geprüft werden, ob ein active_session_locks Eintrag für die zugehörige vpn_connection/connection_id existiert.
     - Falls JA:
-    - und kein Runtime-Mapping (/run/vpn-sessions/*) für diese connection_id existiert (Safety-Check bleibt führend; "connection_id aktiv?" Definition siehe B165),
-      dann darf/muss der Lock bereinigt werden (DELETE), damit keine Lock-Leiche neue Logins blockiert.
+    - und kein VALID Runtime-Mapping (/run/vpn-sessions/*) für diese Session/Connection existiert (Safety Check Definition siehe 6), dann darf/muss der Lock bereinigt werden (DELETE), damit keine Lock-Leiche neue Logins blockiert.
 Hinweis:
 - Diese Lock-Bereinigung ersetzt nicht den authorize-flow cleanup in B169; sie ist ein Backstop für Crash/Restart/Partial-Failure Fälle.
 
@@ -121,7 +150,7 @@ Hinweis:
 9) TESTS
 ================================================================================
 - Stale Detection Test:
-  - stop_time NULL + acctupdatetime älter als 900s -> wird als stale erkannt.
+  - stop_time NULL + acctupdatetime älter als STALE_THRESHOLD_SECONDS (Fallback: 900s) -> wird als stale erkannt.
 - Safety Check Test:
   - stale nach DB-Kriterium, aber Mapping in /run/vpn-sessions vorhanden -> darf NICHT geschlossen werden.
 - Lockout Prevention Test:
@@ -132,10 +161,23 @@ Hinweis:
 - On-Demand Safety Test: Session ist live (Mapping in /run/vpn-sessions vorhanden) -> On-Demand Cleanup darf NICHT schließen, auch wenn DB-Kriterium "stale" täuschen würde.
 - Lock-Leiche Backstop Test:
   - stale radacct wird geschlossen + es existiert ein active_session_locks Eintrag ohne Runtime-Mapping -> Lock wird bereinigt (DELETE), damit Login nicht weiter blockiert.
+- Zombie-File Test:
+  - Mapping-File in /run/vpn-sessions/ existiert, aber weder PPP_IF im Kernel noch gültiger PPPD_PID/START_TS -> Janitor MUSS aufräumen.
+- Live-Session Test:
+  - Live PPP (PPP_IF existiert) ODER PPPD_PID + START_TS valid -> Janitor DARF NICHT schließen, auch wenn DB-Kriterium "stale" täuschen würde.
+- PID-Reuse Test:
+  - PID existiert, aber START_TS mismatch oder Prozess ist nicht plausibel pppd -> gilt NICHT als VALID -> darf aufräumen (stale).
+- Config-Fallback / On-Demand DoS Test:
+  - On-Demand Pfad nutzt Cached Values oder Fallbacks (keine zusätzlichen SQL-Config-Reads pro Login-Versuch).
+  - Erwartung: Login-Flood erzeugt keine Config-Query-Last durch B168 (nur die zwingenden radacct/lock Checks).
+- Parallelität / Idempotenz Test:
+  - Timer-Janitor und On-Demand Janitor laufen gleichzeitig -> genau ein Close wirkt (affected rows 1), der zweite ist No-Op.
 
 ================================================================================
 10) CHANGELOG
 ================================================================================
+- v1.6.1 (2026-01-09): Konsistenz-Fix: On-Demand Safety-Formulierung auf VALID Mapping präzisiert; PID-Existenz allein explizit verboten (MUST, PID-Reuse Schutz); Terminologie STALE_THRESHOLD -> STALE_THRESHOLD_SECONDS vereinheitlicht; Janitor-Intervall-Formulierung auf SQL-first/Default harmonisiert.
+- v1.6 (2026-01-09): Mini-Upgrade: Safety-Check von "Mapping existiert" auf "Mapping VALID" erweitert (PPP_IF / PPPD_PID+START_TS, PID-Reuse Schutz), Integritätsschutz/Permissions für /run/vpn-sessions normiert, Hybrid Zeitparameter (SQL-first + lokale Caps + Fallbacks) ergänzt, On-Demand nutzt Cache/Fallback (DoS-Defense), Tests erweitert.
 - v1.5 (2026-01-07): Referenzen auf T01/T02 entfernt -> B055/B056 (keine Logikänderung).
 - v1.4: Querverweis präzisiert: Runtime-Aktivitätsdefinition für connection_id (über /run/vpn-sessions/*.env) explizit auf B165 referenziert (nur Klarstellung, keine Logikänderung).
 - v1.3: Integration mit active_session_locks ergänzt: Wenn stale radacct geschlossen wird, muss ein ggf. verwaister Session-Lock (ohne Runtime-Mapping) als Backstop bereinigt werden, um Lock-Leichen zu vermeiden; Tests entsprechend erweitert.

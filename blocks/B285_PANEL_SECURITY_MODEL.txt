@@ -2,7 +2,7 @@ vpn_masterkonzept/blocks/B285_PANEL_SECURITY_MODEL.txt
 ================================================================================
 BLOCK-ID: B285
 TITLE: Panel Security Model (AuthN/AuthZ/CSRF/RateLimit/Audit/Scopes)
-VERSION: v1.2
+VERSION: v1.3
 STATUS: ACTIVE
 PRIORITY: MUST
 OWNER-INTENT: Panel ist die Zentrale. Zugriff muss sicher, deterministisch und XP-tauglich sein – ohne WAN-Exposure, mit klaren Scopes, RateLimits und Audit.
@@ -88,6 +88,10 @@ OWNER-INTENT: Panel ist die Zentrale. Zugriff muss sicher, deterministisch und X
   - Jede Session ist an die aktuelle VPN-Client-IP gebunden (Request-VPN-IP muss gleich bleiben).
   - Bei IP-Wechsel: Session invalidieren → erneuter Login.
 - Logout invalidiert Session serverseitig.
+- Session-Fixation Schutz (MUST):
+  - Nach erfolgreichem Login MUSS die Session-ID regeneriert werden (alte Session-ID serverseitig invalidieren).
+  - Nach Verify-Success (Privilege-Change PENDING -> ACTIVE) MUSS erneut regeneriert werden.
+  - Ziel: Session-Hijacking im PENDING-Status wird wertlos; Privilegienwechsel ist abgesichert.
 
 6.3 IP-bound Login (Allowlist) – zwingend
 - Login ist nur erlaubt, wenn die Request-VPN-IP im Customer-Allowlist-Modus gültig ist:
@@ -96,6 +100,11 @@ OWNER-INTENT: Panel ist die Zentrale. Zugriff muss sicher, deterministisch und X
 - Diese Prüfung passiert:
   - vor Session-Erstellung
   - und zusätzlich als „Guard“ bei jeder Request (Session-Binding + Allowlist Recheck optional, siehe 7).
+- Recheck-Minimum (MUST, Admin-Kontrolle):
+  - Für alle state-changing Requests (POST/PUT/DELETE) MUSS serverseitig geprüft werden:
+    1) Request-VPN-IP ist weiterhin allowlisted (Customer-Allowlist)
+    2) zugrundeliegende Connection ist nicht disabled/revoked und nicht durch Admin gesperrt (falls solche Flags existieren)
+  - GET-Requests dürfen in der Implementierung "leichter" behandelt werden (Performance), aber state-changing darf niemals ohne Recheck laufen.
 
 6.4 Verify-Wall (App-Layer Guard)
 - Wenn Customer PENDING (email_verified_at NULL):
@@ -139,6 +148,10 @@ OWNER-INTENT: Panel ist die Zentrale. Zugriff muss sicher, deterministisch und X
 
 6.7 Rate Limiting / Lockout (konkret, XP-tauglich)
 Ziele:
+SQL-first Pflicht (Hard Check):
+- Alle RateLimit-Parameter (Windows, MaxFails, Lockout-Dauer, Cooldowns, Max Resends) und relevanten TTLs (Verify TTL, Session TTLs) müssen SQL-first in der Datenbank liegen und daraus geladen werden.
+- Im PHP-Code sind keine hardcodierten Security-Policy-Konstanten erlaubt (außer klar markierte Fallback-Notwerte fuer Notbetrieb).
+- Grund: Policies dürfen im Betrieb änderbar sein, ohne Deploy; verhindert versteckte Magic Numbers.
 - Bruteforce verhindern, aber legitime Nutzer nicht “für immer” aussperren.
 - Parameter sind DEFAULT und dürfen später feinjustiert werden, aber RateLimit MUSS existieren.
 
@@ -170,6 +183,10 @@ E) Admin-sensible Aktionen (optional strenger):
 
 6.8 CSRF (State-Changing Requests)
 - Alle state-changing Requests (POST/PUT/DELETE) benötigen CSRF-Schutz.
+- HTTP-Semantik (MUST, Architektur-Regel):
+  - GET-Endpunkte sind strikt side-effect free (keine Zustandsänderungen via GET).
+  - Zustandsänderungen sind ausschließlich über POST/PUT/DELETE erlaubt.
+  - Begründung: Recheck-Minimum + CSRF-Schutz verlassen sich darauf, dass "state-changing" technisch eindeutig ist.
 - CSRF-Pattern (MUST):
   - Synchronizer Token Pattern (Token im Session-Store, in Form-Feld/Header)
   - Token Rotation mindestens pro Session; optional pro Form.
@@ -259,8 +276,12 @@ E) Admin-sensible Aktionen (optional strenger):
   - Connection ist UNCLAIMED_OVERDUE (Kernel Restricted):
     - /login, /verify, /verify/resend, /claim, /status erreichbar
     - Nach erfolgreichem Claim: UNCLAIMED_OVERDUE fällt weg und Connection wechselt in FULL (sofern kein QUOTA/EXPIRY/MANUAL aktiv).
+- Negativtest (HTTP-Semantik / Safety):
+  - Es darf keine Zustandsänderung via GET möglich sein.
+  - Wenn ein User versucht, eine Action per GET auszuführen (z.B. Claim/Resend/Disable), muss das serverseitig unmöglich sein (kein Endpoint / method not allowed / denies).
 
 10) CHANGELOG (Block-intern)
+- v1.3 (2026-01-09): Session-Fixation Schutz ergänzt (Session-ID Regeneration nach Login und nach Verify-Success); Recheck-Minimum als MUST für state-changing Requests ergänzt; SQL-first Pflicht für RateLimits/TTLs ergänzt (keine Magic Numbers im PHP); Mini-Upgrade: HTTP-Semantik festgezurrt (GET side-effect free) + Negativtest ergänzt. Bestehender Changelog bleibt unverändert (inkl. doppelter v1.2 Einträge).
 - v1.2 (2026-01-09): Claim-Token Ablaufzeit SQL-first gemacht: keine 30-Tage Config-TTL mehr; Bound an vpn_connections.claim_deadline (180d) gemäß Konzept.
 - v1.2 (2026-01-09): Terminologie-Regel umgesetzt: „Token“ in Claim-Speicherung präzisiert auf claim_token (kein unqualifiziertes „Token/Tokens“).
 - v1.1 (2026-01-09): Terminologie-Fix: „Token“ im Diagnose-Teil präzisiert (csrf_token vs claim_token). „Token-Bruteforce“ zu „Claim-Token-Bruteforce“ umbenannt.

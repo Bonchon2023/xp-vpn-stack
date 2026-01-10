@@ -1,8 +1,8 @@
 BLOCK: B169_RADIUS_LOGIN_FLOW_ONDEMAND_JANITOR
-VERSION: v1.5
+VERSION: v1.6.2
 STATUS: ACTIVE
 OWNER: Marco + ChatGPT
-LAST-UPDATE: 2026-01-07
+LAST-UPDATE: 2026-01-09
 
 ================================================================================
 1) ZWECK
@@ -35,10 +35,22 @@ Konzept-Platzierung:
 Ziel: Minimale Lockouts, ohne Parallel-Sessions zu erlauben.
 
 STUFE 1 (pre-check):
-1) Normalize Username (trim, lowercase falls so geführt; nur falls ihr das global so wollt)
+1) Normalize Username (KANONISCH):
+   - MUST: trim (führende/trailing Spaces entfernen)
+   - MUST NOT: case-folding (kein lowercase/uppercase) im RADIUS-Flow
+   - Hinweis: Falls das System global case-insensitive werden soll, MUSS das als eigene, globale Entscheidung (B050/B280) kanonisiert werden – nicht ad-hoc in B169.
+
 2) On-Demand Cleanup (BEST EFFORT):
    - vpn-stale-session-janitor --subaccount-login=<User-Name>
-   - Safety Check bleibt STRICT (B168): niemals schließen, wenn /run/vpn-sessions eine aktive CONNECTION_ID zeigt
+   - Cleanup Result-Code Norm (MUST, kanonisch):
+     - cleanup_result = executed:
+       Janitor wurde gestartet UND hat innerhalb CLEANUP_TIMEOUT_SECONDS normal beendet.
+     - cleanup_result = skip:
+       Janitor wurde NICHT ausgeführt (RateLimit/Cache/TTL) ODER ein Cache-Hit ("no-stale"/"stale-closed") trifft zu.
+     - cleanup_result = fail:
+       Janitor wurde versucht, aber timeout/error (inkl. DB unreachable) -> fail.
+   - Regel: Unabhängig von executed/skip/fail läuft STUFE 1 anschließend immer in den STRICT Simultaneous-Use Check.
+   - Safety Check bleibt STRICT (B168): niemals schließen, wenn ein VALID Runtime-Mapping (/run/vpn-sessions/*) für diese Session/Connection existiert (Definition siehe B168 Abschnitt 6).
 
 3) Simultaneous-Use Check (STRICT):
    - Wenn aktive Session existiert (radacct stop_time IS NULL) -> "blocked"
@@ -46,13 +58,19 @@ STUFE 1 (pre-check):
    - acctupdatetime wird NICHT zur Block-Definition verwendet; Stale wird stattdessen über B168 (Threshold) geschlossen und über /run/vpn-sessions (Safety) abgesichert.
 
 
-STUFE 2 (retry nur wenn blocked):
+STUFE 2 (retry nur wenn blocked, deterministisch + DoS-sicher):
 4) Wenn "blocked":
-   - On-Demand Cleanup ein zweites Mal ausführen (BEST EFFORT)
-   - Danach Simultaneous-Use Check exakt einmal erneut ausführen (STRICT)
+   - Retry-Regel (MUST, kanonisch):
+     - Ein zweiter Cleanup-Run wird NUR dann versucht, wenn der erste Cleanup-Run in STUFE 1
+       a) nicht ausgeführt wurde (skip wegen RateLimit/Cache) ODER
+       b) abgebrochen ist (timeout/error).
+     - Wenn STUFE 1 Cleanup tatsächlich lief (executed), wird in STUFE 2 KEIN zweiter Cleanup gestartet
+       (sonst wird RateLimit/DoS-Defense unterlaufen). Stattdessen erfolgt direkt der Re-Check.
+
+   - Danach: Simultaneous-Use Check exakt einmal erneut ausführen (STRICT).
 
 5) Entscheidung:
-   - Wenn nach Retry weiterhin "blocked" -> REJECT (keine Parallel-Sessions bleibt absolut)
+   - Wenn nach diesem Re-Check weiterhin "blocked" -> REJECT (keine Parallel-Sessions bleibt absolut)
    - Wenn nicht blocked -> weiter zu authenticate -> ACCEPT
 
 Warum 2-stufig?
@@ -77,15 +95,32 @@ STRICT (Simultaneous-Use):
 ================================================================================
 - On-Demand Cleanup darf nicht zu einem DoS-Vektor oder DB-Lasttreiber werden.
 
-Parameter (KANONISCH):
-- CLEANUP_RATELIMIT_WINDOW = 10s (pro subaccount_login max. 1 Cleanup Lauf)
-- CLEANUP_RESULT_TTL = 30s (kurzlebiger Cache pro subaccount_login)
-- CLEANUP_TIMEOUT = 1s (hartes Timeout pro Cleanup Aufruf)
+Parameter (SQL-first + lokale Safety Caps, KANONISCH):
+
+- CLEANUP_RATELIMIT_WINDOW_SECONDS:
+  - SOLL aus SQL-Settings geladen werden (SQL-first).
+  - Hard Cap (MUST): <= 30s
+  - Notfall-Fallback (klar markiert): default = 10s
+
+- CLEANUP_RESULT_TTL_SECONDS:
+  - SOLL aus SQL-Settings geladen werden (SQL-first).
+  - Hard Cap (MUST): <= 120s
+  - Notfall-Fallback (klar markiert): default = 30s
+
+- CLEANUP_TIMEOUT_SECONDS:
+  - SOLL aus SQL-Settings geladen werden (SQL-first).
+  - Hard Cap (MUST): <= 2s
+  - Notfall-Fallback (klar markiert): default = 1s
+
+Hinweis (Ops/Performance, MUST):
+- SQL-Settings dürfen im RADIUS authorize-flow NICHT pro Request „live“ aus der DB geladen werden (DoS-Vektor).
+- Implementierung MUSS Settings gecacht halten (kurzlebig) oder sichere Notfall-Fallbacks nutzen.
+- On-Demand Cleanup (B168) SOLL im authorize-flow bevorzugt im "Fallback/Cache"-Modus laufen, um keine zusätzlichen Config-Queries zu erzeugen.
 
 Verhalten:
-- Wenn ein Cleanup für denselben subaccount_login innerhalb der letzten 10s bereits lief:
+- Wenn ein Cleanup für denselben subaccount_login innerhalb der letzten CLEANUP_RATELIMIT_WINDOW_SECONDS bereits lief:
   - Cleanup wird übersprungen (skip), Simultaneous-Use Check läuft trotzdem (STRICT).
-- Wenn ein Cache-Eintrag (<=30s) existiert, dass "kein stale" gefunden wurde:
+- Wenn ein Cache-Eintrag (<= CLEANUP_RESULT_TTL_SECONDS) existiert, dass "kein stale" gefunden wurde:
   - Cleanup wird übersprungen (skip), um DB unnötig zu schonen.
 - Wenn Cache zeigt "stale geschlossen":
   - Cleanup wird nicht erneut ausgeführt (skip), stattdessen direkt Simultaneous-Use Check.
@@ -93,7 +128,7 @@ Verhalten:
   - Timeout/DB-Error => Cleanup failt/skippt; Simultaneous-Use bleibt STRICT.
 
 ================================================================================
-6.5) 6.5) INTEGRATION: ATOMARER SESSION-LOCK (active_session_locks, B055/B056)
+6.5) INTEGRATION: ATOMARER SESSION-LOCK (active_session_locks, B055/B056)
 ================================================================================
 Ziel:
 - On-Demand Cleanup (B169/B168) reduziert Lockouts durch stale radacct.
@@ -103,7 +138,8 @@ Regeln (KANONISCH):
 - On-Demand Cleanup bleibt "pre-check" BEST EFFORT (wie oben).
 - active_session_locks ist der atomare Guard:
   - authorize: Lock PENDING anlegen (für die zugehörige vpn_connection/connection_id)
-    - Safety/Runtime: ob eine connection_id aktiv ist, wird über /run/vpn-sessions/*.env geprüft (Definition siehe B165).
+    - Safety/Runtime: ob eine Session/Connection "live" ist, wird über ein VALID Runtime-Mapping in /run/vpn-sessions/*.env geprüft
+    - (Format/Quelle: B165; VALID-Definition + Permissions/Integrität: B168 Abschnitt 6).
   - wenn final REJECT (z.B. weiterhin "blocked") -> PENDING Lock MUSS wieder entfernt werden (keine Lock-Leichen)
   - accounting-start: Lock -> ACTIVE
   - accounting-stop: Lock löschen
@@ -126,19 +162,34 @@ Hinweis:
   - stale radacct stop_time NULL blockt initial
   - On-Demand Cleanup schließt stale
   - Simultaneous-Use lässt Login durch
-
 - Live Session Schutz:
-  - active PPP mapping in /run/vpn-sessions vorhanden
+  - VALID PPP Runtime-Mapping in /run/vpn-sessions vorhanden (B168 Definition)
   - Cleanup darf NICHT schließen
   - Simultaneous-Use blockt korrekt -> REJECT
-
 - Retry-Mechanismus:
   - 1. Check blockt -> Cleanup2 -> 2. Check lässt durch (Race behoben)
   - wenn weiterhin blockt -> REJECT (keine Parallel-Sessions)
+- RateLimit Test (DoS-Schutz):
+  - Mehrere Loginversuche innerhalb CLEANUP_RATELIMIT_WINDOW_SECONDS:
+    - Cleanup wird max. 1x ausgeführt; weitere Versuche skippen Cleanup; Simultaneous-Use Check bleibt STRICT.
+- Cache TTL Test:
+  - Wenn Cache "kein stale gefunden" gesetzt ist:
+    - Cleanup wird innerhalb CLEANUP_RESULT_TTL_SECONDS geskippt; danach wieder erlaubt (wenn notwendig).
+- Timeout Test:
+  - Cleanup-Aufruf überschreitet CLEANUP_TIMEOUT_SECONDS (simuliert):
+    - Cleanup gilt als fail/skip (BEST EFFORT), Simultaneous-Use bleibt STRICT.
+- 2-Stufen Konsistenz Test (Retry vs RateLimit):
+  - Fall A: STUFE 1 Cleanup wurde ausgeführt (executed) und User bleibt blocked:
+    -> STUFE 2 startet KEIN zweites Cleanup; macht nur Re-Check; Ergebnis deterministisch.
+  - Fall B: STUFE 1 Cleanup wurde geskippt (RateLimit/Cache) oder timeout/error:
+    -> STUFE 2 darf genau EINEN Cleanup-Versuch machen; danach Re-Check; Ergebnis deterministisch.
 
 ================================================================================
 9) CHANGELOG
 ================================================================================
+- v1.6.2 (2026-01-09): Mini-Upgrade: Username-Normalisierung kanonisiert (trim-only, kein case-folding im RADIUS-Flow); Cleanup Result-Code Norm definiert (executed/skip/fail) zur deterministischen Umsetzung der 2-Stufen-Retry-Regel.
+- v1.6.1 (2026-01-09): Konsistenz-Fix zu B168: Safety-Check auf VALID Runtime-Mapping umgestellt; 2-Stufen Retry deterministisch und DoS-sicher präzisiert (2. Cleanup nur wenn STUFE 1 skipped/failed); authorize-flow Config-Reads als MUST verboten (Cache/Fallback Pflicht); 6.5 Runtime-Guard Referenzen auf B165 (Format) + B168 (VALID/Permissions) getrennt; Tests erweitert.
+- v1.6 (2026-01-09): RateLimit/Cache/Timeout Parameter auf Hybrid umgestellt: SQL-first Settings + lokale Safety Caps + klar markierte Notfall-Fallbacks. Section 6.5 Überschrift-Duplikat gefixt. Tests um RateLimit/Cache/Timeout Validierung ergänzt.
 - v1.5 (2026-01-07): Referenzen in 6.5 von T01/T02 auf B055/B056 umgestellt (kein Logikänderung, nur Quellen-Umzug).
 - v1.4: Querverweis ergänzt: Runtime-Aktivitätsdefinition für connection_id (über /run/vpn-sessions/*.env) explizit auf B165 referenziert; Header (LAST-UPDATE) aktualisiert. Keine Logikänderung.
 - v1.3: Integrationssektion ergänzt: active_session_locks (T01/T02) als atomarer Guard gegen Parallel-Logins; bei finalem REJECT muss ein PENDING-Lock entfernt werden (keine Lock-Leichen). B169 "blocked" Definition (radacct stop_time IS NULL) bleibt unverändert kanonisch.

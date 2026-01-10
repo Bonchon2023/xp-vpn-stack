@@ -121,3 +121,8 @@
     * Reservierung von **TCP Port 443** auf der Public IP.
     * Einsatz eines **Multiplexers** (sslh/nginx stream) in Phase 6.
     * Unterscheidet Traffic: HTTPS (Setup-Tool) vs. SSL-VPN (OpenConnect/Shadowsocks für Admin-Notfallzugang).
+
+### 6.3
+ich möchte das das Admin netz von allen restriced Möglichkeiten ausgeschlossen wird, beim admin netz soll es keine Überprüfung von quota etc... geben. 
+Das ist mein eigenes netz, da breauch ich weder restriced Möglichkeiten oder sonst was sonst immer freie fahrt. dennoch muss sich das netz bsp an die dns only regeln halten, wie jede anderes netz auch. 
+ich habe noch im kopf, das wir darüber geredet hatten, ob die ppp verbnidungen von admin und user gleich behandelt werden sollen. Im grunde schon, es kommt halt darauf an, wo man technisch am besten umsetzt, das das admin netz völlig frei vo verboten ist.

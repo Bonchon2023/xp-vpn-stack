@@ -12,7 +12,7 @@ This repository is a **specification** (not an installer script yet).
 It is structured as:
 
 - **MASTER (zeilenfest)**: canonical, versioned master concept
-- **0_MASTERKONZEPT_V2_ANALYSE.md**: Arbeits- und Abarbeitungsdatei (Hybrid), verweist auf Blocks/Decisions/Tasks
+- **0_MASTERKONZEPT_ANALYSE.md**: Arbeits- und Abarbeitungsdatei (Hybrid), verweist auf Blocks/Decisions/Tasks (optional)
 - **blocks/**: implementation blocks (B010–B300) defining the system precisely
 - **decisions/**: decision records (ADR) explaining *why* choices were made
 - **tasks/**: Task-/Prüfdateien (T01–T15) als konkrete ToDos, Tests, Matrizen und offene Punkte
@@ -28,7 +28,7 @@ The intended outcome is a reproducible server setup where the VPN software provi
 - **Windows XP/Vista built-in client compatibility** (no SoftEther client)
 - **Full-Tunnel by design** (all client traffic exits through the VPN)
 - **“Idiotensicher” client experience**
-  - client should only need **FQDN + username/password + PSK**
+  - client should only need **FQDN + VPN-credentials (PPP) + PSK**
   - no manual IP/gateway/DNS entry (PPP/IPCP)
 - **Two separated VPN networks**
   - User-Net: `10.77.10.0/24` (restricted)
@@ -40,7 +40,7 @@ The intended outcome is a reproducible server setup where the VPN software provi
   - UDP 1701 (L2TP) only accepted **via IPsec/XFRM**
 - **Per-client QoS**
   - shaping per `pppX` using `tc` (CAKE/fq_codel)
-- **DNS stack (v2.0: enforced)**
+- **DNS stack (enforced)**
   - Unbound local resolver + AdGuardHome (internal)
   - **DNS enforcement is MUST** (DNAT TCP+UDP 53 from `ppp*` → `10.77.0.1:53`)
 - **Internal webstack**
@@ -52,9 +52,9 @@ The intended outcome is a reproducible server setup where the VPN software provi
   - XP browser target: **MyPal** with NSS trust store handling
 - **Time/NTP strategy**
   - XP time problems handled (pre-/post-connect strategy; optional NTP hijack to `10.77.0.1`)
-## Onboarding (v2.1.1)
+## Onboarding (v2.3)
 - Verify-Wall (App-Layer): Customer PENDING sieht nach Login nur Code/Resend/Support.
-- Claim Token (App-Layer): Claim ordnet eine VPN-Connection einem Customer zu (Token als Besitznachweis).
+- claim_token (App-Layer): Claim ordnet eine VPN-Connection einem Customer zu (claim_token als Besitznachweis; nicht für VPN-Login).
 - UNCLAIMED Grace/Overdue (Kernel): 30 Tage ab Provisioning/Erstellung Internet frei; danach UNCLAIMED_OVERDUE -> "Nur Panel-Zugriff" (Walled Garden), damit Verify+Claim weiterhin möglich sind.
 - Hard-Stop gegen Leichen (Standardbetrieb): claim_deadline immer gesetzt (180 Tage). Nach Ablauf unclaimed -> DISABLED (kein VPN/kein Panel).
 
@@ -94,7 +94,7 @@ This is built for selling/supporting XP systems with minimal support overhead an
 - per-PPP interface shaping via tc
 - default limits by group (User/Admin) and DB-driven parameters
 
-### DNS (v2.0)
+### DNS
 - Unbound (local-only)
 - AdGuardHome on `10.77.0.1:53` (UI admin-only)
 - **DNS enforcement MUST**: DNAT TCP+UDP 53 from `ppp*` → `10.77.0.1:53`
@@ -111,16 +111,18 @@ This is built for selling/supporting XP systems with minimal support overhead an
 - offload tuning defaults for virtualized environments
 - **Accounting collector + session mapping** (pppX → connection_id)
 - **Stale-session janitor + on-demand janitor in login flow** (SimUse lockout-safe)
+- **Spool/Retention safety (v2.3)**: SQL-first settings + local safety ceilings (hard max bytes/age). On ceiling hit: **Ring Buffer (Drop Oldest) MUST** + alert (prevents disk-full failure).
 - **Policy apply + reconcile (FLUSH+REBUILD)** to prevent drift
+- **Hard Cut enforcement (v2.3)**: when a client becomes restricted, established flows are terminated via **conntrack flush** (bidirectional). Fail-safe: **PPP session kill (fail-closed)** if flush fails.
 
 ---
 
 ## Repository structure (authoritative)
 
-- `00000_Ordnerstrucktur.txt` : aktuelle Ordner-/Dateistruktur (Single Source of Truth für den Tree)
+- `00000_Ordnerstruktur.txt` : aktuelle Ordner-/Dateistruktur (Single Source of Truth für den Tree)
 - `000_MASTER-KONZEPT vX.X (ZEILENFEST).txt` : canonical “zeilenfest” spec
 - `00_MASTER_vX.X.txt` : readable master summary + block map
-- `0_MASTERKONZEPT_V2_ANALYSE.md` : Abarbeitungs-/Arbeitsdatei (Hybrid: führt durch Blocks/Decisions/Tasks)
+- `0_MASTERKONZEPT_ANALYSE.md` : Abarbeitungs-/Arbeitsdatei (Hybrid: führt durch Blocks/Decisions/Tasks) (optional)
 - `01_CHANGELOG.txt` : version history / deltas
 - `02_GLOSSAR.txt` : glossary
 - `03_ASSUMPTIONS_AND_RULES.txt` : bindende Annahmen & Regeln
@@ -143,10 +145,9 @@ See `B290_PHASE_PLAN_ROLLOUT` and the MASTER file for the authoritative phase pl
 
 ## Status
 
-- - Spec baseline: **MASTER v2.1.1**
+- Spec baseline: **MASTER v2.3**
+- Blocks: B010–B300 present (incl. v2.3 hardening in B150/B166/B165–B169/B330)
 - Decision records: present (incl. D008 Verify-Wall customer scope)
-- Blocks: B010–B300 present (incl. v2.0 additions B165–B169)
-- Decision records: present (incl. D008 customerwide Gate#2)
 - Templates: present
 
 ---

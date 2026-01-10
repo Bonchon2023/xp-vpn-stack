@@ -10,9 +10,9 @@ AdGuardHome: DNS Filter/Blocker; liefert "Custom IP" für Blockpage; DNS-Endpunk
 Apply / Policy Apply: Aktives Durchsetzen der Policy für eine Verbindung (tc + nft sets) auf Basis des SQL-Truth.
 CA: Certificate Authority (Root/Intermediate für MITM).
 Calling-Station-ID: Identifier im RADIUS, oft MAC/LineID; bei L2TP unzuverlässig.
-Claim: Zuordnung einer PREPROVISIONED VPN-Connection zu customer_id per Claim-Token.
+Claim: Zuordnung einer PREPROVISIONED VPN-Connection zu customer_id per claim_token.
 claim_deadline: Hard-Stop gegen „ewige Leichen“. Standardbetrieb: IMMER gesetzt (180 Tage ab Provisioning/Erstellung). Wenn now > claim_deadline und weiterhin UNCLAIMED -> status=DISABLED (HARD, kein VPN/kein Panel). Admin kann per „Deadline verlängern“ claim_deadline = NOW()+180d neu setzen.
-claim_token_hash: Hash des Claim-Tokens in der DB (claim_token liegt nur auf dem Gerät/Beileger und wird ausschließlich im Panel zur Claim-Eingabe verwendet; NICHT für VPN-Login).
+claim_token_hash: Hash des claim_token in der DB (claim_token liegt nur auf dem Gerät/Beileger und wird ausschließlich im Panel zur Claim-Eingabe verwendet; NICHT für VPN-Login).
 Connection / VPN-Connection (UI-Begriff: VPN-Client): Pro Gerät genau eine Verbindungseinheit mit fester IP, Limits, Status und einem zugehörigen AAA-Subaccount (VPN-Login-Credentials). Nicht zu verwechseln mit Customer (Panel-Account).
 Customer: Kundenkonto im Panel/SQL, kann mehrere VPN-Connections besitzen (1 Kunde -> n Verbindungen).
 Customerwide (kundenweit): Gilt für alle Connections eines Customers (z.B. Verify-Wall im Panel / App-Layer Regeln).
@@ -23,7 +23,12 @@ subaccount_login: PPP/RADIUS Username (pro Gerät; vorkonfiguriert im VPN-Client
 subaccount_nt_hash: PPP/RADIUS Secret als NT-Hash (pro Gerät; im Panel änderbar per „Passwort setzen/rotieren“). SoT: NT-Hash (MSCHAPv2 / RADIUS NT-Password), kein Klartext als SoT.
 MSCHAPv2: PPP-Authentifizierungsmethode (XP-tauglich). RADIUS validiert per MSCHAPv2 gegen NT-Hash (NT-Password).
 NT-Hash / NT-Password: NT-Hash (MD4 über UTF-16LE Passwort). Wird in RADIUS als „NT-Password“ genutzt (für MSCHAPv2).
-CSRF-Token: Webpanel-internes Schutz-Token für state-changing Requests; niemals gleichbedeutend mit Claim-Token.
+csrf_token: Webpanel-internes Schutz-Token für state-changing Requests; niemals gleichbedeutend mit claim_token.
+session_token: Webpanel-Session-Token/Identifier (z.B. Cookie/Server-Session-Key). Kein Claim-Token, keine VPN-Credentials.
+Conntrack / Connection Tracking: Kernel-State-Tabelle für stateful Firewalling (ESTABLISHED/RELATED). Kann gezielt gelöscht werden, um laufende Flows sofort zu beenden.
+Conntrack-Flush: Löschen aller Conntrack-States einer Client-IP (bidirektional: Source UND Destination), damit neue Pakete erneut gegen das aktive Policy-Regelwerk laufen.
+Hard Cut: Enforcement-Regel (MUST): Wechsel in Restricted Mode wirkt sofort, auch für ESTABLISHED Flows (über Conntrack-Flush; kein „Soft Cut“/Auslaufenlassen).
+Fail-Closed: Sicherheitsprinzip: Bei Apply/Enforcement-Fehlern darf keine „unkontrollierte“ Session Traffic führen; deterministischer Abbruch (z.B. PPP-Session Kill) ist Pflicht.
 Claim-Token (claim_token): Ein Geräte-Token zur Übernahme (Claim) einer preprovisionierten VPN-Connection im Panel. Nie für VPN-Login.
 Terminologie-Regel (MUST): Das Wort „Token“ darf im gesamten Konzept nicht unqualifiziert verwendet werden.
 Zulässig sind nur: claim_token (Claim), csrf_token (Webpanel), session_token (Webpanel). „Token“ allein ist verboten.
@@ -46,7 +51,7 @@ ip-up / ip-down: pppd Hooks; zentrale Integrationspunkte (Mapping, tc, policy ap
 L2TP: Layer 2 Tunneling Protocol (UDP 1701).
 LCP: Link Control Protocol (PPP Keepalive/Echo).
 Legacy Provider: OpenSSL-Mechanismus, um Legacy-Algorithmen (z.B. SHA1/3DES) auf Debian 13 nutzbar zu halten.
-Mapping (pppX -> connection_id): Runtime-Zuordnung eines PPP-Interfaces zu einer Connection-ID (SQL-Truth).
+Mapping (pppX -> connection_id): Runtime-Zuordnung eines PPP-Interfaces zu einer Connection-ID (SQL-Truth). MUST enthält PPPD_PID + PPP_IF + START_TS (PID-Reuse Schutz / Validierung).
 MITM Blockpage: HTTPS Sperrseite durch eigenes Zertifikat pro Domain (SNI), erzeugt durch interne CA.
 MSS Clamping: Setzen der TCP MSS in SYN, um Fragmentierungsprobleme zu vermeiden (MTU/Kapselung).
 NAT-T: NAT Traversal (IPsec über UDP 4500).
@@ -55,18 +60,22 @@ On-demand Janitor: Cleanup, der beim Login versucht stale Sessions zu schließen
 OpenResty: Nginx mit Lua, geeignet für dynamische TLS-Logik (MITM) + Panel/Portal-Frontend.
 Panel: Weboberfläche für User/Admin (intern, nur über VPN erreichbar; User-Login IP-bound).
 pppX: Virtuelles Interface pro Clientverbindung (ppp0, ppp1, ...).
+PPPD_PID: PID des pppd-Prozesses, der die Session repräsentiert (Kill-Handle MUST). Muss aus dem pppd/ip-up Kontext stammen (kein pgrep; Race vermeiden).
+PPP_IF: Name des PPP-Interfaces (pppX), das zur Session gehört (Plausibilitätscheck).
+START_TS: Prozess-Startzeitstempel (z.B. aus /proc/<pid>/stat), um PID-Reuse nach Crash/Reboot auszuschließen (Plausibilitätscheck MUST).
 PSK: Pre-Shared Key (IPsec Shared Secret).
 QoS/Shaping: Bandbreitensteuerung, Latenzschutz (tc, CAKE/fq_codel).
 Quota: Datenbudget (total/used); bei Erreichen wird Restricted Mode erzwungen (statt Reject).
 rDNS/PTR: Reverse DNS Eintrag beim Provider.
-Reconcile: Periodischer Abgleich (<=5min), der driftfrei den tatsächlichen Enforcement-State (nft sets/tc) aus
-SQL/Runtime wiederherstellt; deterministisch (FLUSH+REBUILD).
+Reconcile: Periodischer Abgleich (<=5min), der driftfrei den tatsächlichen Enforcement-State (nft sets/tc) aus SQL/Runtime wiederherstellt; deterministisch (FLUSH+REBUILD).
 Restricted Mode: Zustand, in dem Internet gesperrt ist und nur erlaubte Ziele/Dienste erreichbar sind (Walled Garden).
 restricted_effective: Policy-Flag (Resultat aus Quota/Expiry/Manual/UNCLAIMED_OVERDUE), das den Restricted Mode (Walled Garden) erzwingt.
 restricted_reason: Klarer Grundcode/Grundtext, warum restricted aktiv ist (Support/UX/Logs).
 Service-IP: 10.77.0.1/32 auf lo, interner Dienst-Anker (DNS/Panel/Portal/NTP).
 Simultaneous-Use=1 (SimUse): Pro Subaccount nur eine aktive Session; harte Regel (pro Gerät genau eine Session).
 Spool (durable spool): Lokale Ablage für Accounting-Deltas, falls DB down ist; wird später nachgeschrieben.
+Safety Ceilings (lokale Hard Limits): Physische Obergrenzen (Bytes/Alter) für Spool/Logs, unabhängig von SQL-Settings (Physik > Policy). Verhindert Disk-Full.
+Ring Buffer / Drop Oldest: MUST-Verhalten bei Ceiling Hit: älteste Spool-Daten löschen/rotieren, um Platz für neue Deltas zu schaffen; immer mit Alert (keine Stop-Policy).
 Stale Session: Offene radacct Session ohne echte PPP-Session; wird durch Janitor geschlossen (Threshold).
 Stealth: Auf WAN nur notwendige Ports sichtbar; SSH/Web nicht.
 Walled Garden: Für gesperrte User nur Portal/DNS/NTP erlauben, alles andere blocken.
@@ -74,6 +83,7 @@ Nur Panel-Zugriff (Panel-UI): User-facing Begriff für Walled Garden / Restricte
 Internet gesperrt (Panel-UI): User-facing Statusmeldung für restricted_effective=true (Grund wird aus restricted_reason gemappt).
 XFRM: Linux IPsec Transform Layer (IPsec Kontext im Kernel); Basis für “L2TP nur via IPsec”.
 DNAT53: DNS-Zwang via nft nat prerouting; TCP+UDP 53 wird auf 10.77.0.1:53 umgeleitet.
+DNS Counters (Counters-only): Optionales Nice-to-have: nftables Counters für DNAT53/Policy-Pfade (Pakete/Bytes), ohne Logging/Forensik (keine Ziel-IPs/Domains).
 run-state (/run/vpn-sessions): Temporärer Runtime-State (tmpfs), enthält pppX.env Mapping; nach reboot leer.
 
 ================================================================================

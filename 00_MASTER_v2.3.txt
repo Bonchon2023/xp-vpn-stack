@@ -1,7 +1,7 @@
-vpn_masterkonzept/00_MASTER_v2.2.txt
+vpn_masterkonzept/00_MASTER_v2.3.txt
 ================================================================================
 MASTER-KONZEPT: XP/Vista Full-Tunnel VPN auf Debian 13 (from scratch)
-MASTER VERSION: v2.1.1
+MASTER VERSION: v2.3
 STATUS: ACTIVE (produktionstaugliche Ziel-Architektur)
 DATUM: (von dir eintragen)
 AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
@@ -42,15 +42,23 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
 
 - Policy-Enforcement ist deterministisch (MUST):
   - ip-up/ip-down Hook erzeugt Runtime-Mapping (/run/vpn-sessions/pppX.env)
+    MUST enthalten: PPPD_PID + PPP_IF + START_TS (PID-Reuse Schutz) + VPN-IP/connection_id.
   - vpn-policy-apply setzt tc + enforced nft sets (restricted_v4)
+  - HARD CUT (MUST, sofortige Wirkung auch für ESTABLISHED):
+    Beim Übergang FULL -> RESTRICTED gilt Reihenfolge:
+    (1) Enforce (nft/tc aktiv) -> (2) Conntrack-Flush (bidirektional, src+dst) für Client-IP.
+    Fail-Safe (MUST): Wenn Conntrack-Flush fehlschlägt -> PPP-Session kill (über PPPD_PID).
+    Fail-Closed: Wenn Flush+Kill fehlschlagen -> Fatal/Alert (kein Silent-Fail).
   - Reconcile (<=5min) macht FLUSH+REBUILD der Restricted-Sets (Drift-Schutz)
 
 - Simultaneous-Use=1 pro Subaccount ist bindend (pro Gerät genau eine Session).
   Stale-Sessions sind ein Produktproblem und werden aktiv gelöst:
-  - Janitor/Sweeper schließt stale radacct Sessions (Interim 300s, Threshold 900s)
-  - On-demand Janitor im RADIUS-Login-Flow + Retry (RateLimit/Cache/Timeout)
-  - Safety-Check gegen /run/vpn-sessions (keine echten Sessions killen)
-
+  - Janitor/Sweeper schließt stale radacct Sessions (Hybrid: SQL-first Settings + lokale Safety-Ceilings + Fallbacks)
+  - On-demand Janitor im RADIUS-Login-Flow:
+    SHOULD: Cache/Fallback für Settings im On-demand Pfad (DoS-Schutz gegen Login-Flooding).
+  - Safety-Check (MUST): Mapping-Dateien in /run/vpn-sessions/ sind NICHT per Existenz "wahr",
+    sondern müssen gegen Kernel-Realität validiert werden (Interface-Check + PID-Check + START_TS/PID-Reuse Schutz).
+  - Integritätsschutz (MUST): /run/vpn-sessions/ root-only write (chmod/chown), keine Manipulation durch Web-User/Services.
 
 1) ARCHITEKTUR-KURZÜBERSICHT (1 Seite)
 - Protokoll: L2TP/IPsec (IKEv1) via strongSwan + xl2tpd + pppd
@@ -74,11 +82,15 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
   - Stale-Session-Problem wird aktiv gelöst (Janitor + On-demand Login Flow)
 
 - Accounting/Quota (ohne DB-Spam):
-  - Runtime-Mapping pppX -> connection_id via /run/vpn-sessions/pppX.env
-  - Accounting Collector liest Kernel-Counter und schreibt Deltas batchweise (durable spool bei DB-Down)
+  - Runtime-Mapping pppX -> connection_id via /run/vpn-sessions/pppX.env (PPPD_PID + PPP_IF + START_TS)
+  - Accounting Collector liest Kernel-Counter und schreibt Deltas batchweise
+    (Hybrid: SQL-first Settings + lokale Safety-Ceilings + klar markierte Notfall-Fallbacks).
+  - Bei Spool-Ceiling-Hit gilt MUST: Drop/Ring-Buffer (Drop Oldest) + Alert (keine Stop-Policy).
 
 - Policy Apply/Reconcile (deterministisch):
   - vpn-policy-apply: setzt tc + nft enforced sets basierend auf SQL-State
+  - Hard Cut (MUST): FULL -> RESTRICTED erzwingt sofortige Wirkung auch für ESTABLISHED:
+    Enforce -> Conntrack-Flush (src+dst) -> Fail-Safe PPP-Session kill bei Flush-Failure (Fail-Closed).
   - Reconcile (<=5min): FLUSH+REBUILD restricted_v4 (Drift-Schutz)
   - Boot-Reconcile: /run ist tmpfs, daher Reconcile nach reboot zwingend
 
@@ -190,6 +202,9 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
 - B155 ist der zentrale State-Machine Block für Verify-Wall/Claim/Grace/Hard-Stop (Deadlines/States/Enforcement/Atomicity).
 - Policy Apply/Reconcile ist deterministisch (B166/B167): restricted sets werden per FLUSH+REBUILD konsistent gehalten
 - Stale-Session-Problem wird aktiv gelöst (B168/B169), damit Simultaneous-Use=1 nicht zu Support-Lockouts führt
+- Hard Cut ist MUST (B150/B166): FULL -> RESTRICTED sofort inkl. ESTABLISHED (Conntrack-Flush bidirektional + PPP-Kill Fail-Safe, fail-closed).
+- Accounting Spool Ceiling Verhalten ist MUST: Drop/Ring-Buffer (Drop Oldest) + Alert (keine Stop-Policy).
+
 
 
 5) CHANGELOG & INDEX
@@ -197,5 +212,5 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
 - Siehe: 04_BLOCK_INDEX.txt
 
 ================================================================================
-ENDE 00_MASTER_v2.1.1.txt
+ENDE 00_MASTER_v2.3.txt
 ================================================================================

@@ -1,6 +1,6 @@
 vpn_masterkonzept/03_ASSUMPTIONS_AND_RULES.txt
 ================================================================================
-ASSUMPTIONS & RULES (bindend) — v2.2
+ASSUMPTIONS & RULES (bindend) — v2.3
 ================================================================================
 
 A) Systemannahmen
@@ -25,7 +25,11 @@ B) Sicherheitsannahmen
   Wenn AAA/SQL/Policy nicht sauber evaluierbar ist, wird kein Zugriff gewährt (kein Break-Glass via VPN).
 - DNS ist Sicherheits- und Support-Kern:
   DNS-ZWANG ist IMMER aktiv (MUST): klassisches DNS (Port 53, TCP+UDP) wird per DNAT von iif ppp* -> 10.77.0.1:53 (AdGuardHome) erzwungen.
+  Optional (Nice-to-have): Counters-only auf DNAT53/Policy-Pfaden (Pakete/Bytes), keine Logs/Forensik.
   DoH/DoT wird in dieser Runde nicht behandelt (PARKED).
+- Logging/Spool/Retention ist Hybrid (SQL-first + Physik):
+  SQL-first Settings steuern Policy (Retention/Intervals), aber lokale Safety Ceilings (hard max bytes/age) sind bindend (Physik > Policy).
+  Bei Ceiling Hit gilt MUST: Drop/Ring-Buffer (Drop Oldest) + Alert (keine Stop-Policy, keine Disk-Full Eskalation durch Logs/Spool).
 
 C) Änderungsregeln
 - Jede Änderung:
@@ -36,8 +40,9 @@ C) Änderungsregeln
   eine Architekturentscheidung ist (decisions/D00x).
 - Keine Neuinterpretation: Begriffe/Regeln bleiben in ihrem Sinn stabil. Wenn sich Sinn ändert:
   explizit als Decision + Anpassung in Glossar/Blocks dokumentieren.
-- Terminologie ist bindend: "Token" wird nie unqualifiziert verwendet. Nutze Claim-Token / CSRF-Token / Reset-Token etc.
-  Claim-Token ist Claim-only (Panel), nicht VPN-Auth.
+- Terminologie ist bindend: "Token" wird nie unqualifiziert verwendet.
+  Zulässig sind nur: claim_token (Claim), csrf_token (Webpanel), session_token (Webpanel). "Token" allein ist verboten.
+  claim_token ist Claim-only (Panel), nicht VPN-Auth.
 - Begriffe sind fix: Customer/Benutzeraccount = Panel-Login; Subaccount = VPN-Login pro Gerät (umgangssprachlich "VPN-Client").
 - “Zeilenfest”-Dateien werden nicht “frei umformuliert”. Aufbau/Format bleibt stabil, nur Inhalte werden
   versioniert angepasst.
@@ -56,10 +61,20 @@ D) Qualitätsregeln / Abnahme
   Reject nur für DISABLED/BANNED/Missbrauch.
 - Deterministische Durchsetzung ist bindend:
   - ip-up/ip-down erzeugen Runtime-Mapping (/run/vpn-sessions/pppX.env)
+    MUST enthalten: PPPD_PID + PPP_IF + START_TS (PID-Reuse Schutz) + VPN-IP/connection_id.
   - vpn-policy-apply setzt tc + nft restricted sets
+  - Hard Cut (MUST): FULL -> RESTRICTED wirkt sofort, auch für ESTABLISHED Flows:
+    Reihenfolge: (1) Enforce (nft/tc aktiv) -> (2) Conntrack-Flush (bidirektional src+dst) der Client-IP.
+    Fail-Safe (MUST): Wenn Conntrack-Flush fehlschlägt -> PPP-Session kill über PPPD_PID (fail-closed).
   - Reconcile (<=5min) macht FLUSH+REBUILD (Drift-Schutz)
+- Integritätsschutz Runtime-Mapping ist Pflicht:
+  /run/vpn-sessions/ und Mapping-Dateien müssen root-only write sein (chmod/chown).
+  Manipulation durch Web-User/Services ist auf Dateisystemebene auszuschließen.
 - Simultaneous-Use=1 ist bindend UND muss lockout-sicher sein:
   Stale Sessions werden aktiv gelöst (Janitor + On-demand Cleanup im Login-Flow), nicht ignoriert.
+- Lock-Contention Verhalten (ip-up) ist bindend:
+  bounded retry/backoff im ip-up (kurzes, begrenztes Zeitfenster), danach fail-closed default bis apply.
+  Wenn vpn-policy-apply nicht erfolgreich/zeitnah durchläuft, darf keine undefinierte Session Traffic führen (Session wird beendet).
 
 ================================================================================
 ENDE 03_ASSUMPTIONS_AND_RULES.txt
