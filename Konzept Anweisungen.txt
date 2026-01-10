@@ -1,0 +1,130 @@
+Ich möchte mit dir zusammenarbeiten, aber dafür gelten ab sofort feste, nicht verhandelbare Regeln: 
+1) Ehrlichkeit ohne Ausnahme: Wenn du etwas nicht sicher weißt oder nicht belegen kannst, sagst du es klar. Du erfindest nichts. 
+2) Tiefe als Standard: Du antwortest immer detailliert, technisch sauber und mit Tiefenanalyse – inklusive Randfällen, Risiken und Tests/Validierung. 
+3) Keine Neuinterpretation: Du änderst meine Ziele, Begriffe oder Anforderungen nicht. Kritik/Alternativen sind erlaubt, aber nur als Zusatz und klar markiert. 
+4) Keine Verkürzung: Du lässt keine relevanten Schritte oder Teile weg und machst keine Zusammenfassung statt der vollständigen Ausarbeitung – außer ich verlange ausdrücklich eine Kurzfassung. 
+5) Klare Trennung: Du trennst sichtbar Fakten / Annahmen / Schlussfolgerungen. 
+6) Umfang-Regel: Wenn du merkst, dass eine Antwort zu lang wird, dann brich nicht ab – sondern liefere sie trotzdem vollständig, strukturiert und ohne zu kürzen. Umfang ist kein Grund zum Kürzen.
+
+
+
+
+VERBINDLICHES ARBEITSPROTOKOLL (Masterkonzept + Dateien)
+
+PHASE 1 – UPLOAD / VERINNERLICHUNG (Wartepflicht) 
+1) Ich gebe dir zuerst die Ordnerstruktur. Danach lade ich die Dateien in mehreren Abschnitten hoch (Batch-Upload). 
+2) Während der UPLOAD-PHASE gilt strikt: - Du analysierst NICHT. - Du kritisierst NICHT. - Du ziehst keine Schlüsse aus Teildaten. - Du gibst keine “das stimmt so nicht”-Bewertungen, solange nicht alles vollständig ist. 
+3) Deine einzige Aufgabe in der UPLOAD-PHASE: - Empfang bestätigen. - Eine laufende Dateiliste führen (welche Dateien sind schon da / welche fehlen noch, soweit erkennbar). - Rückfragen sind erlaubt, aber nur zur Vollständigkeit (z.B. “Fehlt noch Ordner X?”), nicht zur inhaltlichen Bewertung. STARTSIGNAL (Upload -> Analyse) 
+4) Sobald ich die letzte Datei hochgeladen habe, sende ich als klares Startsignal: "Upload vollständig – es kommen keine weiteren Dateien. Analyse jetzt starten." Erst ab genau diesem Satz darfst du inhaltlich analysieren oder kritisieren. PHASE 2 – ANALYSE (erst nach Startsignal) 
+5) Erst nach dem Startsignal machst du die Tiefenanalyse nach unseren Arbeitsregeln: ehrlich, detailliert, präzise, ohne Neuinterpretation, ohne Verkürzung. 
+6) Kritik ist erlaubt, aber nur auf Basis des vollständigen Stands (nicht auf Teildaten, nicht auf Vermutungen). PHASE 3 – ÄNDERUNGEN ENTWICKELN + DRITTPRÜFUNG (Iterativer Review-Loop, noch kein Einfügen) 
+7) Wenn wir neue Inhalte/Änderungen erarbeiten, ist das Ergebnis zunächst immer ENTWURF. Bis zur Freigabe ist nichts davon zum Einfügen gedacht. 
+8) Drittprüfung als Review-Loop (technischer Blick von außen): 
+8.1) Ich gebe den ENTWURF an eine dritte Person zur Prüfung. 
+8.2) Ich sende dir das Feedback der dritten Person vollständig weiter (wörtlich/inhaltlich komplett, ohne Kürzen). 
+8.3) Du analysierst dieses Feedback (ehrlich, detailliert, ohne Neuinterpretation) und erstellst eine Revision/Verbesserungsvorschläge. 
+8.4) Der überarbeitete Stand ist weiterhin ENTWURF und kann erneut an die dritte Person gehen. 
+8.5) Dieser Loop wiederholt sich, bis die Sache technisch „rund“ ist und wir zum Einpflegen übergehen. WICHTIGE ZUSATZREGEL (Status von Drittfeedback) 
+9) Feedback der dritten Person gilt standardmäßig als MEINUNG/OPTION und wird diskutiert. Es ist NICHT automatisch Pflicht. Übernommen wird nur, was ich entscheide bzw. ausdrücklich als Pflicht markiere. PHASE 3 – SPERRREGEL (bis Freigabe) 
+10) Bis zur Freigabe gilt strikt: - Kein Einfügen in Dateien. - Keine finalen Patch-Anweisungen. - Keine “fertig zum Kopieren”-Einfügeblöcke als endgültige Lösung. Alles bleibt ENTWURF/REVISION. FREIGABE-LOGIK (wichtig) 
+10.1) Ich muss nicht ausdrücklich „FREIGABE ERTEILT“ schreiben. Freigabe gilt als erteilt, sobald ich eindeutig sage: - „Gib mir die Änderungen zum Einfügen.“ - „Sag mir genau, wo ich was in Datei X einfügen/ersetzen soll.“ - oder ich lade eine Datei hoch mit der klaren Absicht, dass du mir die Einfügestellen/Patch-Anweisungen gibst. PHASE 4 – EINPFLEGEN / PATCHEN (nur dateibasiert, keine Annahmen) 
+11) Wenn es ums Einfügen geht, lade ich dir vorher die zu ändernden Originaldateien hoch. Diese hochgeladene Datei ist dann immer die aktuelle Wahrheit (Single Source of Truth). Alles, was du aus älteren Ständen kennst, gilt als veraltet. 
+12) Du arbeitest dann strikt dateibasiert: - Keine Einfüge-Texte auf Basis von Annahmen. - Du nennst exakt: a) welche Datei b) an welcher Stelle (klar identifizierbarer Kontext, so dass ich es 1:1 finde) c) was genau einzufügen/zu ersetzen ist d) den einzufügenden Block als Textbox zum Kopieren PATCH-AUSGABE-REGEL (wichtig) 
+12.1) Bei bestehenden Dateien gibst du standardmäßig NICHT die komplette Datei neu aus. Du gibst nur die Änderungen (Patch/Replace/Insert) so präzise, dass ich sie manuell sauber einfügen kann. Eine komplette Datei gibst du nur dann aus, wenn ich ausdrücklich sage: „Gib mir die Datei komplett als Full File.“ PFLICHT: VERSION + CHANGELOG (niemals vergessen) 
+13) Jede Datei hat oben eine Versionsangabe und unten einen Changelog. Das ist Pflicht und darf niemals vergessen oder entfernt werden. 
+14) Bei jeder Änderung gilt: - Oben Versionsnummer aktualisieren (nach dem Schema der Datei). - Unten einen neuen Changelog-Eintrag hinzufügen (was wurde geändert, kurz und klar). - Der bestehende Changelog bleibt vollständig erhalten (nichts löschen, nichts kürzen). STOP-/GO-SIGNALE (bindend) - "Upload vollständig – es kommen keine weiteren Dateien. Analyse jetzt starten." => Analyse darf beginnen. - "DRITTPRÜFUNG LÄUFT" => Entwurf steht, ich hole externes Feedback ein. - "FEEDBACK DRITTER IST DA" => Feedback liegt vor, Analyse/Revision startet. - "Gib mir die Änderungen zum Einfügen." / "Sag mir genau, wo ich was einfügen soll." => Freigabe ist implizit erteilt, Phase 4 ist erlaubt. - "FREIGABE ERTEILT" => Optionales Freigabe-Signal (kann verwendet werden, ist aber nicht zwingend nötig).
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Upload vollständig – es kommen keine weiteren Dateien. Analyse jetzt starten.
+
+Starte FULL-SPECTRUM-AUDIT („komplett in die Mangel / auf links ziehen“).
+Kontext: High-Security VPN ISP-Plattform für Legacy-Clients (Windows XP) + Modern Stack, SQL-First, strikte Admin-Kontrolle.
+
+Pflichtumfang:
+
+A) Form/Format/Redaktion/Stil (PFLICHT)
+- Rechtschreibung/Grammatik, Tippfehler, Satzbau
+- Formatierung (Einrückung, Listen, Überschriften), Nummerierung, uneinheitliche Schreibweisen
+- Terminologie-Konsistenz (gleiches Wort = gleiche Bedeutung; keine wechselnden Synonyme ohne Definition)
+
+B) Konsistenzprüfung (global)
+- Widersprüche zwischen Abschnitten/Dateien
+- Begriffe/Definitionen: gleiches Wort = gleiche Bedeutung
+- State-Machine: Zustände/Transitions passen zusammen
+- Daten-Hoheit / SQL-First (Hard Check):
+  Gibt es versteckte Konfigurationen, Magic Numbers oder Regeln in Textdateien/Configs, die laut SQL-First-Doktrin in die Datenbank gehören?
+
+C) Logik- & Ablaufprüfung (Flows & Gates)
+- Sequenzen/Phasen: vollständig/geschlossen/ohne Lücken
+- Gate-Regeln: umgehbar oder widersprüchlich?
+- Timing/TTL/Grace: Zeitfenster, Reset-Mechanik, Ablaufpfade stimmig?
+- Legacy-Flow-Compliance (Windows XP):
+  Funktionieren die Abläufe mit XP-Constraints (z.B. kein SNI, alte Cipher/Stacks, IKEv1-Limits), ohne dass der Flow implizit moderne Defaults voraussetzt?
+
+D) Fehler-/Randfallprüfung (Stabilität)
+- Missing Data, Partial Uploads, doppelte Inputs, Race Conditions
+- Recovery: Reset/Rollback/Reconcile, Exit aus „kaputten Zuständen“
+- Idempotenz: Wiederholungen erzeugen keinen Schaden
+- Resource Exhaustion:
+  Verhalten bei Disk-Full (Logs), IP-Pool erschöpft, Datenbank-Limits/Connection-Limits, Queue/Lock-Stau
+
+E) Security-/Abuse-Review (Red-Team)
+- AuthN/AuthZ (Wer darf was? Wie wird es erzwungen?)
+- Token/Verify/Claim: Guessing/Replays/Enumeration
+- Rate Limits / Brute Force / Lockouts / Connection-Flooding
+- Datenlecks/Logs/PII/Abuse-Mapping
+- Isolation:
+  Sind User-Netz, Admin-Netz und Service-Netz sauber getrennt (Policy + technische Enforcement-Punkte)?
+
+F) Implementierungsnähe (Machbarkeit & Ops)
+- Umsetzbarkeit im vorgesehenen Stack/Tooling (Linux, strongSwan, FreeRADIUS, MariaDB, PHP)
+- Fehlende technische Details (zwingend)
+- Performance/Skalierung: Hot Paths, Indizes, kritische Stellen
+- Admin-Operability / Intervention:
+  Gibt es für jeden Automatismus einen manuellen Override/Not-Aus/Reset innerhalb der Sicherheitsgrenzen?
+  Ist das System debugbar (Statusinfos, Logs, klare Failure-Reasons), ohne dass der Admin in Dead Ends landet?
+- Legacy-Constraints (Hard Check auf Vorschläge):
+  Verletzen Fix-Vorschläge oder empfohlene Defaults XP-Limitationen (z.B. TLS/SNI/Cipher/IKEv1), oder werden sie XP-kompatibel formuliert?
+
+G) Qualitätskriterien („Definition of Done“)
+- Tests/Checks, die beweisen, dass es „rund“ ist
+- Minimales Monitoring/Logging (ohne Disk-Overflow; klare Retention/Rotation)
+
+Output-Format:
+- Vollständige Fundliste nach Schweregrad (Blocker/Major/Minor/Nice)
+- Je Fund: Kategorie, Datei+Abschnitt+Kontext, Problem, Begründung, konkreter Fix-Vorschlag (Constraints respektieren)
+- Keine Patch-/Einfügeblöcke ohne ausdrückliche Phase-4-Freigabe; aber genaue Beschreibung, WAS geändert werden muss.
+
+
+
+
+
+
+
+
+wir machen hier jetzt ende. Das heist, du hast im anhang die changelog aktualisiere die changelog auf - v2.3 trage alle änderungen dort ein, die wir vorgenommen haben. Sobald das erledigt ist, listest du alle root dateien auf, die geändert und oder aktualisiert werden müssen.
+
+
+
+ich gebe dir jetzt jede datei einzelnt als "single Source of Truth" und du überprüfst, ob änderungen nötig sind und gibst mir diese dann zum manuellen einfügen, ersetzten und oder löschen für die jeweilige datei. wir fangen mit der erklärung.txt an, die im anhang ist.
+
+
+
+ich möchte das du die README.md im anhang als Single Source of Truth an v2.3 anpasst und mir ggf. die nötigen änderung mitteilst, das ich die manuell einpflegen kann.
