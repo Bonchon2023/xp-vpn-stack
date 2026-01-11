@@ -1,6 +1,6 @@
 vpn_masterkonzept/04_BLOCK_INDEX.txt
 ================================================================================
-BLOCK INDEX (MASTER v2.2)
+BLOCK INDEX (MASTER v2.4)
 ================================================================================
 
 [B010] META / Scope & Constraints
@@ -214,6 +214,26 @@ BLOCK INDEX (MASTER v2.2)
 - Datei: blocks/B330_LOGGING_MONITORING_RETENTION_ALERTS.txt
 - Status: ACTIVE | Priority: MUST
 - Requires: B050, B165, B220
+
+[B340] Fail2ban (RADIUS) – Kanonische Event-Klassifikation (F2B_EVENT) + NAT-Safety
+- Datei: blocks/B340_FAIL2BAN_RADIUS_EVENT_CLASSIFICATION.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B050, B330, D010
+
+[B341] Fail2ban – Jails/Filter/Aktionen (RADIUS + IKE) inkl. NAT-Safety Policy-Values
+- Datei: blocks/B341_FAIL2BAN_JAILS_POLICY_VALUES.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B340, B100, B300
+
+[B342] Policy Outcomes (DENY/RESTRICT/OK) + Reason-Codes (R_ / R_AUTH_) + Matrix/Prioritäten
+- Datei: blocks/B342_POLICY_OUTCOME_REASON_CODES_MATRIX.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B150, B155, B166, D011
+
+[B343] Fail2ban + Policy-Outcomes – End-to-End Package (RADIUS→Logs→Ban / Outcome→Enforcement)
+- Datei: blocks/B343_FAIL2BAN_POLICY_OUTCOME_E2E_PACKAGE.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: B340, B341, B342
 
 ================================================================================
 ENDE 04_BLOCK_INDEX.txt

@@ -1,6 +1,6 @@
-0000_Erklärung.txt (v2.3.0)
+0000_Erklärung.txt (v2.3)
 
-00_MASTER_v2.3.0.txt (Inhalt/Format)
+00_MASTER_v2.3.txt (Inhalt/Format)
 
 Ziel: Das ist die Datei, die du immer “komplett” rausgeben kannst, wenn du sagst „gib mir das ganze Konzept“.
 Sie enthält keine Details doppelt, sondern verweist auf Blocks.
@@ -21,7 +21,7 @@ Abhängigkeiten (Graph in Textform)
 
 Tasks-Hybrid:
 - 0_MASTERKONZEPT_V2_ANALYSE.md ist die Abarbeitungs-Datei.
-- tasks/T/ enthält Task-Dateien / Prüfkonzepte (T01–T15), die wir in der Analyse referenzieren.
+- tasks/ enthält Task-Dateien / Prüfkonzepte (T01–T15), die wir in der Analyse referenzieren.
 
 Verweis auf Changelog + Glossar
 

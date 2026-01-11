@@ -1,5 +1,5 @@
 BLOCK: B167_WIRING_HOOKS_SYSTEMD
-VERSION: v1.12.1
+VERSION: v1.13
 STATUS: ACTIVE
 OWNER: Marco + ChatGPT
 LAST-UPDATE: 2026-01-10
@@ -39,6 +39,12 @@ LAST-UPDATE: 2026-01-10
 ================================================================================
 - Event: PPP-Session kommt hoch (pppX ist da, CLIENT_IP vergeben)
 - Verantwortlich: /etc/ppp/ip-up.d/99-vpn-hooks
+
+0) D1a CONNECT-GATE (NO-UNPOLICED-WINDOW, KEIN DEFAULT-RESTRICTED):
+   - Sofort (VOR jedem SQL Zugriff) CLIENT_IP in nftables set connect_pending_v4 eintragen.
+   - Semantik: connect_pending_v4 => DROP ALL im forward path (siehe B120/B150, Decision D009).
+   - Erst nach erfolgreichem vpn-policy-apply (Exit 0) darf ip-up CLIENT_IP aus connect_pending_v4 entfernen.
+   - Bei TEMPFAIL_SQL/ERROR/TIMEOUT: FAIL-CLOSED => PPP Kill; Gate bleibt bis Cleanup bestehen.
 
 MUSS ausführen (Reihenfolge):
 1) Session-Mapping erzeugen/aktualisieren (B165):
@@ -113,6 +119,7 @@ SOLL ausführen (Reihenfolge):
 2) Cleanup / Stale vermeiden:
    - nft restricted cleanup für CLIENT_IP (falls Mapping noch vorhanden)
    - tc cleanup für PPP_IF (falls möglich)
+   - nft: CLIENT_IP aus connect_pending_v4 löschen (idempotent, MUSS – sonst blockiert Reconnect).
 
 3) Session-Mapping entfernen:
    - /run/vpn-sessions/<ppp_if>.env löschen

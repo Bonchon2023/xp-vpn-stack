@@ -4,6 +4,19 @@ MASTER CHANGELOG
 ================================================================================
 ERRATA (KANONISCHKEIT): Der Changelog kann historische Begriffe enthalten. Maßgeblich für den aktuellen Stand sind MASTER/Glossar/Blocks. Historische Begriffe sind nicht kanonisch.
 
+- v2.4.0 (2026-01-11):
+  - Tasks → Blocks Migration (Fail2ban + Outcome/Reasons) abgeschlossen:
+    - Neu: B340 Fail2ban RADIUS Event-Klassifikation (F2B_EVENT) + NAT-Safety/Self-DoS Schutz.
+    - Neu: B341 Fail2ban Jails/Filter/Aktionen (RADIUS UNKNOWN_USER/KNOWN_BADPASS + IKE).
+    - Neu: B342 Policy Outcomes (DENY/RESTRICT/OK) + Reason-Codes (R_ / R_AUTH_) + deterministische Matrix/Prioritäten.
+    - Neu: B343 E2E Package (Contracts/Flows/DoD) für Fail2ban + Policy-Outcomes.
+  - Root-Dokumente konsolidiert:
+    - 04_BLOCK_INDEX erweitert auf B010–B343.
+    - 02_GLOSSAR um Fail2ban/Outcome/Reason Begriffe ergänzt + Calling-Station-ID präzisiert (SrcIP nur wenn parsebar, sonst NA).
+    - README aktualisiert (Blocks Range, Tasks als optional/non-canonical Workspace).
+  - Hinweis zur Bereinigung:
+    - Inhalte aus T01–T04 sowie T90/T91 sind in B340–B343/Glossar aufgegangen und können nach Review entfernt werden.
+
 - v2.3.0 (2026-01-10):
   - Enforcement-Konsistenz (Hard Cut, established flows):
     - Restricted Mode ist „HARD CUT“: laufende Datenströme werden sofort unterbrochen (kein Soft-Cut-Auslaufenlassen).
@@ -17,6 +30,7 @@ ERRATA (KANONISCHKEIT): Der Changelog kann historische Begriffe enthalten. Maßg
   - Ops-Hardening „Session Identität“ + Lock Contention:
     - Kill-Handle kanonisiert: PPPD_PID MUST + PPP_IF + START_TS (PID-Reuse Schutz über START_TS/Validierung).
     - ip-up Verhalten kanonisiert: bounded retry/backoff + fail-closed default bis policy-apply erfolgreich; bei Apply-Failure Session terminieren.
+    - D1a Connect-Pending Gate (kein Default-Restricted): connect_pending_v4 = deny-all forward bis policy-apply SUCCESS; verhindert „unpoliced window“ ohne Portal/DNS-Fallback bei SQL-Ausfall.
     - „No pgrep“ normiert: PPPD_PID muss aus pppd/ip-up Kontext/Env stammen, nicht via Prozesssuche (Race-Schutz).
     - Betroffene Blocks: B165 (Accounting/Session Mapping), B167 (Wiring Hooks / systemd).
   - Disk-/Logging-Safety & Retention:

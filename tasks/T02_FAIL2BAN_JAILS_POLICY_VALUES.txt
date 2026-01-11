@@ -1,0 +1,111 @@
+================================================================================
+T02_FAIL2BAN_JAILS_POLICY_VALUES.txt
+Version: ENTWURF v0.1
+Status: ENTWURF (Phase 3) – bereit für Drittprüfung
+================================================================================
+
+## 1) Ziel / Zweck
+Definiert Fail2ban-Policy (Jails + Thresholds) für:
+- strongSwan/IKE Flood/Scan Schutz
+- FreeRADIUS Unknown-User Enumeration Schutz
+- FreeRADIUS Known-Wrong-Pass Heavy-only Bruteforce Schutz (NAT-safe)
+unter D1a (SQL-down => Reject ohne Mass-Bans).
+
+## 2) Jails (Kanonisch)
+MUST: Es gibt genau 3 produktive Jails (IKE + 2x RADIUS).
+MUST: Fail2ban bannt ausschließlich auf UNKNOWN_USER und KNOWN_BADPASS (siehe T01).
+
+J1_STRONGSWAN_IKE_SCAN
+- Zweck: CPU/Handshake-Schutz gegen Scanner, Proposal-Fuzzer, DH-Floods.
+- Match: strongSwan/charon Logevents (IKE failures, no proposal, etc.)
+- Ports: UDP 500, UDP 4500 (WAN)
+
+J2_RADIUS_UNKNOWN_USER
+- Zweck: Anti-Enumeration (Username Guessing).
+- Match: F2B_EVENT Class=UNKNOWN_USER (dedizierte Logline, siehe T01)
+- Ports: VPN WAN Ports (UDP 500/4500 + optional UDP 1701 nur wenn überhaupt extern sichtbar)
+
+J3_RADIUS_KNOWN_BADPASS
+- Zweck: Anti-Bruteforce (High-Rate), NAT-safe via hoher Threshold.
+- Match: F2B_EVENT Class=KNOWN_BADPASS
+- Ports: VPN WAN Ports (UDP 500/4500 + optional UDP 1701)
+
+WICHTIG (D1a / NAT-Safety):
+- Kein Jail darf BACKEND_ERROR matchen.
+- Kein Jail darf POLICY_DENY / POLICY_RESTRICT matchen.
+
+## 3) Sources (Logs)
+IKE (J1):
+- Backend: systemd (journal)
+- Source: strongSwan/charon logs (Debian 13)
+
+RADIUS (J2/J3):
+- Backend: file tailing (MUST)
+- Source-File (MUST): /var/log/freeradius/f2b-events.log   (aus linelog, siehe T01)
+- Grund: stabil, maschinenlesbar, keine Regex-Hölle, kein "localhost ban".
+
+## 4) Thresholds (Leitplanken) – MUST
+J1_STRONGSWAN_IKE_SCAN (Aggressiv):
+- findtime = 300s
+- maxretry = 10
+- bantime  = 900s (15m)
+- Rationale: Scanner ziehen weiter; XP Retries bleiben unterhalb der Schwelle.
+
+J2_RADIUS_UNKNOWN_USER (Mittel):
+- findtime = 600s
+- maxretry = 5
+- bantime  = 3600s (1h)
+- Rationale: 5 Unknown-User Versuche in 10 Min ist praktisch immer Bot/Scan.
+
+J3_RADIUS_KNOWN_BADPASS (Heavy / NAT-Safe):
+- findtime = 600s
+- maxretry = 50
+- bantime  = 600s (10m)
+- Rationale: schützt Infrastruktur und Logs, ohne Office-NATs zu killen.
+  D1a-Safety: SQL-down Storm darf diese Schwelle NICHT triggern (Client retryt z.B. 60s).
+
+## 5) Self-DoS / IgnoreIP (Defense in Depth) – MUST
+ignoreip (MUST):
+- 127.0.0.1/8
+- ::1/128
+- 10.77.0.1/32          (Service-IP)
+- 10.77.20.0/24         (Admin-VPN Range)
+- (optional) statische Admin WAN IPs
+
+banaction (MUST):
+- nftables input-chain auf WAN (ens13) / public scope
+- niemals loopback
+- niemals "all interfaces"
+
+## 6) Fail2ban Match Rules (MUST)
+J2 Regex:
+- ^F2B_EVENT: Class=UNKNOWN_USER .* SrcIP=<HOST> .*
+
+J3 Regex:
+- ^F2B_EVENT: Class=KNOWN_BADPASS .* SrcIP=<HOST> .*
+
+MUST:
+- Class=BACKEND_ERROR / POLICY_* / OK dürfen niemals gebannt werden.
+
+## 7) Tests (MUST)
+T1 SQL Down (D1a):
+- SQL aus -> F2B_EVENT Class=BACKEND_ERROR -> 0 bans
+
+T2 NAT Office:
+- mehrere User hinter einer WAN-IP, einzelne Tippfehler -> J3 darf nicht „Office-IP“ sperren (Threshold 50/10m)
+
+T3 Scanner:
+- IKE scan/proposal fuzzing -> J1 bans sichtbar (kurz, 15m)
+
+T4 Self-DoS Guard:
+- Kein Ban von 127.0.0.1 möglich (ignoreip + SrcIP extraction in T01)
+
+## 8) Verweise
+- T01_FAIL2BAN_RADIUS_EVENT_CLASSIFICATION.txt
+- D010_FAIL2BAN_RADIUS_EVENT_CLASSIFICATION_POLICY_DENY.txt
+- D1a (Fail-Closed/Reject bei SQL Down, ohne Ban)
+- B150/B155 (Walled Garden / Verify-Wall) – indirekt relevant (Policy Outcomes werden nicht gebannt)
+
+## Changelog
+- v0.1 (ENTWURF): Initiale Jail-Struktur + Threshold Leitplanken + D1a Safety + Self-DoS Regeln.
+================================================================================

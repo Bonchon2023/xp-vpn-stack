@@ -1,5 +1,5 @@
 BLOCK: B166_POLICY_APPLY_RECONCILE
-VERSION: v1.9
+VERSION: v1.10
 STATUS: ACTIVE
 OWNER: Marco + ChatGPT
 LAST-UPDATE: 2026-01-09
@@ -284,6 +284,10 @@ Offline ist KEIN Fehler:
 - DB recovery:
   - Panel Events können wieder apply auslösen
   - Reconcile korrigiert Zustand spätestens innerhalb <=5 Minuten
+- D1a Connect-Gate (No-Unpoliced-Window ohne Default-Restricted):
+  - ip-up setzt CLIENT_IP in connect_pending_v4 (deny-all forward) bevor vpn-policy-apply startet.
+  - Bei TEMPFAIL_SQL/ERROR/TIMEOUT bleibt das Gate aktiv und ip-up terminiert die PPP-Session (FAIL-CLOSED, siehe B167/D009).
+  - Kein Fallback auf Portal/Restricted bei SQL-Ausfall.
 
 ================================================================================
 13) TESTS (MINIMUM)
@@ -310,10 +314,16 @@ Offline ist KEIN Fehler:
   - Reconcile: ein Session-Fehler -> Exit 1, andere Sessions werden korrigiert
 - Stale /run Mapping Purge Test: /run enthält pppX.env aber /sys/class/net/pppX fehlt -> Reconcile löscht Mapping -> verhindert false "live" Safety-Blockade.
 - Restricted Set Rebuild Test: restricted_v4 enthält manuell/stale IPs -> Reconcile delta-update (to_del/to_add, atomarer Commit) -> Set enthält exakt desired_restricted_ips (aktive+restricted=true), sonst nichts.
+- Connect No-Leak Gate Test (D1a):
+  - Simuliere Delay im Connect-Pfad (z.B. vpn-policy-apply sleep 10).
+  - Erwartung: Während connect_pending_v4 aktiv ist, fließt kein Forward-Traffic (WAN=0), auch wenn PPP bereits „up“ ist.
+  - Nach SUCCESS: Gate entfernt, dann gilt restricted/full gemäß SQL.
+  - Bei TEMPFAIL_SQL oder Timeout: PPP Kill, Gate bleibt bis Cleanup; kein Traffic-Leak.
 
 ================================================================================
 14) CHANGELOG
 ================================================================================
+- v1.10 (2026-01-10): D1a Connect-Gate integriert: connect_pending_v4 Semantik bei DB-down/Apply-Fail dokumentiert + Acceptance-Test „No-Leak Gate“ ergänzt (Verweis B167/D009).
 - v1.9 (2026-01-09): Kill-Handle kanonisiert: PPPD_PID als MUST, mit Plausibilitätscheck über PPP_IF + START_TS; SESSION_ID ausdrücklich nur Diagnose.
   STRICT-Semantik präzisiert: Conntrack-Flush-Fail ist nicht fatal, wenn PPP-Kill erfolgreich; Exit 4 nur bei Double-Fail.
 - v1.8 (2026-01-09): Hard Cut erweitert um Fail-Safe: conntrack-first + PPP Session Kill bei Flush failure/unavailable (deterministisch).

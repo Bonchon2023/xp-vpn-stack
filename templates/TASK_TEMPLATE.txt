@@ -1,12 +1,12 @@
-vpn_masterkonzept/tasks/TXX_<KURZTITEL>.txt
+tasks/TXX_<KURZTITEL>.txt
 ================================================================================
 TASK-ID: TXX
 TITLE: <Klarer Titel, 3–8 Worte>
-VERSION: v0.1
+VERSION: v0.2
 DATUM: YYYY-MM-DD
 STATUS: DRAFT | ACTIVE | DEPRECATED
 PRIORITY: MUST | SHOULD | OPTIONAL
-OWNER-INTENT: <1 Satz: Warum existiert diese Task? Was ist der Blocker/Mehrwert?
+OWNER-INTENT: <1 Satz: Warum existiert diese Task? Was ist der Blocker/Mehrwert?>
 
 ================================================================================
 1) ZWECK
@@ -26,12 +26,14 @@ OWNER-INTENT: <1 Satz: Warum existiert diese Task? Was ist der Blocker/Mehrwert?
 ### 2.2 Out-of-Scope (explizit)
 - <Punktliste>
 
-## 3) Spezifikation (kanonisch)
-<Hier kommt der “verbindliche Kern”. Immer in MUST/SHOULD/OPTIONAL gliedern.>
+### 2.3 Spezifikation (kanonisch)
+- <Hier kommt der “verbindliche Kern”. Immer in MUST/SHOULD/OPTIONAL gliedern.>
 
 ================================================================================
-3) ABHÄNGIGKEITEN
+3) Abhängigkeiten (Runtime/Design)
 ================================================================================
+<Hier definierst du MUST/SHOULD/OPTIONAL-Abhängigkeiten (inhaltlich). Reine Querverweise/Referenzen kommen separat unter "Verweise (Requires / Influences)".>
+
 ### 3.1 <Teilbereich 1>
 MUST:
 - <Punktliste>
@@ -48,12 +50,16 @@ SHOULD:
 OPTIONAL:
 - <...>
 
-## 4) Constraints / Invariants (MUST)
+================================================================================
+4) Constraints / Invariants (MUST)
+================================================================================
 <Regeln, die nie gebrochen werden dürfen. Ideal für spätere Tests/Assertions.>
 - <Invariant 1>
 - <Invariant 2>
 
-## 5) Abhängigkeiten / Verweise
+================================================================================
+5) Verweise (Requires / Influences)
+================================================================================
 ### 5.1 Requires
 - Blocks: <Bxxx, …>
 - Decisions: <Dxxx, …>
@@ -65,18 +71,23 @@ OPTIONAL:
 - Decisions: <Dxxx, …>
 - Docs: <docs/…>
 
-## 6) Entfernte / Deprecated Aspekte (falls relevant)
+================================================================================
+6) Entfernte / Deprecated Aspekte (falls relevant)
+================================================================================
 - <Welche Felder/States/Regeln sind NICHT mehr Bestandteil?>
 - <Warum?>
 
-## 7) Fehlerbilder & Diagnose
+================================================================================
+7) Fehlerbilder & Diagnose
+================================================================================
 - <Fehlerbild> -> <Symptom> -> <Prüfung/Command/Ort> -> <Expected/Resolution>
 - <…>
+
 ================================================================================
 8) VALIDIERUNG / TESTS (AKZEPTANZ)
 ================================================================================
 
-## 8) Tests / Validierung (MUST)
+### 8.1 Tests / Validierung (MUST)
 <So schreiben, dass es später 1:1 als Testplan/Checkliste taugt.>
 - <Testfall 1: Setup -> Aktion -> Erwartung>
 - <Testfall 2: …>
@@ -85,7 +96,9 @@ OPTIONAL:
 - Recovery/Backstop Tests:
   - <…>
 
-## 9) Offene Punkte / Entscheidungen
+================================================================================
+9) Offene Punkte / Entscheidungen
+================================================================================
 - <Frage/Decision-ID?>
 - <Was ist noch unklar?>
 - <Welche Optionen?>
@@ -94,8 +107,8 @@ OPTIONAL:
 ================================================================================
 10) CHANGELOG
 ================================================================================
+- v0.2 (2026-01-10): Banner für alle Top-Level-Abschnitte (4/5/6/7/9), Verweise-Titel vereinheitlicht, VERSION-Placeholder korrigiert
 - v0.1 (YYYY-MM-DD): Initial Draft
-
 ================================================================================
 ENDE tasks/TXX_<KURZTITEL>.txt
 ================================================================================

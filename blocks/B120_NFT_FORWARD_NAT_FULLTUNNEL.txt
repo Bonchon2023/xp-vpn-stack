@@ -2,7 +2,7 @@ vpn_masterkonzept/blocks/B120_NFT_FORWARD_NAT_FULLTUNNEL.txt
 ================================================================================
 BLOCK-ID: B120
 TITLE: nftables Forward + NAT (Full-Tunnel)
-VERSION: v1.3
+VERSION: v1.4
 STATUS: ACTIVE
 PRIORITY: MUST
 OWNER-INTENT: Full-Tunnel Routing/NAT sauber und deterministisch.
@@ -17,6 +17,12 @@ OWNER-INTENT: Full-Tunnel Routing/NAT sauber und deterministisch.
 - WICHTIG (Pfad-Trennung): Dieser Block beschreibt nur Restricted Enforcement im forward-Pfad (WAN/NAT).
   - Traffic zu lokalen Services auf 10.77.0.1 läuft über filter input und MUSS dort separat durch B150 + docs/nft_service_ip_scopes.txt restricted allowlist
  enforced werden (sonst bleiben lokale Ports offen).
+- D1a Connect-Pending Gate (NO-UNPOLICED-WINDOW, SQL-FIRST):
+  - Es gibt ein separates nftables Set connect_pending_v4 (IPv4).
+  - Semantik: Wenn ip saddr ∈ connect_pending_v4 => DROP im forward path (deny-all forward).
+  - Dieses Gate ist NICHT restricted_v4 / Walled Garden und erlaubt keine Portal/DNS-Fallbacks.
+  - connect_pending_v4 wird beim Connect (ip-up) vor policy-apply gesetzt und erst nach SUCCESS entfernt;
+    bei Apply-Failure wird die PPP-Session deterministisch beendet (fail-closed).
 - Wichtig: Restricted Enforcement (B150) muss im forward chain vor dem allgemeinen Forward-Allow (dieser Block) evaluiert werden (sonst Umgehung möglich).
 - Konkret: Für saddr∈restricted_v4 (B150) ist im forward chain nur Verkehr zu 10.77.0.1 erlaubt:
   - DNS: 53/udp + 53/tcp
@@ -45,6 +51,7 @@ OWNER-INTENT: Full-Tunnel Routing/NAT sauber und deterministisch.
 6) MUST
 - Full-tunnel works: default route on clients points to PPP
 - NAT correct
+- D1a: Kein unpoliced window: Solange policy-apply nicht erfolgreich war, muss forward deny-all über connect_pending_v4 greifen.
 
 7) OPTIONEN
 - Separate NAT policies per subnet if needed later.
@@ -58,6 +65,7 @@ OWNER-INTENT: Full-Tunnel Routing/NAT sauber und deterministisch.
 - IP check: public IP = server IP.
 
 10) CHANGELOG
+- v1.4 (2026-01-10): D1a ergänzt: Connect-Pending Gate (connect_pending_v4) als deny-all forward bis policy-apply SUCCESS; kein Default-Restricted/Portal-Fallback.
 - v1.3 (2026-01-07): T06-Referenz entfernt (Service-IP Scopes jetzt über docs/nft_service_ip_scopes.txt referenziert). Inhalt unverändert.
 - v1.2: Klarstellung ergänzt: B120 beschreibt Restricted Enforcement nur im forward-Pfad; input-Enforcement für Service-IP 10.77.0.1 ist separat in B150/T06 Pflicht (Pfad-Trennung, keine Logikänderung).
 -    v1.1:     Restricted Mode Reihenfolge + konkrete Allowlist (DNS udp+tcp 53, Web 80/443, NTP 123/udp, ICMP zu 10.77.0.1) ergänzt; Hinweis zu DNS-Enforcement Hook/Order (B210) ergänzt.

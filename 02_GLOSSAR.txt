@@ -9,7 +9,7 @@ Accounting Collector: Dienst/Job der Kernel-Counter (pro pppX) periodisch liest 
 AdGuardHome: DNS Filter/Blocker; liefert "Custom IP" für Blockpage; DNS-Endpunkt für DNS-Zwang (10.77.0.1:53).
 Apply / Policy Apply: Aktives Durchsetzen der Policy für eine Verbindung (tc + nft sets) auf Basis des SQL-Truth.
 CA: Certificate Authority (Root/Intermediate für MITM).
-Calling-Station-ID: Identifier im RADIUS, oft MAC/LineID; bei L2TP unzuverlässig.
+Calling-Station-ID: RADIUS Attribut (31), das je nach NAS einen Identifier oder die Peer-IP enthalten kann. Im Fail2ban-Kontext wird es als SrcIP genutzt, aber nur wenn es als IPv4/IPv6 parsebar ist; sonst SrcIP=NA (kein Ban).
 Claim: Zuordnung einer PREPROVISIONED VPN-Connection zu customer_id per claim_token.
 claim_deadline: Hard-Stop gegen „ewige Leichen“. Standardbetrieb: IMMER gesetzt (180 Tage ab Provisioning/Erstellung). Wenn now > claim_deadline und weiterhin UNCLAIMED -> status=DISABLED (HARD, kein VPN/kein Panel). Admin kann per „Deadline verlängern“ claim_deadline = NOW()+180d neu setzen.
 claim_token_hash: Hash des claim_token in der DB (claim_token liegt nur auf dem Gerät/Beileger und wird ausschließlich im Panel zur Claim-Eingabe verwendet; NICHT für VPN-Login).
@@ -30,6 +30,18 @@ Conntrack-Flush: Löschen aller Conntrack-States einer Client-IP (bidirektional:
 Hard Cut: Enforcement-Regel (MUST): Wechsel in Restricted Mode wirkt sofort, auch für ESTABLISHED Flows (über Conntrack-Flush; kein „Soft Cut“/Auslaufenlassen).
 Fail-Closed: Sicherheitsprinzip: Bei Apply/Enforcement-Fehlern darf keine „unkontrollierte“ Session Traffic führen; deterministischer Abbruch (z.B. PPP-Session Kill) ist Pflicht.
 Claim-Token (claim_token): Ein Geräte-Token zur Übernahme (Claim) einer preprovisionierten VPN-Connection im Panel. Nie für VPN-Login.
+F2B_EVENT: Kanonische, maschinenlesbare Logzeile (key=value) für Fail2ban; enthält mindestens Class, SrcIP, User, Reason (optional Detail).
+F2B_CLASS: Kanonische Event-Klasse für Fail2ban-Entscheidungen (RADIUS): UNKNOWN_USER | KNOWN_BADPASS | BACKEND_ERROR | POLICY_DENY (log-only).
+SrcIP: WAN-Quelle für Fail2ban; aus Calling-Station-Id nur wenn als IP parsebar, sonst NA (NA darf niemals gebannt werden).
+Tmp-String Reservation: FreeRADIUS Control-Attribute, exklusiv reserviert für Event-Klassifikation: &control:Tmp-String-0=F2B_CLASS_STATE, &control:Tmp-String-1=AUTH_DETAIL.
+AUTH_DETAIL: Interner Detail-Flag zur deterministischen Auth-Fehlererkennung (z.B. MSCHAP_FAIL).
+POLICY_OUTCOME: Ergebnis einer Policy-Entscheidung für VPN-Zugang: DENY (Reject) | RESTRICT (Accept + Walled Garden) | OK (Accept + Full Tunnel).
+POLICY_DENY: Log-only Marker für „Auth ok, aber Policy blockiert“; darf niemals Fail2ban triggern (NAT-Safety).
+POLICY_RESTRICT: Outcome RESTRICT (Accept), Tunnel steht, aber Walled Garden/Restricted Mode aktiv.
+R_ Reason-Codes: Kanonische Policy-Gründe als Codes (Support/Observability), deterministisch priorisiert (z.B. R_ACCOUNT_BANNED, R_QUOTA_EXCEEDED, R_CLAIM_REQUIRED).
+R_AUTH_ Reason-Codes: Kanonische Auth-/Infra-Gründe als Codes (z.B. R_AUTH_BACKEND_SQL_DOWN, R_AUTH_BACKEND_SQL_FAIL, R_AUTH_UNKNOWN_USER, R_AUTH_KNOWN_BADPASS).
+D1a (SQL First / Fail-Closed): Sicherheitsregel: Wenn SQL/Backend nicht verfügbar ist, darf keine VPN-Session entstehen (Reject), ohne Fail2ban-Ban-Sturm.
+NAT-Safety: Sicherheitsziel: Fail2ban darf legitime Nutzer hinter NAT nicht kollektiv aussperren; daraus folgt: Bans nur für UNKNOWN_USER und KNOWN_BADPASS; niemals für POLICY_DENY/BACKEND_ERROR.
 Terminologie-Regel (MUST): Das Wort „Token“ darf im gesamten Konzept nicht unqualifiziert verwendet werden.
 Zulässig sind nur: claim_token (Claim), csrf_token (Webpanel), session_token (Webpanel). „Token“ allein ist verboten.
 Decision Record: Textdatei im decisions/ Ordner, die eine bindende Architekturentscheidung festhält (D001..D008).

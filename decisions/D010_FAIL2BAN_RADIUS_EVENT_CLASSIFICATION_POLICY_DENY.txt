@@ -1,0 +1,115 @@
+vpn_masterkonzept/decisions/D010_FAIL2BAN_RADIUS_EVENT_CLASSIFICATION_POLICY_DENY.txt
+================================================================================
+DECISION-ID: D010
+TITLE: Fail2ban (RADIUS) – kanonische Event-Klassifikation + POLICY_DENY (log-only)
+DATE: 2026-01-11
+STATUS: ACCEPTED
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+================================================================================
+
+CONTEXT
+- Ausgangslage:
+  - Wir wollen Fail2ban einsetzen, ohne NAT-User unnötig zu sperren und ohne Self-DoS (z.B. "localhost" bannen).
+  - Standard-FreeRADIUS-Logs sind nicht stabil genug als Parsing-Quelle (Text/Format/Module-Failure-Message kann variieren).
+  - D1a (SQL-first / Fail-Closed): Wenn SQL down ist, darf keine Session entstehen; zugleich darf Fail2ban bei SQL-down nicht “legit reconnecting clients” massenhaft bannen.
+
+- Problem / Konflikt:
+  - RADIUS kennt als Client oft "localhost" (NAS = pppd auf derselben Maschine). Naives Parsing bannt die falsche Quelle.
+  - Wir brauchen NAT-sichere Unterscheidung:
+    - UNKNOWN_USER (Enumeration/Fishing) vs.
+    - KNOWN_BADPASS (Bruteforce, aber NAT-sensitiv) vs.
+    - BACKEND_ERROR (SQL down o.ä. → NICHT bannen)
+  - Zusätzlich: Support/Observability leidet, wenn Policy-Blocks (Disabled/Expired/Verify-Wall etc.) als generische Rejects verschwinden.
+
+- Anforderungen (MUST/SHOULD/OPTIONAL):
+  MUST:
+  - Fail2ban darf nie loopback/localhost bannen (Self-DoS Schutz).
+  - RADIUS-Jails matchen ausschließlich eine dedizierte, maschinenlesbare Logline (kein Parsing der Standard-Logzeilen).
+  - Klassen müssen NAT-sicher sein (UNKNOWN vs KNOWN_BADPASS getrennt).
+  - BACKEND_ERROR muss Fail2ban-seitig ignoriert werden (D1a kompatibel).
+  - KNOWN_BADPASS Klassifikation muss deterministisch sein (keine Regex-Raterei auf Fehltexten).
+  SHOULD:
+  - Support/Debugging soll sofort zeigen, ob Reject ein Policy-Block war (nicht Fail2ban-relevant).
+  OPTIONAL:
+  - Erweiterbarkeit ohne spätere Fragilität (klare Reservierung interner Flags/Slots).
+
+DECISION
+- Wir entscheiden uns für:
+  A) Dedizierte FreeRADIUS linelog “F2B_EVENT” Logline (key=value) als einzige Parsing-Quelle für Fail2ban auf RADIUS-Ebene.
+     - Beispiel-Format (kanonisch):
+       F2B_EVENT: Class=<CLASS> User=<USER> SrcIP=<IP-or-NA> Reason=<REASON>
+     - Fail2ban matcht ausschließlich diese Logline und extrahiert SrcIP über <HOST>.
+
+  B) Kanonische Klassen (RADIUS):
+     - UNKNOWN_USER    (User existiert nicht: sql -> NOTFOUND)
+     - KNOWN_BADPASS   (User existiert, Passwort falsch: deterministisch über MSCHAP reject)
+     - BACKEND_ERROR   (SQL/Backend Fehler: sql -> FAIL / DB down / timeout etc.)
+     - POLICY_DENY     (log-only) (User bekannt + Auth ok, aber Policy blockiert: disabled/expired/verify-wall/pending/etc.)
+       -> POLICY_DENY wird geloggt, aber von Fail2ban ignoriert (kein Jail-Match).
+
+  C) Deterministische Klassifikation (kein Text-Matching):
+     - authorize:
+       - sql NOTFOUND  => set control flag: F2B_CLASS_STATE="UNKNOWN"
+       - sql FAIL      => set control flag: F2B_CLASS_STATE="BACKEND_ERROR"
+       - sql OK        => set control flag: F2B_CLASS_STATE="KNOWN"
+     - authenticate (MSCHAP):
+       - mschap REJECT => set control flag: F2B_AUTH_DETAIL="MSCHAP_FAIL"
+     - post-auth reject:
+       - UNKNOWN       => log Class=UNKNOWN_USER
+       - BACKEND_ERROR => log Class=BACKEND_ERROR
+       - KNOWN + MSCHAP_FAIL => log Class=KNOWN_BADPASS
+       - KNOWN + !MSCHAP_FAIL => log Class=POLICY_DENY (log-only)
+
+  D) Exklusive Reservierung der FreeRADIUS Scratchpad-Slots (Invariant):
+     - &control:Tmp-String-0 = F2B_CLASS_STATE (UNKNOWN | KNOWN | BACKEND_ERROR)
+     - &control:Tmp-String-1 = F2B_AUTH_DETAIL (MSCHAP_FAIL | "")
+     - Diese Slots dürfen für keine anderen Zwecke verwendet werden.
+
+- Alternative B (verworfen): Kein POLICY_DENY
+  - Pros:
+    - Weniger Oberfläche / weniger Log-Varianten
+  - Cons:
+    - Schlechtere Observability (Support/Debug): Policy-Blocks sind nicht sofort erkennbar
+    - Erhöhtes Risiko, dass Policy-Rejects später fälschlich als “Angriff” interpretiert werden
+  -> Verworfen, weil POLICY_DENY log-only ist (keine Fail2ban-Komplexität), aber operativ stark hilft.
+
+- Alternative C (verworfen): Parsing der Standard-FreeRADIUS Logs + Module-Failure-Message Regex
+  - Pros:
+    - Kein linelog/unlang Aufwand
+  - Cons:
+    - Fragil (Text/Format ändert sich), schwer NAT-sicher, hohes Self-DoS Risiko (localhost ban)
+  -> Verworfen als nicht production-grade.
+
+- Alternative D (verworfen): KNOWN_BADPASS über Text-Matching (Module-Failure-Message =~ /mschap/)
+  - Pros:
+    - Schnell, nur in post-auth
+  - Cons:
+    - Nicht deterministisch, bricht bei Textänderungen/anderen reject Ursachen
+  -> Verworfen zugunsten der Flag-Variante.
+
+CONSEQUENCES
+- Positive Auswirkungen:
+  - NAT-sichere Klassifikation (UNKNOWN vs KNOWN_BADPASS) ohne Kollateralschäden.
+  - D1a-kompatibel: BACKEND_ERROR wird geloggt, aber nicht gebannt (keine “SQL down -> alle bannen” Katastrophe).
+  - Self-DoS Schutz: Fail2ban extrahiert ausschließlich SrcIP aus dedizierter Logline; localhost bleibt außen vor.
+  - Deterministisch: KNOWN_BADPASS kommt nur aus (KNOWN && MSCHAP_FAIL), nicht aus Logtext.
+  - Operativ stark: POLICY_DENY macht Support/Debug sofort verständlich, ohne Fail2ban zu verkomplizieren.
+
+- Negative Auswirkungen / Risiken:
+  - Mehr Konfigurationsaufwand in FreeRADIUS (authorize/authenticate/post-auth + linelog).
+  - Risiko späterer Kollisionen, falls jemand Tmp-String-0/1 anderweitig nutzt.
+  - Wenn SrcIP nicht als IP formatierbar ist, kann Event nicht gebannt werden.
+
+- Mitigations (wie wir die Nachteile absichern):
+  - Invariants: Tmp-String-0/1 exklusiv reservieren und als MUST dokumentieren (dieser Decision-Record + T-Spec).
+  - SrcIP Safety: Fallback SrcIP=NA; Fail2ban matcht nur echte IPs (<HOST>), NA wird ignoriert.
+  - Tests/Akzeptanz: Explizite Testfälle für UNKNOWN_USER, KNOWN_BADPASS, BACKEND_ERROR, POLICY_DENY, sowie “localhost nie bannen”.
+
+LINKED BLOCKS
+- B050_SQL_AAA_RADIUS.txt
+- B300_SECURITY_STEALTH_GUIDELINES.txt
+- B330_LOGGING_MONITORING_RETENTION_ALERTS.txt
+
+CHANGELOG
+- v1.0: initial (Policy: POLICY_DENY = YES, log-only; deterministische RADIUS Event-Klassifikation via control flags + linelog)
+================================================================================

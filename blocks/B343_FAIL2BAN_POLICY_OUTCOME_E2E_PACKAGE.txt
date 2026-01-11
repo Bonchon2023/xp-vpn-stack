@@ -1,0 +1,97 @@
+vpn_masterkonzept/blocks/B343_FAIL2BAN_POLICY_OUTCOME_E2E_PACKAGE.txt
+================================================================================
+BLOCK-ID: B343
+TITLE: Fail2ban + Policy-Outcomes – End-to-End Package (RADIUS→Logs→Ban / Outcome→Enforcement)
+VERSION: v1.0.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: E2E-Verständnis/DoD: Zusammenspiel von Auth-Events (Fail2ban) und Policy-Outcomes (DENY/RESTRICT/OK) ohne Kollisionsrisiko.
+================================================================================
+
+================================================================================
+1) INHALT
+================================================================================
+
+## 1) OVERVIEW (KANONISCH)
+Dieses Paket beschreibt, wie die folgenden Bausteine zusammenspielen:
+- B340: RADIUS Event-Klassifikation + `F2B_EVENT`
+- B341: Fail2ban Jails/Parameter/Actions (nftables bansets)
+- B342: Policy Outcomes + Reason-Codes (DENY/RESTRICT/OK)
+
+Ziel:
+- Auth-Abuse wird über Fail2ban auf WAN-IP eingedämmt (NAT-sicher, kein Self-DoS).
+- Policy-/State-Entscheidungen bleiben **supportbar** (Reason-Codes) und **Self-Service bleibt möglich** (RESTRICT statt DENY bei Verify/Claim/Quota/Expiry).
+
+## 2) DATENKONTRAKTE (MUST)
+
+### 2.1 Auth/Fail2ban Contract
+- FreeRADIUS MUSS bei Reject **genau eine** `F2B_EVENT` Logline schreiben (B340).
+- Fail2ban MUSS ausschließlich `F2B_EVENT` matchen (B341).
+- Bans dürfen nur durch `Class=UNKNOWN_USER` oder `Class=KNOWN_BADPASS` entstehen.
+
+### 2.2 Policy/Outcome Contract
+- Jede Policy-Entscheidung MUSS Outcome+Reason gemäß B342 liefern.
+- Policy-Reject (DENY) ist **kein** Fail2ban-Trigger.
+- `POLICY_DENY` darf als Log/Debug auftreten, darf aber keinen Ban auslösen (B340/B341).
+
+## 3) E2E FLOW (KANONISCH)
+
+### 3.1 UNKNOWN_USER (Enumeration)
+1) Request kommt rein
+2) authorize: SQL NOTFOUND => `F2B_CLASS_STATE=UNKNOWN`
+3) reject => Log:
+   `F2B_EVENT: Class=UNKNOWN_USER ... SrcIP=<peer ip> Reason=R_AUTH_UNKNOWN_USER ...`
+4) Fail2ban Jail UNKNOWN_USER matcht => nft banset add (bantime gemäß B341)
+
+### 3.2 KNOWN_BADPASS (Bruteforce)
+1) authorize: SQL OK => `F2B_CLASS_STATE=KNOWN`
+2) authenticate: MSCHAP reject => `AUTH_DETAIL=MSCHAP_FAIL`
+3) reject => Log:
+   `F2B_EVENT: Class=KNOWN_BADPASS ... SrcIP=<peer ip> Reason=R_AUTH_KNOWN_BADPASS ...`
+4) Fail2ban Jail KNOWN_BADPASS matcht => ban (konservativer, B341)
+
+### 3.3 BACKEND_ERROR (D1a / Fail-Closed)
+1) authorize: SQL FAIL => `F2B_CLASS_STATE=BACKEND_ERROR`
+2) reject => Log:
+   `F2B_EVENT: Class=BACKEND_ERROR ... Reason=R_AUTH_BACKEND_SQL_DOWN|R_AUTH_BACKEND_SQL_FAIL ...`
+3) Fail2ban MUSS ignorieren (kein Ban-Sturm)
+
+### 3.4 POLICY (State/Quota/Verify/Claim)
+1) Auth ist korrekt (kein MSCHAP_FAIL)
+2) Policy entscheidet Outcome/Reason (B342):
+   - Verify/Claim/Quota/Expired => RESTRICT + entsprechender Reason
+   - Hard Admin/Security => DENY + entsprechender Reason
+3) Fail2ban ist davon unabhängig:
+   - Wenn Reject aus Policy resultiert: optional `F2B_EVENT Class=POLICY_DENY` (log-only)
+   - Kein Fail2ban Ban
+
+## 4) RISIKEN / MITIGATIONS (MUST)
+
+R1 NAT-Kollateralschaden:
+- Mitigation: KNOWN_BADPASS konservativ (B341), UNKNOWN_USER streng (Enumeration Schutz)
+
+R2 Self-DoS (localhost ban):
+- Mitigation: SrcIP parsebar sonst NA (B340) + ignoreip (B341)
+
+R3 Backend down => Ban-Sturm:
+- Mitigation: BACKEND_ERROR niemals bannen (B340/B341)
+
+R4 Semantik-Drift zwischen Outcome/Reason:
+- Mitigation: B342 ist kanonische Matrix + Consistency Checks
+
+## 5) AKZEPTANZ / DOD (MUST)
+E2E-DoD:
+- E1 UNKNOWN_USER erzeugt Ban nach Policy (B341 Thresholds)
+- E2 KNOWN_BADPASS erzeugt Ban nach Policy (B341 Thresholds)
+- E3 BACKEND_ERROR erzeugt **nie** Ban, selbst bei hoher Frequenz
+- E4 Verify/Claim/Quota/Expired => RESTRICT + Panel erreichbar (Outcome/Reason korrekt)
+- E5 Hard Admin => DENY (kein Tunnel)
+- E6 Self-DoS: SrcIP=NA erzeugt nie Ban
+
+================================================================================
+2) CHANGELOG
+================================================================================
+- v1.0.0 (2026-01-11): Neu angelegt. E2E-Paketbeschreibung für Fail2ban (Auth-Abuse) + Policy-Outcomes (DENY/RESTRICT/OK) inkl. Contracts und DoD.
+================================================================================
+END BLOCK B343
+================================================================================

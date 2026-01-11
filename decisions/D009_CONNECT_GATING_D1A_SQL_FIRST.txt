@@ -1,0 +1,68 @@
+================================================================================
+DECISION D009 – Connect Gating (D1a) – SQL-First / No Unpoliced Window
+================================================================================
+ID: D009
+Title: Connect Gating (D1a) – SQL-First / No Unpoliced Window (no Default-Restricted)
+Status: ACCEPTED
+Owner: Marco
+Date: 2026-01-10
+
+================================================================================
+1) Kontext
+================================================================================
+- Ziel: Es darf keinen Zustand geben, in dem eine PPP-Session aktiv ist, aber die Kernel-Policy
+  (restricted/full + QoS + Abuses) nicht deterministisch angewendet wurde.
+- Gleichzeitig soll es KEIN „Default Restricted“ Fallback geben (D1b wird abgelehnt),
+  damit bei SQL-Ausfall kein BANNED User plötzlich Zugriff auf interne Services (Portal/DNS) erhält.
+- Architektur-Pattern: SQL ist Control-Plane (SoT), Kernel ist Data-Plane (Enforcement).
+
+================================================================================
+2) Entscheidung (D1a – FINAL)
+================================================================================
+Wir führen ein separates, kurzlebiges Kernel-Gate für den Connect-Pfad ein:
+
+A) Neues nftables set: connect_pending_v4 (IPv4 addresses)
+- Semantik: Wenn ip saddr @connect_pending_v4 => DROP ALL im forward path (egal wohin).
+- Dieses Gate ist NICHT „Restricted/Walled Garden“. Es ist ein reines „deny-all“, bis Policy applied ist.
+
+B) Connect Reihenfolge (ip-up Hook)
+1) Sofort CLIENT_IP in connect_pending_v4 eintragen (VOR jedem SQL Zugriff).
+2) vpn-policy-apply ausführen (SQL Truth -> Kernel State: restricted_v4 / full state / tc / etc.).
+3) Nur bei SUCCESS (Exit 0): CLIENT_IP wieder aus connect_pending_v4 entfernen.
+4) Bei TEMPFAIL_SQL/ERROR/TIMEOUT: FAIL-CLOSED => PPP Kill; Gate bleibt bis Cleanup.
+
+C) Disconnect (ip-down Hook)
+- connect_pending_v4 MUSS best-effort bereinigt werden (CLIENT_IP delete),
+  damit Reconnect nicht „hängend“ bleibt.
+
+================================================================================
+3) Konsequenzen / Trade-offs
+================================================================================
++ Kein Traffic-Leak vor Policy Apply (No-Unpoliced-Window wird technisch garantiert).
++ Kein Portal/DNS Zugriff als „Fallback“ bei SQL-Ausfall (kein Default-Restricted).
++ SQL-First bleibt wahr: Wenn SQL nicht erreichbar ist, wird die Session beendet (FAIL-CLOSED).
+- Minimaler zusätzlicher nftables Set-Lookup im forward path (nur relevant während Connect-Phase).
+
+================================================================================
+4) Constraints / Invariants (MUST)
+================================================================================
+- connect_pending_v4 DROP muss vor allen accept rules im forward path evaluated werden.
+- ip-up darf connect_pending_v4 erst nach erfolgreichem policy-apply entfernen.
+- Bei SQL/Apply Fehlern: Session wird beendet (FAIL-CLOSED), kein Fallback auf Portal/Restricted.
+
+================================================================================
+5) Verweise (Requires/Influences)
+================================================================================
+Requires:
+- Blocks: B120, B150, B166, B167
+- Decisions: D002 (SQL-First)
+Influences:
+- Blocks: B310 (Tests/Acceptance)
+
+================================================================================
+6) CHANGELOG
+================================================================================
+- v1.0 (2026-01-10): Neu – D1a Connect-Gate als kanonische Decision festgeschrieben.
+================================================================================
+END DECISION D009
+================================================================================

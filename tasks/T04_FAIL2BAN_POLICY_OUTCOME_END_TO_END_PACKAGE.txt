@@ -1,0 +1,205 @@
+================================================================================
+T04_FAIL2BAN_POLICY_OUTCOME_END_TO_END_PACKAGE.txt
+Version: v0.1.0 (ENTWURF)
+Status: ENTWURF (bereit für Drittprüfung)
+================================================================================
+
+## 1) Zweck / Ziel
+Diese Task-Datei ist das “Copy-Paket” für den gesamten Fail2ban + Policy-Outcome Bereich:
+- deterministische, maschinenlesbare RADIUS-Events (F2B_EVENT)
+- NAT-sichere Fail2ban Jails (Unknown vs Known)
+- D1a-kompatibel: SQL down => Reject (keine Session) aber KEIN Ban-Storm
+- saubere Trennung: DENY (Reject) vs RESTRICT (Accept + Walled Garden) vs OK
+- vollständiger Reason-Code Katalog (R_ / R_AUTH_*) inkl. deterministischer Prioritätenkette
+
+## 2) Scope
+IN SCOPE:
+- FreeRADIUS Event-Generierung (F2B_EVENT)
+- Event-Klassen: UNKNOWN_USER / KNOWN_BADPASS / BACKEND_ERROR / POLICY_DENY
+- Policy-Outcomes: DENY / RESTRICT / OK + Reason-Codes R_*
+- Fail2ban: Jails/Thresholds/IgnoreIP/Actions (nftables)
+- Tests/Acceptance Kriterien (Sanity + Failure-Modes)
+
+OUT OF SCOPE:
+- vollständiger FreeRADIUS/SQL Schema-Entwurf (nur Referenzen)
+- nftables Full-Policy-Implementierung (nur Schnittstellen/Erwartungen)
+
+## 3) Abhängigkeiten (Runtime/Design)
+MUST:
+- SQL-first / D1a: Bei SQL-Ausfall darf keine Session entstehen (Fail-Closed).
+- NAT-Safety: Fail2ban darf NAT-Standorte nicht “kollektiv” aussperren.
+- Self-DoS-Schutz: localhost darf niemals gebannt werden.
+
+SHOULD:
+- “Tiefe als Standard”: Klassifikation über Flags/Return-Codes statt Text-Parsing.
+
+OPTIONAL:
+- POLICY_DENY Reason-Logging für Observability (ohne Fail2ban-Relevanz).
+
+## 4) Constraints / Invariants (MUST)
+### 4.1 Fail2ban-Event-Format
+- Es gibt genau eine kanonische Logzeile für Fail2ban:
+  F2B_EVENT: Class=<CLASS> SrcIP=<SRCIP> User=<USER> Reason=<REASON> Detail=<DETAIL>
+
+### 4.2 SrcIP Safety
+- SrcIP muss eine WAN-IP sein (Calling-Station-Id).
+- Wenn Calling-Station-Id kein IPv4/IPv6 ist => SrcIP=NA.
+- Fail2ban Regex matcht nur <HOST> => NA darf niemals matchen.
+
+### 4.3 Tmp-String Reservation (FreeRADIUS)
+- &control:Tmp-String-0 ist EXKLUSIV reserviert für F2B_CLASS.
+- &control:Tmp-String-1 ist EXKLUSIV reserviert für AUTH_DETAIL.
+- Diese beiden Tmp-Strings dürfen für keinen anderen Zweck verwendet werden.
+
+### 4.4 Outcome-Trennung (architekturell)
+- DENY = Access-Reject => Tunnel wird NICHT aufgebaut.
+- RESTRICT = Access-Accept => Tunnel wird aufgebaut, aber Walled Garden/Restricted Mode greift.
+- OK = Access-Accept + Full Tunnel.
+
+### 4.5 D1a Safety
+- BACKEND_ERROR darf niemals einen Fail2ban-Ban triggern.
+- POLICY_DENY (z.B. BANNED) darf niemals einen Fail2ban-Ban triggern.
+- Nur UNKNOWN_USER und KNOWN_BADPASS sind Fail2ban-relevant.
+
+## 5) Kanonische Event-Klassen (F2B_CLASS)
+### 5.1 UNKNOWN_USER
+Definition:
+- RADIUS Reject, weil User-Name im Backend nicht existiert.
+Quelle:
+- authorize: SQL return NOTFOUND
+
+### 5.2 BACKEND_ERROR
+Definition:
+- RADIUS Reject, weil Backend/SQL nicht verfügbar oder Query FAIL.
+Quelle:
+- authorize: SQL return FAIL
+Wichtig:
+- D1a: Fail-Closed (Reject), aber KEIN Ban.
+
+### 5.3 KNOWN_BADPASS
+Definition:
+- User existiert (KNOWN), aber Passwort/MSCHAP-Auth scheitert.
+Quelle:
+- authorize: KNOWN gesetzt
+- authenticate: MSCHAP reject => AUTH_DETAIL=MSCHAP_FAIL
+
+### 5.4 POLICY_DENY (LOG-ONLY, keine Fail2ban Relevanz)
+Definition:
+- Reject wegen Policy/State (banned/locked/security violations etc.).
+Quelle:
+- Policy-Entscheider im RADIUS Flow (konzeptionell), loggt Reason=R_*.
+
+## 6) POLICY Outcomes + Reason-Codes (R_*)
+### 6.1 Outcomes
+- OUTCOME=DENY    -> Reject (kein Tunnel)
+- OUTCOME=RESTRICT-> Accept + Walled Garden
+- OUTCOME=OK      -> Accept + Full Tunnel
+
+### 6.2 Reason-Code Prefix
+- Alle Policy-Reasons sind R_<...>
+- Auth-Reasons (rein auth/infra) sind R_AUTH_<...>
+
+### 6.3 Deterministische Prioritätenkette (FINAL)
+0) Backend Failure (sticht alles)
+- OUTCOME=DENY, Reason=R_AUTH_BACKEND_SQL_DOWN   (oder äquivalent; siehe 7.1)
+
+1) Hard Administrative Bans (DENY)
+- R_ACCOUNT_BANNED > R_ABUSE_HOLD > R_ACCOUNT_DISABLED > R_ACCOUNT_LOCKED_ADMIN
+
+2) Security & Operational Violations (DENY)
+- R_CLAIM_IP_MISMATCH > R_CLIENT_NOT_ASSIGNED
+- R_SIMUSE_ACTIVE > R_RATE_LIMITED_*
+
+3) Self-Service States (RESTRICT / Walled Garden)
+Prio 3.1:
+- R_ACCOUNT_NOT_VERIFIED / R_VERIFY_WALL_PENDING
+Prio 3.2:
+- R_CLAIM_REQUIRED
+Prio 3.3:
+- R_ACCOUNT_EXPIRED
+Prio 3.4:
+- R_QUOTA_EXCEEDED
+
+4) Success
+- OUTCOME=OK, Reason=R_OK
+
+## 7) Auth-Reasons (R_AUTH_*) Integration in Events (FINAL)
+### 7.1 R_AUTH_* sind eigene Reason-Codes (JA)
+- R_AUTH_BACKEND_SQL_DOWN (DENY) -> Class=BACKEND_ERROR
+- R_AUTH_UNKNOWN_USER      (DENY) -> Class=UNKNOWN_USER (oder Reason=R_AUTH_UNKNOWN_USER)
+- R_AUTH_BADPASS           (DENY) -> Class=KNOWN_BADPASS (nur wenn KNOWN + MSCHAP_FAIL)
+
+Regel:
+- Class ist die Fail2ban-Klasse.
+- Reason ist der semantische Grund (R_ oder R_AUTH_).
+- Für Fail2ban-Jails zählen nur Class + SrcIP.
+
+## 8) FreeRADIUS Flagging (konzeptionell, kein Code)
+### 8.1 authorize Phase (SQL)
+- notfound => Tmp-String-0="UNKNOWN"
+- fail     => Tmp-String-0="BACKEND_ERROR"
+- else     => Tmp-String-0="KNOWN"
+MUST:
+- Tmp-String-0 wird IMMER gesetzt (keine uninitialisierten Zustände).
+
+### 8.2 authenticate Phase (MSCHAP)
+- bei MSCHAP reject => Tmp-String-1="MSCHAP_FAIL"
+(Flag-basiert, kein Text-Parsing)
+
+### 8.3 Post-Auth-Type REJECT (linelog)
+- Wenn Tmp-String-0=UNKNOWN      => Class=UNKNOWN_USER
+- Wenn Tmp-String-0=BACKEND_ERROR=> Class=BACKEND_ERROR
+- Wenn Tmp-String-0=KNOWN und Tmp-String-1=MSCHAP_FAIL => Class=KNOWN_BADPASS
+- Wenn Policy-Reject => Class=POLICY_DENY + Reason=R_...
+
+SrcIP:
+- Calling-Station-Id wenn IP, sonst NA.
+
+## 9) Fail2ban Jails (Policy Values)
+### 9.1 IKE / strongSwan (Aggressiv)
+- findtime=300s
+- maxretry=10
+- bantime=900s
+
+### 9.2 RADIUS Unknown (Enumeration)
+- findtime=600s
+- maxretry=5
+- bantime=3600s
+
+### 9.3 RADIUS Known-Wrong (NAT-safe Heavy)
+- findtime=600s
+- maxretry=50
+- bantime=600s
+
+### 9.4 Self-DoS Schutz (MUST)
+- ignoreip enthält 127.0.0.1/8 (mind.)
+- banaction wirkt nur auf WAN input (nicht loopback)
+- BACKEND_ERROR und POLICY_DENY werden nicht gebannt (keine Jails matchen diese Class)
+
+## 10) Tests / Acceptance (MUST)
+T1: UNKNOWN_USER erzeugt F2B_EVENT Class=UNKNOWN_USER SrcIP=<HOST>
+T2: KNOWN_BADPASS erzeugt F2B_EVENT Class=KNOWN_BADPASS SrcIP=<HOST>
+T3: SQL down erzeugt F2B_EVENT Class=BACKEND_ERROR (oder Reason=R_AUTH_BACKEND_SQL_DOWN) und KEIN Ban
+T4: POLICY_DENY (z.B. R_ACCOUNT_BANNED) loggt F2B_EVENT Class=POLICY_DENY Reason=R_ACCOUNT_BANNED und KEIN Ban
+T5: Tmp-String Reservation: Keine andere Logik darf Tmp-String-0/1 überschreiben
+T6: MSCHAP Determinismus: KNOWN_BADPASS nur, wenn Tmp-String-1=MSCHAP_FAIL gesetzt wurde
+T7: SrcIP Safety: Calling-Station-Id invalid => SrcIP=NA => Fail2ban matcht NICHT
+T8: NAT-Safety: 1 banned user hinter NAT darf Kollegen nicht aussperren (POLICY_DENY bannt nie)
+T9: Rate thresholds: Known-wrong Ban nur bei extremen Raten (>=50/10min)
+
+## 11) Verweise (Requires/Influences)
+Requires:
+- T01_FAIL2BAN_RADIUS_EVENT_CLASSIFICATION.txt
+- T02_FAIL2BAN_JAILS_POLICY_VALUES.txt
+- T03_POLICY_OUTCOME_REASON_CODES_DENY_RESTRICT_OK.txt
+- D010_FAIL2BAN_RADIUS_EVENT_CLASSIFICATION_POLICY_DENY.txt
+- D011_POLICY_OUTCOME_DENY_RESTRICT_REASON_CODES.txt
+
+Influences:
+- Logging/Monitoring Konventionen (Retention/Alerts)
+- Onboarding/Verify/Claim/Walled Garden (Policy Apply)
+
+================================================================================
+Changelog:
+- v0.1.0 (ENTWURF): End-to-End Paket für Fail2ban + Policy Outcomes + R_/R_AUTH_ Prioritäten + Tests.
+================================================================================

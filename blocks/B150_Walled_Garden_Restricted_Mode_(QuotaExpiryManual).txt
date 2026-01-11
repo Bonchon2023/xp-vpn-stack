@@ -2,7 +2,7 @@ vpn_masterkonzept/blocks/B150_TITLE: Walled Garden / Restricted Mode (Quota/Expi
 ================================================================================
 BLOCK-ID: B150
 TITLE: Walled Garden / Restricted Mode (Quota/Expiry/Manual)
-VERSION: v1.11
+VERSION: v1.12
 STATUS: ACTIVE
 PRIORITY: MUST
 OWNER-INTENT: Statt "Internet kaputt" eine klare Portal-Seite zeigen (HARD Enforcement für Restricted Reasons: Quota/Expiry/Manual/UNCLAIMED_OVERDUE).
@@ -38,6 +38,12 @@ WICHTIG (Pfad-Trennung):
 - Begründung: Wenn B120 (Forward->WAN allow) vor dem Restricted-Check kommt, kann ein restricted Client trotzdem ins Internet.
 
 Kanonische Reihenfolge im forward chain (High-Level):
+
+0) Connect-Pending Gate (D1a, NO-UNPOLICED-WINDOW):
+   - Wenn ip saddr @connect_pending_v4 => DROP (forward, egal wohin).
+   - Set wird beim Connect sofort gesetzt (ip-up) und erst nach SUCCESS von vpn-policy-apply entfernt.
+   - Zweck: verhindert Traffic-Leaks ohne „Default Restricted“ (D1b) und ohne Portal-Zugriff bei SQL-Ausfall.
+
 1) ct state established,related accept
    - Performance-Reason: bleibt früh.
    - Wichtig: HARD CUT verhindert Established-Bypass (Conntrack-Flush bei Eintritt in Restricted; siehe 2.2 / B166).
@@ -82,8 +88,13 @@ Hinweis:
 - DNS-Zwang (B210) ist kompatibel: DNAT muss udp+tcp 53 umfassen und auf ppp* in nat prerouting greifen; Restricted erlaubt DNS (udp+tcp 53) ausschließlich zu 10.77.0.1.
 
 2.4) Sync/Apply + Reconcile Safety-Net (KANONISCH)
-- Sync/Apply:
-  - Beim Connect (ip-up) MUSS ein Sync erfolgen: Client-IP wird anhand SQL in restricted_v4 hinzugefügt/entfernt.
+- Sync/Apply (D1a, SQL-First, KEIN Default-Restricted):
+  - Beim Connect (ip-up) MUSS die Reihenfolge strikt sein:
+    1) CLIENT_IP -> connect_pending_v4 (DROP ALL forward) [VOR jedem SQL Zugriff]
+    2) vpn-policy-apply (single apply) lädt effective Policy aus SQL und setzt Kernel-State (z.B. restricted_v4 / full state / Hard-Cut falls nötig / etc.)
+    3) NUR bei SUCCESS (Exit 0): CLIENT_IP aus connect_pending_v4 entfernen.
+    4) Bei TEMPFAIL_SQL/ERROR/TIMEOUT: FAIL-CLOSED => PPP Kill; connect_pending_v4 bleibt bis Cleanup bestehen.
+  - restricted_v4 wird ausschließlich nach SQL-Truth gesetzt (restricted_effective). Es gibt keinen „Default Restricted“ Fallback.
 - Bei Statusänderungen über Panel (Claim/Unclaim/Quota/Expiry/Manual) MUSS ein Sync erfolgen,
   damit Wirkung sofort greift (HARD CUT: Enforcement setzen + Conntrack-State flush bei Eintritt in Restricted; siehe 2.2 und B166).
   - Hinweis: Verify-Wall (Email-Verify) ist App-Layer und KEIN Kernel-Restricted-Trigger; dafür ist kein nftables Sync nötig.
@@ -147,6 +158,7 @@ Hinweis:
 - Input-Pfad Test (lokale Services): restricted client darf NICHT auf andere Ports von 10.77.0.1 (z.B. tcp/22 SSH) zugreifen; nur 80/443/53/123 + ICMP echo sind erlaubt.
 
 11) CHANGELOG
+- v1.12 (2026-01-10): D1a präzisiert: connect_pending_v4 deny-all Gate bis policy-apply SUCCESS; kein Default-Restricted Fallback bei SQL-Ausfall; Reihenfolge im forward chain um Gate erweitert.
 - v1.11: Zwecktext an Allowlist angepasst (Restricted erlaubt Service-IP Allowlist: Portal/DNS/NTP/ICMP zu 10.77.0.1).
   ICMP-Formulierung präzisiert (echo-request + replies) um Missverständnisse zu vermeiden.
   Struktur: Sync/Apply + Reconcile als 2.4 klar von Allowlist (2.3) getrennt.

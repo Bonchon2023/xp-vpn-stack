@@ -12,10 +12,10 @@ This repository is a **specification** (not an installer script yet).
 It is structured as:
 
 - **MASTER (zeilenfest)**: canonical, versioned master concept
-- **0_MASTERKONZEPT_ANALYSE.md**: Arbeits- und Abarbeitungsdatei (Hybrid), verweist auf Blocks/Decisions/Tasks (optional)
-- **blocks/**: implementation blocks (B010–B300) defining the system precisely
+- **0_MASTERKONZEPT_ANALYSE.md**: Arbeits- und Abarbeitungsdatei (Hybrid), verweist auf Blocks/Decisions/Tasks (Diese Datei ist optional)
+- **blocks/**: implementation blocks (B010–B343) defining the system precisely
 - **decisions/**: decision records (ADR) explaining *why* choices were made
-- **tasks/**: Task-/Prüfdateien (T01–T15) als konkrete ToDos, Tests, Matrizen und offene Punkte
+- **tasks/**: optional workspace files (non-canonical; the specification lives in MASTER/blocks)
 - **templates/**: templates for adding future blocks/decisions consistently
 
 
@@ -126,11 +126,10 @@ This is built for selling/supporting XP systems with minimal support overhead an
 - `01_CHANGELOG.txt` : version history / deltas
 - `02_GLOSSAR.txt` : glossary
 - `03_ASSUMPTIONS_AND_RULES.txt` : bindende Annahmen & Regeln
-- `04_BLOCK_INDEX.txt` : block index (B010–B300)
+- `04_BLOCK_INDEX.txt` : block index (B010–B343)
 - `blocks/` : implementation blocks
 - `decisions/` : ADR decision records
-- `tasks/` : Task-Dateien / Prüfkonzepte (`tasks/T/` mit T01–T15)
-- `templates/` : templates for consistent future changes
+- `tasks/` : optional workspace files (non-canonical)
 
 ---
 
@@ -146,7 +145,7 @@ See `B290_PHASE_PLAN_ROLLOUT` and the MASTER file for the authoritative phase pl
 ## Status
 
 - Spec baseline: **MASTER v2.3**
-- Blocks: B010–B300 present (incl. v2.3 hardening in B150/B166/B165–B169/B330)
+- Blocks: B010–B343 present (incl. v2.3 hardening in B150/B166/B165–B169/B330 and Fail2ban/Outcome blocks B340–B343)
 - Decision records: present (incl. D008 Verify-Wall customer scope)
 - Templates: present
 

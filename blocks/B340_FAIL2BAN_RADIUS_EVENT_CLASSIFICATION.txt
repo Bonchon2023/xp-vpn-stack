@@ -1,0 +1,139 @@
+vpn_masterkonzept/blocks/B340_FAIL2BAN_RADIUS_EVENT_CLASSIFICATION.txt
+================================================================================
+BLOCK-ID: B340
+TITLE: Fail2ban (RADIUS) – Kanonische Event-Klassifikation (F2B_EVENT) + NAT-Safety
+VERSION: v1.0.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: Deterministische, NAT-sichere Fail2ban-Auswertung auf RADIUS-Ebene ohne Self-DoS.
+================================================================================
+
+================================================================================
+1) INHALT
+================================================================================
+
+## 1) ZWECK / SCOPE (KANONISCH)
+Dieser Block definiert:
+- das **kanonische, maschinenlesbare Log-Event** `F2B_EVENT` (key=value),
+- die **deterministische Klassifikation** von RADIUS-Rejects in Fail2ban-relevante Klassen,
+- **NAT-Safety** (keine Ban-Stürme bei Policy/Backend-Problemen),
+- **Self-DoS-Schutz** (niemals localhost/loopback bannen).
+
+Nicht Scope:
+- Policy-Outcomes / Reason-Codes (siehe B342).
+- konkrete Jail-Parameter & Actions (siehe B341).
+
+## 2) KANONISCHE EVENT-LOGZEILE (MUST)
+Fail2ban **darf ausschließlich** eine dedizierte Logline matchen (kein Parsing der Standard-FreeRADIUS Logs).
+
+Format (kanonisch):
+- Prefix MUSS exakt `F2B_EVENT:` sein.
+- Danach `key=value` Paare (Leerzeichen getrennt).
+- Keys (MUST): `Class`, `User`, `SrcIP`, `Reason`
+- Keys (SHOULD): `Detail`
+
+Beispiel (kanonisch):
+F2B_EVENT: Class=UNKNOWN_USER User=foo SrcIP=203.0.113.10 Reason=R_AUTH_UNKNOWN_USER Detail=NA
+
+## 3) SrcIP ERMITTLUNG / SAFETY (MUST)
+Ziel: Fail2ban bans müssen auf der **echten Peer-Quelle** basieren (WAN-IP), niemals auf `localhost`.
+
+Regel:
+- `SrcIP` MUSS eine **parsebare IPv4 oder IPv6** sein, sonst MUSS `SrcIP=NA` geloggt werden.
+- `SrcIP=NA` **darf niemals** ein Fail2ban-Match/Ban auslösen.
+
+Quelle:
+- `SrcIP` SOLL aus **RADIUS Calling-Station-Id (Attr 31)** abgeleitet werden, **wenn** es als IP parsebar ist.
+- Wenn Calling-Station-Id nicht parsebar ist: `SrcIP=NA`.
+
+Self-DoS Schutz:
+- `SrcIP` MUSS gegen Loopback/localhost geschützt werden:
+  - wenn `SrcIP` in `127.0.0.0/8` oder `::1/128` liegt => MUSS `SrcIP=NA` gesetzt werden.
+
+## 4) DETERMINISTISCHE KLASSIFIKATION (MUST)
+Klassifikation darf **nicht** auf Logtext-Regex/Fehlermeldungen basieren.
+Stattdessen wird ein deterministischer Status über reservierte Control-Flags geführt.
+
+### 4.1 Reservierte Control Slots (MUST, Invariant)
+Diese Slots sind exklusiv reserviert:
+- `&control:Tmp-String-0` = `F2B_CLASS_STATE`
+- `&control:Tmp-String-1` = `AUTH_DETAIL`
+
+Sie dürfen für keinen anderen Zweck verwendet werden.
+
+### 4.2 Kanonische Werte
+`F2B_CLASS_STATE` (MUST, authorize-Phase):
+- `UNKNOWN`        (User existiert nicht / SQL NOTFOUND)
+- `KNOWN`          (User existiert / SQL OK)
+- `BACKEND_ERROR`  (SQL FAIL / Timeout / Backend down)
+
+`AUTH_DETAIL` (MUST, authenticate-Phase):
+- `MSCHAP_FAIL`    (MSCHAPv2 Reject für einen KNOWN User)
+- leer/NA          (sonst)
+
+### 4.3 Mapping auf Fail2ban-Klassen (MUST, post-auth reject)
+Die `Class` in `F2B_EVENT` MUSS wie folgt abgeleitet werden:
+
+A) UNKNOWN_USER (Fail2ban-relevant)
+- Wenn `F2B_CLASS_STATE=UNKNOWN`
+=> `Class=UNKNOWN_USER`
+=> `Reason=R_AUTH_UNKNOWN_USER`
+
+B) BACKEND_ERROR (nicht bannen)
+- Wenn `F2B_CLASS_STATE=BACKEND_ERROR`
+=> `Class=BACKEND_ERROR`
+=> `Reason=R_AUTH_BACKEND_SQL_DOWN` ODER `Reason=R_AUTH_BACKEND_SQL_FAIL` (je nach Detektion)
+=> Fail2ban MUSS dieses Event ignorieren (siehe B341).
+
+C) KNOWN_BADPASS (Fail2ban-relevant)
+- Wenn `F2B_CLASS_STATE=KNOWN` UND `AUTH_DETAIL=MSCHAP_FAIL`
+=> `Class=KNOWN_BADPASS`
+=> `Reason=R_AUTH_KNOWN_BADPASS`
+
+D) POLICY_DENY (log-only, nicht bannen)
+- Wenn `F2B_CLASS_STATE=KNOWN` UND `AUTH_DETAIL!=MSCHAP_FAIL`
+UND der Login dennoch mit Reject endet (Policy/State)
+=> `Class=POLICY_DENY`
+=> `Reason=POLICY_DENY`
+=> Fail2ban MUSS dieses Event ignorieren (NAT-Safety).
+
+## 5) NAT-SAFETY / BAN-REGEL (MUST)
+Fail2ban darf **nur** diese Klassen bannen:
+- `UNKNOWN_USER`
+- `KNOWN_BADPASS`
+
+Fail2ban darf **niemals** bannen bei:
+- `BACKEND_ERROR` (D1a: Backend down => Fail-Closed Reject, aber kein Ban-Sturm)
+- `POLICY_DENY`   (Policy-Block ist kein Angriff; NAT-safety)
+
+## 6) OBSERVABILITY (MUST)
+`F2B_EVENT` ist eine **Maschinen-Schnittstelle**. Sie MUSS stabil bleiben.
+`Reason` MUSS kanonisch sein (R_AUTH_* oder POLICY_DENY).
+
+Erwartete Operator-Nutzung:
+- Support/Debug liest `F2B_EVENT` (Class/Reason/SrcIP) für Auth/Abuse.
+- Policy/Outcome Debug erfolgt über Policy-Logs (siehe B342/B166), nicht über Fail2ban.
+
+## 7) TESTS / DOD (MUST)
+T1 UNKNOWN_USER:
+- falscher Username -> `Class=UNKNOWN_USER`, `SrcIP` = echte Peer-IP, Ban möglich.
+
+T2 KNOWN_BADPASS:
+- existierender User + falsches Passwort -> `Class=KNOWN_BADPASS`, Ban möglich.
+
+T3 BACKEND_ERROR:
+- SQL down -> `Class=BACKEND_ERROR`, **kein Ban**, auch bei hoher Wiederholrate.
+
+T4 POLICY_DENY:
+- Auth ok, aber Policy reject -> `Class=POLICY_DENY`, **kein Ban**.
+
+T5 Self-DoS:
+- wenn Calling-Station-Id = localhost/127.0.0.1/::1 oder nicht-IP -> `SrcIP=NA` und **kein Ban**.
+
+================================================================================
+2) CHANGELOG
+================================================================================
+- v1.0.0 (2026-01-11): Neu angelegt. Kanonisches `F2B_EVENT` Format + deterministische Klassifikation + NAT-Safety + Self-DoS Schutz.
+================================================================================
+END BLOCK B340
+================================================================================

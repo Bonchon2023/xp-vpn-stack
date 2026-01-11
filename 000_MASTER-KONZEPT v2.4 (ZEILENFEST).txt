@@ -1,5 +1,5 @@
 001| ==================================================================================================
-002| MASTER-KONZEPT v2.3 (ZEILENFEST)
+002| MASTER-KONZEPT v2.4 (ZEILENFEST)
 003| XP/Vista Full-Tunnel VPN auf Debian 13 (from scratch) — L2TP/IPsec (strongSwan + xl2tpd + pppd)
 004| Policies in Linux: nftables + tc + SQL/RADIUS + interner Webstack + DNS-Stack + MITM-Blockpage
 005| ==================================================================================================
@@ -23,7 +23,7 @@
 023|     | - Onboarding-Modell: Verify-Wall + Claim Token (B155) + UNCLAIMED Grace/Overdue (Kernel-Restricted).
 024|     | - Verify-Wall (App-Layer): Customer PENDING (email_verified_at NULL) -> nach Login nur Code/Resend/Support.
 025|     | - Claim Token (App-Layer): Verbindung wird im eingeloggten Panel per Claim Token einem Customer zugeordnet (B280 Regeln).
-026|     | - UNCLAIMED Grace: Unclaimed Connections bleiben bis unclaimed_grace_until FULL; danach restricted_reason=UNCLAIMED_OVERDUE.
+026|     | - UNCLAIMED Grace: Unclaimed Connections bleiben bis unclaimed_grace_until FULL; danach restricted_reason=UNCLAIMED_OVERDUE. Hard-Stop: claim_deadline = created_at + 180 Tage; nach Ablauf UNCLAIMED -> status=DISABLED (RADIUS Reject; kein VPN/kein Panel).
 027|     | - UNCLAIMED_OVERDUE ist Kernel-Restricted (B150): Portal-Only bis Claim oder Admin "Grace reset (30 Tage)".
 028|     | - Restricted (Kernel) wird nur durch QUOTA/EXPIRY/MANUAL/UNCLAIMED_OVERDUE ausgelöst, nicht durch Verify.
 029|     | - Customer-Verify wirkt panelweit (UI/Feature-Gating), nicht über nftables. Internet bleibt davon unberührt.
@@ -46,7 +46,7 @@
 046| 2.7| Policy-Apply/Reconcile ist deterministisch (MUST):
 047|     | - ip-up/ip-down schreiben Runtime-Mapping (/run/vpn-sessions/pppX.env)
 048|     |   MUST enthalten: PPP_IF (pppX), PPPD_PID, START_TS (für PID-Reuse-Schutz) + zugehörige VPN-IP/Connection-ID.
-049|     | - vpn-policy-apply setzt tc + enforced nft sets für Restricted (SQL-first computed).
+049|     | - vpn-policy-apply setzt tc + enforced nft sets für Restricted (SQL-first computed). D1a (SQL-first + No-Unpoliced-Window): vor jedem SQL/Apply-Zugriff connect_pending_v4 (deny-all forward) aktivieren; erst nach SUCCESS von vpn-policy-apply entfernen; bei Apply-Failure (SQL down / TEMPFAIL) gilt fail-closed: Session deterministisch beenden. Wichtig: connect_pending_v4 ist NICHT restricted_v4/Walled Garden und erlaubt keinen Portal/DNS-Fallback.
 050|     | - HARD CUT Enforcement (MUST):
 051|     |   Wenn State von FULL -> RESTRICTED wechselt, muss das sofort auch für ESTABLISHED Flows wirken:
 052|     |   Reihenfolge: (1) Enforce nft/tc (Kernel-Block aktiv) -> (2) Conntrack-Flush (bidirektional src+dst) für Client-IP.
@@ -159,7 +159,7 @@
 159| 9) AUTH / AAA: FREE RADIUS + SQL (MUST, ab Tag 1)
 160| 9.1| Ziel: Keine chap-secrets als Truth, keine spätere Migration.
 161| 9.2| FreeRADIUS (MUST):
-162|     | - Authentication: Subaccount-Login + Passwort
+162|     | - Authentication: Subaccount-Login + Passwort (Fail2ban/Abuse-Handling & Outcome/Reason SSOT: B340–B343)
 163|     | - Authorization: feste IP je Subaccount (Framed-IP-Address)
 164|     | - Simultaneous-Use=1 je Subaccount (genau eine Session pro Gerät)
 165|     | - Accounting: Session Start/Stop, Assigned IP, Duration, Bytes (radacct)
@@ -175,7 +175,7 @@
 175|     |   customer_id (NULL bis Claim)
 176|     |   unclaimed_grace_until (bis dahin FULL; danach UNCLAIMED_OVERDUE -> restricted)
 177|     |   unclaimed_grace_set_at (für Admin-Grace-Reset Diagnose)
-178|     |   claim_token_hash (Token liegt auf Gerät; DB speichert nur Hash)
+178|     |   claim_token_hash (Token liegt auf Gerät; DB speichert nur Hash); claim_deadline (Hard-Stop: Standard = created_at + 180 Tage; nach Ablauf UNCLAIMED -> DISABLED)
 179|     |   restricted_effective (BOOL, indexed; aus SQL berechnet/geführt)
 180|     | - Customers zusätzlich:
 181|     |   email_verified_at (NULL bis Verify; steuert Verify-Wall im Panel, kein Kernel-Trigger)
@@ -378,7 +378,7 @@
 378| - Panel Banner (Wartung/Infos)
 379| 
 380| 22) STEALTH & SICHERHEIT (MUST)
-381| 22.1| WAN: nur IKE/NAT-T/ESP; sonst drop.
+381| 22.1| WAN: nur IKE/NAT-T/ESP; sonst drop. Zusätzlich Fail2ban (B340–B343) für IKE/RADIUS Abuse-Pattern & deterministische DENY/RESTRICT/OK Outcomes.
 382| 22.2| SSH: nur 127.0.0.1 + 10.77.0.1 gebunden; nft erlaubt SSH nur aus Admin-Netz.
 383| 22.3| User-Netz:
 384|     | - keine Admin-Services
@@ -388,5 +388,5 @@
 388|     | - darf Admin UIs (pma/adguard ui) und SSH, aber alles explizit freigeschaltet.
 389| 
 390| ==================================================================================================
-391| ENDE MASTER-KONZEPT v2.3 (ZEILENFEST)
+391| ENDE MASTER-KONZEPT v2.4 (ZEILENFEST)
 392| ==================================================================================================

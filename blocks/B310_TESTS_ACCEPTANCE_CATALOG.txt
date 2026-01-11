@@ -2,7 +2,7 @@ vpn_masterkonzept/blocks/B310_TESTS_ACCEPTANCE_CATALOG.txt
 ================================================================================
 BLOCK-ID: B310
 TITLE: Tests / Acceptance Criteria (E2E-Katalog)
-VERSION: v1.3
+VERSION: v1.4
 STATUS: ACTIVE
 PRIORITY: MUST
 OWNER-INTENT: Abnahmekatalog für Stabilität (SimUse, DNS, /diag, Webstack, MTU/MSS/Offload) — messbar, reproduzierbar.
@@ -18,6 +18,12 @@ OWNER-INTENT: Abnahmekatalog für Stabilität (SimUse, DNS, /diag, Webstack, MTU
 - Lock row exists in active_session_locks after ACCEPT
 - Lock released on Accounting-Stop
 - Lock expires by janitor after expires_at
+
+## 1.1) Connect Gate (D1a) – No Unpoliced Window
+- Setup: In ip-up oder vpn-policy-apply künstlichen Delay einbauen (sleep 10).
+- Erwartung: Während connect_pending_v4 aktiv ist, ist Forward-Traffic (WAN) 0.
+- Erwartung: Nach SUCCESS wird Gate entfernt und Policy gilt (restricted/full).
+- Negativtest: policy-apply TEMPFAIL_SQL/Timeout -> PPP wird gekillt, Gate bleibt bis Cleanup, kein Leak.
 
 ## 2) Stale sessions tests
 - Simulate missing Accounting-Stop:

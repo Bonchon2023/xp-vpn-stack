@@ -1,0 +1,172 @@
+vpn_masterkonzept/blocks/B342_POLICY_OUTCOME_REASON_CODES_MATRIX.txt
+================================================================================
+BLOCK-ID: B342
+TITLE: Policy Outcomes (DENY/RESTRICT/OK) + Reason-Codes (R_ / R_AUTH_) + Matrix/Prioritäten
+VERSION: v1.0.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: Deterministische, supportbare Outcome/Reason-Semantik ohne Architekturkonflikt (Self-Service bleibt möglich).
+================================================================================
+
+================================================================================
+1) INHALT
+================================================================================
+
+## 1) KANONISCHE OUTCOMES (MUST)
+- OUTCOME=DENY
+  - RADIUS: Access-Reject
+  - Effekt: **kein Tunnel** (kein Panel, kein Walled Garden)
+- OUTCOME=RESTRICT
+  - RADIUS: Access-Accept
+  - Effekt: Tunnel steht, aber **Restricted Mode/Walled Garden** greift (nur erlaubte Ziele, v.a. 10.77.0.1)
+- OUTCOME=OK
+  - RADIUS: Access-Accept
+  - Effekt: Full Tunnel (normale Nutzung)
+
+## 2) REASON-CODES (MUST)
+Reason-Codes sind kanonische, kurze Codes für Observability/Support.
+Sie sind **deterministisch priorisiert** (siehe Matrix).
+
+### 2.1 R_ (Policy/State)
+- `R_*` beschreibt Policy-/State-Gründe (Account/Quota/Expiry/Claim/Verify etc.)
+
+### 2.2 R_AUTH_ (Auth/Infra)
+- `R_AUTH_*` beschreibt Auth-/Infra-Gründe (z.B. SQL down, unknown user, badpass).
+- **R_AUTH_ gehört logisch zu Auth**, wird aber im Outcome-Matrix-Format geführt.
+
+## 3) PRIORITÄTENKETTE (MUST, deterministisch)
+Wenn mehrere Reasons gleichzeitig zutreffen, gilt **immer** die erste zutreffende Kategorie:
+
+Prio 0 (Backend/Infra) >
+Prio 1 (Hard Admin) >
+Prio 2 (Security/Operational Violations) >
+Prio 3 (Self-Service States) >
+Prio 4 (OK)
+
+Konsequenz:
+- Prio 0/1/2 können DENY sein (wenn Self-Service nicht vorgesehen ist).
+- Prio 3 MUSS RESTRICT sein (Self-Service muss möglich bleiben).
+- Prio 4 ist OK.
+
+## 4) REASON-CODE MATRIX (KANONISCH)
+
+================================================================================
+PRIO 0 — BACKEND / INFRA (sticht alles)
+================================================================================
+R_AUTH_BACKEND_SQL_DOWN
+- Outcome: DENY
+- Kurz: SQL/Backend nicht verfügbar (Fail-Closed, D1a)
+- Notes: kein Fail2ban-Ban-Sturm (siehe B340/B341)
+
+R_AUTH_BACKEND_SQL_FAIL
+- Outcome: DENY
+- Kurz: SQL Fehler/Timeout/Pool/Conn refused (Fail-Closed)
+- Notes: wie SQL_DOWN; granulare Ursache ist optional außerhalb des Codes
+
+================================================================================
+PRIO 1 — HARD ADMIN (DENY)
+================================================================================
+R_ACCOUNT_BANNED
+- Outcome: DENY
+- Kurz: Account permanent gebannt
+- Notes: kein Tunnel
+
+R_ABUSE_HOLD
+- Outcome: DENY
+- Kurz: Abuse-Hold aktiv
+- Notes: kein Tunnel
+
+R_ACCOUNT_DISABLED
+- Outcome: DENY
+- Kurz: Account deaktiviert (Admin)
+- Notes: kein Tunnel
+
+R_ACCOUNT_LOCKED_ADMIN
+- Outcome: DENY
+- Kurz: Account gesperrt (Admin Lock/Investigation)
+- Notes: kein Tunnel
+
+================================================================================
+PRIO 2 — SECURITY / OPERATIONAL VIOLATIONS (DENY)
+================================================================================
+R_CLAIM_IP_MISMATCH
+- Outcome: DENY
+- Kurz: Claim/Bind-IP mismatch (Security Reject)
+
+R_CLIENT_NOT_ASSIGNED
+- Outcome: DENY
+- Kurz: VPN-Client/Subaccount nicht diesem Customer zugeordnet
+
+R_SIMUSE_ACTIVE
+- Outcome: DENY
+- Kurz: SimUse Lock aktiv (aktive Session vorhanden)
+
+R_RATE_LIMITED
+- Outcome: DENY
+- Kurz: Rate-Limit greift (Schutz gegen Stuffing/Bruteforce)
+
+OPTIONAL (nur wenn Feature bewusst aktiviert ist):
+R_REGION_BLOCKED
+- Outcome: DENY
+- Kurz: Region/Geo block
+
+R_ADMIN_ONLY_SCOPE
+- Outcome: DENY
+- Kurz: Nur Admin-Scope erlaubt (User im falschen Scope)
+
+================================================================================
+PRIO 3 — SELF-SERVICE STATES (RESTRICT / WALLED GARDEN)
+================================================================================
+R_ACCOUNT_NOT_VERIFIED
+- Outcome: RESTRICT
+- Kurz: E-Mail nicht verifiziert (Verify-Wall)
+
+R_VERIFY_WALL_PENDING
+- Outcome: RESTRICT
+- Kurz: Verify-Wall pending (Code ausstehend)
+
+R_CLAIM_REQUIRED
+- Outcome: RESTRICT
+- Kurz: Device/Client noch nicht geclaimt
+
+R_ACCOUNT_EXPIRED
+- Outcome: RESTRICT
+- Kurz: Subscription abgelaufen (Renew im Panel)
+
+R_QUOTA_EXCEEDED
+- Outcome: RESTRICT
+- Kurz: Quota leer (Top-up/Status im Panel)
+
+================================================================================
+PRIO 4 — SUCCESS (OK)
+================================================================================
+R_OK
+- Outcome: OK
+- Kurz: Full Tunnel erlaubt
+
+## 5) KONSISTENZ-REGELN (MUST)
+C1: Kein Reason aus Prio 3 darf DENY sein (sonst bricht Self-Service).
+C2: Prio 0 sticht immer (SQL down/fail => DENY).
+C3: Hard Admin bleibt DENY.
+C4: Security Violations bleiben DENY.
+C5: QUOTA/EXPIRED/VERIFY/CLAIM_REQUIRED bleiben RESTRICT.
+
+## 6) OBSERVABILITY / LOGGING CONTRACT (MUST)
+Wenn eine Verbindung bewertet wird, MUSS geloggt werden:
+- outcome = DENY/RESTRICT/OK
+- reason_code = einer der oben definierten Codes
+- (SHOULD) reason_detail = kurzer Debug-String (nicht kanonisch, darf variieren)
+
+## 7) TESTS / DOD (MUST)
+- Matrix-Check: Für jeden Reason ist Outcome exakt wie oben.
+- Prioritäten-Check: Wenn Prio0 + irgendwas => Prio0 gewinnt.
+- Self-Service-Check: NOT_VERIFIED/CLAIM_REQUIRED/EXPIRED/QUOTA => RESTRICT, Panel erreichbar.
+- Hard-Admin-Check: BANNED/DISABLED => DENY, kein Tunnel.
+
+================================================================================
+2) CHANGELOG
+================================================================================
+- v1.0.0 (2026-01-11): Neu angelegt. Kanonische Outcomes (DENY/RESTRICT/OK) + Reason-Codes inkl. Prioritätenkette und Matrix (Policy + R_AUTH_).
+================================================================================
+END BLOCK B342
+================================================================================

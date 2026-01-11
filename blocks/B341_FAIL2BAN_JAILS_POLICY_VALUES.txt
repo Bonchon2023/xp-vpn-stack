@@ -1,0 +1,118 @@
+vpn_masterkonzept/blocks/B341_FAIL2BAN_JAILS_POLICY_VALUES.txt
+================================================================================
+BLOCK-ID: B341
+TITLE: Fail2ban – Jails/Filter/Aktionen (RADIUS + IKE) inkl. NAT-Safety Policy-Values
+VERSION: v1.0.0
+STATUS: ACTIVE
+PRIORITY: MUST
+OWNER-INTENT: Konkrete Fail2ban-Policy (Parameter), die NAT-sicher ist und keine Self-DoS verursacht.
+================================================================================
+
+================================================================================
+1) INHALT
+================================================================================
+
+## 1) GRUNDREGELN (MUST)
+- Fail2ban MUSS ausschließlich `F2B_EVENT` (B340) matchen (RADIUS-Jails).
+- Fail2ban MUSS ausschließlich echte Peer-IPs bannen (`SrcIP` parsebar; sonst NA => niemals matchen).
+- Fail2ban MUSS `BACKEND_ERROR` und `POLICY_DENY` ignorieren (NAT-Safety).
+- Fail2ban MUSS Loopback/localhost effektiv schützen (zusätzlich über ignoreip).
+
+## 2) JAILS (KANONISCH)
+### 2.1 strongSwan / IKE (WAN-Protection)
+Ziel: Schutz vor IKE-Scans/Bruteforce an UDP 500/4500.
+
+Empfohlene Parameter (MUST, Default):
+- findtime: 300s
+- maxretry: 10
+- bantime: 900s
+
+Hinweis:
+- Dieses Jail ist unabhängig von RADIUS.
+- Ban-Mechanismus soll identisch zum nftables Banset sein (einheitliche Enforcement-Schicht).
+
+### 2.2 FreeRADIUS UNKNOWN_USER (NAT-sicher, streng)
+Ziel: User-Enumeration / Fishing aggressiv begrenzen.
+
+Empfohlene Parameter (MUST, Default):
+- findtime: 600s
+- maxretry: 5
+- bantime: 3600s
+
+Match-Regel (MUST):
+- failregex MUSS `Class=UNKNOWN_USER` enthalten
+- failregex MUSS `SrcIP=<HOST>` verwenden (nur echte IP)
+
+### 2.3 FreeRADIUS KNOWN_BADPASS (NAT-sensitiv, konservativer)
+Ziel: Bruteforce auf existierende User begrenzen, aber NAT-Kollateralschäden minimieren.
+
+Empfohlene Parameter (MUST, Default):
+- findtime: 600s
+- maxretry: 50
+- bantime: 600s
+
+Match-Regel (MUST):
+- failregex MUSS `Class=KNOWN_BADPASS` enthalten
+- failregex MUSS `SrcIP=<HOST>` verwenden
+
+## 3) FILTER (MUST)
+RADIUS Filter dürfen **nur** `F2B_EVENT` Zeilen matchen.
+
+Kanonische Filterlogik (MUST):
+- UNKNOWN_USER Filter matcht nur:
+  `^F2B_EVENT: .*Class=UNKNOWN_USER .*SrcIP=<HOST> .*`
+- KNOWN_BADPASS Filter matcht nur:
+  `^F2B_EVENT: .*Class=KNOWN_BADPASS .*SrcIP=<HOST> .*`
+
+Explizit verboten:
+- Match auf `POLICY_DENY`
+- Match auf `BACKEND_ERROR`
+- Match ohne `<HOST>` (sonst NA/localhost Risiko)
+
+## 4) BAN-ACTION (MUST)
+Enforcement MUSS über nftables erfolgen (kein iptables).
+
+Kanonisch:
+- Banaction nutzt ein nftables **set** (z.B. `ban_v4`, `ban_v6`) und droppt in einer frühen WAN-Input-Kette.
+- Banset MUSS vor RADIUS/strongSwan processing wirken (früh im Input).
+- Unban MUSS deterministisch aus dem set entfernen.
+
+## 5) ignoreip / SELF-DOS SCHUTZ (MUST)
+Fail2ban MUSS mindestens ignorieren:
+- 127.0.0.0/8
+- ::1/128
+- (SHOULD) Server-eigene WAN-IP(s) und Management-Netze (z.B. Admin VPN Netz)
+
+Zusätzlich gilt B340:
+- wenn `SrcIP=NA` => darf niemals matchen.
+
+## 6) OPERATIVE NOTES (SHOULD)
+- Ban-Layer ist WAN-bezogen; es ist normal, dass hinter NAT mehrere Clients betroffen sein können.
+  Deshalb:
+  - UNKNOWN_USER ist streng,
+  - KNOWN_BADPASS ist konservativer.
+
+- Wenn Abuse über große NATs erwartet wird:
+  - maxretry/bantime für KNOWN_BADPASS kann weiter entschärft werden,
+  - aber **ohne** die UNKNOWN_USER Policy zu schwächen.
+
+## 7) TESTS / DOD (MUST)
+J1: UNKNOWN_USER Ban:
+- 6 falsche Usernames innerhalb 600s von gleicher IP => Ban ~3600s.
+
+J2: KNOWN_BADPASS Ban:
+- 51 falsche Passwörter innerhalb 600s von gleicher IP => Ban ~600s.
+
+J3: NAT-Safety:
+- POLICY_DENY und BACKEND_ERROR Events erzeugen **nie** einen Ban.
+
+J4: Self-DoS:
+- `SrcIP=NA` in `F2B_EVENT` erzeugt niemals Ban.
+
+================================================================================
+2) CHANGELOG
+================================================================================
+- v1.0.0 (2026-01-11): Neu angelegt. Kanonische Jails (IKE, RADIUS UNKNOWN_USER, RADIUS KNOWN_BADPASS) + Filter/Action Regeln + NAT-Safety Policy-Values.
+================================================================================
+END BLOCK B341
+================================================================================

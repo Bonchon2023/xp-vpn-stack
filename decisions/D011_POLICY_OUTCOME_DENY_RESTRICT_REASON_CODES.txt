@@ -1,0 +1,50 @@
+================================================================================
+D011_POLICY_OUTCOME_DENY_RESTRICT_REASON_CODES.txt
+Version: v0.1.0 (ENTWURF)
+Status: ACCEPTED (nach Drittprüfung)
+================================================================================
+
+## Kontext
+Im System existieren Zustände, die entweder:
+- den Tunnel grundsätzlich verbieten müssen (Hard Ban, Security, Backend down),
+oder
+- einen Tunnel benötigen, um Self-Service via 10.77.0.1 zu ermöglichen (Verify/Claim/Quota/Expired).
+
+Ohne Trennung führte POLICY_DENY als Reject zu einem Architekturkonflikt:
+Self-Service war unmöglich, obwohl das Master-Konzept Walled Garden vorsieht.
+
+## Entscheidung
+1) Outcome-Trennung ist kanonisch:
+- DENY     := Reject, kein Tunnel.
+- RESTRICT := Accept, aber Walled Garden.
+- OK       := Accept, Full Tunnel.
+
+2) Reason-Codes sind kanonisch als R_... festgelegt (siehe T03), inkl. Prioritätenkette:
+Backend (0) > Hard Admin (1) > Security (2) > Self-Service (3) > OK (4)
+
+2.1) Abgrenzung Reason-Codes (SoT):
+- T03 ist SoT für Policy-Outcomes/Policy-Reasons (R_ACCOUNT_*, R_CLAIM_*, R_QUOTA_*, R_RATE_LIMITED, R_OK, ...).
+- T01 ist SoT für Auth-Reasons (R_AUTH_*), mindestens:
+  - R_AUTH_UNKNOWN_USER
+  - R_AUTH_KNOWN_BADPASS
+  - R_AUTH_BACKEND_SQL_DOWN
+  - R_AUTH_BACKEND_SQL_FAIL
+Regel: R_AUTH_* werden in T03/D011 nicht dupliziert (nur referenziert).
+
+3) POLICY_DENY bleibt Observability (Log-only), aber nicht Fail2ban-relevant.
+Fail2ban reagiert ausschließlich auf UNKNOWN_USER und KNOWN_BADPASS (NAT-Safety + D1a).
+
+## Begründung
+- D1a: SQL down darf keine Session erlauben => DENY ohne Ban.
+- B155/B150: Verify/Claim/Quota/Expired brauchen RESTRICT, nicht DENY.
+- NAT-Safety: Policy-Zustände dürfen nicht IP-basiert gebannt werden.
+- Operative Klarheit: Reason-Codes ermöglichen Support ohne Regex/Heuristik.
+
+## Konsequenzen
+- FreeRADIUS Logging muss Outcome+Reason deterministisch ausgeben.
+- Policy-Apply muss RESTRICT-Zustände in Kernel-Enforcement übersetzen (Walled Garden).
+
+================================================================================
+Changelog:
+- v0.1.0 (ENTWURF): Introduced canonical DENY/RESTRICT/OK outcomes and R_ Reason-Code catalog with deterministic priorities.
+================================================================================

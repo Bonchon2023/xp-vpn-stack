@@ -1,7 +1,7 @@
-vpn_masterkonzept/00_MASTER_v2.3.txt
+vpn_masterkonzept/00_MASTER_v2.4.txt
 ================================================================================
 MASTER-KONZEPT: XP/Vista Full-Tunnel VPN auf Debian 13 (from scratch)
-MASTER VERSION: v2.3
+MASTER VERSION: v2.4
 STATUS: ACTIVE (produktionstaugliche Ziel-Architektur)
 DATUM: (von dir eintragen)
 AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
@@ -43,6 +43,11 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
 - Policy-Enforcement ist deterministisch (MUST):
   - ip-up/ip-down Hook erzeugt Runtime-Mapping (/run/vpn-sessions/pppX.env)
     MUST enthalten: PPPD_PID + PPP_IF + START_TS (PID-Reuse Schutz) + VPN-IP/connection_id.
+  - D1a (SQL-first + No-Unpoliced-Window):
+    - Vor jedem SQL/Apply Zugriff wird ein Connect-Pending Gate aktiviert: connect_pending_v4 (deny-all forward).
+    - Das Gate wird erst nach SUCCESS von vpn-policy-apply entfernt.
+    - Bei Apply-Failure (z.B. SQL down / TEMPFAIL) gilt fail-closed: Session wird deterministisch beendet.
+    - Wichtig: connect_pending_v4 ist NICHT restricted_v4/Walled Garden und erlaubt keinen Portal/DNS-Fallback.
   - vpn-policy-apply setzt tc + enforced nft sets (restricted_v4)
   - HARD CUT (MUST, sofortige Wirkung auch für ESTABLISHED):
     Beim Übergang FULL -> RESTRICTED gilt Reihenfolge:
@@ -71,9 +76,9 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
 
 - Policy:
   - nftables: WAN minimal offen (UDP 500/4500 + ESP), 1701 nur via IPsec/XFRM,
-    Forward+NAT, Peer-Isolation, Abuse-Outbound-Block, - Walled-Garden (HARD: Restricted QUOTA/EXPIRY/MANUAL/UNCLAIMED_OVERDUE; Verify läuft als App-Layer Verify-Wall)
-    customerwide + später Quota/Expiry)
+    Forward+NAT, Peer-Isolation, Abuse-Outbound-Block, Walled-Garden/Restricted (HARD: QUOTA/EXPIRY/MANUAL/UNCLAIMED_OVERDUE; Verify bleibt App-Layer Verify-Wall)
   - tc: Bandbreite pro pppX (CAKE/fq_codel), live drosselbar
+  - Fail2ban: Event-Klassifizierung + Jails + Outcome/Reason Codes (B340–B343) für kontrolliertes Ban/Restrict/OK Verhalten
 
 - SQL-first AAA (ab Tag 1, produktkern):
   - FreeRADIUS + SQL (MySQL/MariaDB) für Auth + Accounting + Policy-Truth
@@ -128,6 +133,8 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
 - B030 Principles / Policy Model
 - B040 Stack / Protokolle / Komponenten
 - B050 SQL AAA / FreeRADIUS / Accounting
+- B055 DB Schema Core (customers, vpn_connections, active_session_locks)
+- B056 RADIUS SQL Schema + Mapping + SimUse-Atomic Lock Lifecycle
 - B060 Netzplan / IPs / Segmente / Bindings
 - B070 Crypto Legacy / Debian 13 / OpenSSL Legacy
 - B080 XP NAT-T Registry Fix
@@ -160,7 +167,13 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
 - B285: Panel Security Model (AuthN/AuthZ/Session/CSRF, internal-only)
 - B290 Rollout Phasenplan
 - B300 Security/Stealth Guidelines
-
+- B310 Tests / Acceptance Criteria (E2E-Katalog)
+- B320 Backup / Restore / DR Runbook
+- B330 Logging / Monitoring / Retention / Alerts (Heavy User Detection)
+- B340 Fail2ban: RADIUS Event Classification (Log -> EventClass)
+- B341 Fail2ban: Jails + Policy Values (Ban/Findtime/Maxretry)
+- B342 Policy Outcome: DENY/RESTRICT/OK + Reason Codes + Matrix
+- B343 Fail2ban + Policy Outcome: E2E Package (Kette + Referenzen)
 
 3) ABHÄNGIGKEITEN (Text-Graph)
 - B020 -> alle
@@ -181,6 +194,10 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
 - B200 -> B210, B230 (DNS-Zwang + Blockpage)
 - B210 -> B150 (Restricted muss DNS zu 10.77.0.1 erlauben) und -> B120 (Order: nat prerouting)
 - B260 -> B230 (TLS relies on time)
+- B340 -> D010, B330 (Event-Classification braucht Logging/Event-Policy; Ban-Entscheidung siehe D010)
+- B341 -> B340 (Jails referenzieren EventClass)
+- B342 -> D011 (Reason/Outcome Codes sind SSOT für Deny/Restrict/OK Gründe)
+- B343 -> B340, B341, B342 (E2E-Paket beschreibt Zusammenspiel/Flow)
 
 
 4) "AKTIVE ENTSCHEIDUNGEN" (fest)
@@ -195,6 +212,7 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
   - Verify-Wall (App-Layer): Customer PENDING (email_verified_at NULL) -> nach Login nur Code/Resend/Support (kein Panel-Innenleben; kein Claim).
   - Claim-Token (App-Layer): eingeloggter Customer claimed eine VPN-Connection per Token (B155/B280 Regeln).
   - UNCLAIMED Grace/Overdue (Kernel): Unclaimed Connections sind bis unclaimed_grace_until FULL; danach restricted_reason=UNCLAIMED_OVERDUE -> "Nur Panel-Zugriff" (B150).
+  - Hard-Stop (MUST): claim_deadline = created_at + 180 Tage (Standard). Wenn nach Ablauf weiterhin UNCLAIMED -> status=DISABLED (HARD; RADIUS reject; kein VPN/kein Panel).
   - Verify ist App-Layer und KEIN Kernel-Restricted Trigger.
 - Hard-Stop gegen „ewige Leichen“ (Standardbetrieb):
   - claim_deadline ist IMMER gesetzt (180 Tage ab Provisioning/Erstellung).
@@ -212,5 +230,5 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
 - Siehe: 04_BLOCK_INDEX.txt
 
 ================================================================================
-ENDE 00_MASTER_v2.3.txt
+ENDE 00_MASTER_v2.4.txt
 ================================================================================
