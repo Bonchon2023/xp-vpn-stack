@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B160_TC_QOS_PER_PPP.txt
+xp-vpn-stack/blocks/B160_TC_QOS_PER_PPP.txt
 ================================================================================
 BLOCK-ID: B160
 TITLE: tc QoS / Speedlimit pro pppX
-VERSION: v1.0
+VERSION: v1.1
+DATUM: 2026-01-14
 STATUS: ACTIVE
 PRIORITY: SHOULD
+REQUIRES: B050, B060, B167
+INFLUENCES: B166, B310
 OWNER-INTENT: Per-Client Bandbreite + niedriger Ping.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- QoS/Rate-Limits werden pro pppX gesetzt (pro User/Subaccount), nicht als globale WAN-Shaping-Lösung.
+- Keine komplexen QoS-Bäume als Baseline: Ziel ist robust, reproduzierbar, wartbar.
+- tc muss in ip-up/ip-down Hooks sauber apply/cleanup machen; sonst bleiben Klassen/Filters als „Zombie“ zurück.
 ================================================================================
 
 1) ZWECK
@@ -15,7 +24,7 @@ OWNER-INTENT: Per-Client Bandbreite + niedriger Ping.
 - nftables ist nicht der shaper.
 
 3) ABHÄNGIGKEITEN
-- Requires: B050, B040
+- Requires: B050, B060, B167
 - Influences: user experience
 
 4) INPUTS
@@ -29,7 +38,7 @@ OWNER-INTENT: Per-Client Bandbreite + niedriger Ping.
 
 6) MUST (wenn aktiv)
 - ip-up hook sets qdisc per connect
-- ip-down cleanup optional
+- ip-down hook MUSS cleanup machen (kein Zombie-qdisc/filters pro pppX).
 
 7) OPTIONAL
 - Ingress shaping via IFB (später)
@@ -43,7 +52,9 @@ OWNER-INTENT: Per-Client Bandbreite + niedriger Ping.
 - Speedtest shows caps match.
 - Ping stable under download.
 
-10) CHANGELOG
+================================================================================
+CHANGELOG
+================================================================================
+- v1.1 (2026-01-14): Konsistenz/Operability: DATUM aktualisiert; REQUIRES/ABHÄNGIGKEITEN harmonisiert (B050+B060+B167 statt Drift); MUST präzisiert (ip-down Cleanup ist Pflicht, um Zombie-qdisc/filters zu vermeiden). Keine konzeptionelle QoS-Änderung.
 - v1.0: Initial
-
 ================================================================================

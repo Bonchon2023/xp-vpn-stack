@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B290_PHASE_PLAN_ROLLOUT.txt
+xp-vpn-stack/blocks/B290_PHASE_PLAN_ROLLOUT.txt
 ================================================================================
 BLOCK-ID: B290
 TITLE: Rollout / Phasenplan
-VERSION: v1.1
+VERSION: v1.2
+DATUM: 2026-01-13
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B020, B040, B050, B055, B056, B060, B070, B080, B090, B100, B110, B120, B130, B140, B150, B155, B160, B167, B170, B180, B190, B200, B210, B220, B230, B240, B250, B260, B270, B280, B285, B310, B320, B330, B340, B341, B342, B343
+INFLUENCES: B020, B310, B320, B330
 OWNER-INTENT: Reihenfolge, damit nichts instabil "oben drauf" kommt.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- Rollout ist phasenbasiert (VPN→QoS→DNS→DNS-Enforcement→Web/Portal), kein Big-Bang.
+- Neue Features dürfen eine frühere Phase nicht destabilisieren (Regression-Tests als Gate).
+- Jede Phase endet mit klaren Akzeptanztests (B310) und einem „Go/No-Go“ Entscheidungspunkt.
 ================================================================================
 
 1) ZWECK
@@ -17,54 +26,78 @@ OWNER-INTENT: Reihenfolge, damit nichts instabil "oben drauf" kommt.
 3) ABHÄNGIGKEITEN
 - Requires: alle
 
-4) PHASEN
-PH1: VPN + SQL AAA + Firewall Baseline
-- strongSwan/xl2tpd/pppd
-- FreeRADIUS+SQL+Accounting
-- nft: WAN minimal, 1701 via IPsec, forward+nat, peer isolation, abuse blocks, MSS clamp
-- systemd restart
-- offload default
-- Tests: XP connect stable, full-tunnel, logs ok
+4) PHASEN (KANONISCH)
 
-PH2: QoS
-- tc per pppX
-- speed profiles from SQL
+PH1: VPN-Baseline (Tunnel + SQL-AAA + Firewall-Basis)
+- Ziel: Stabiler Full-Tunnel L2TP/IPsec (XP/Vista) + AAA-Backend + Baseline-Policy.
+- MUST:
+  - strongSwan + xl2tpd/pppd lauffähig (B040/B167/B170/B180)
+  - SQL-first AAA (FreeRADIUS + SQL Schema/Mapping) (B050/B055/B056)
+  - nftables Baseline: WAN nur UDP 500/4500 + ESP; UDP 1701 nur via IPsec/XFRM; NAT/Masquerade; Peer-Isolation (B100–B140)
+  - XP NAT-T Fix/Legacy Crypto definiert (B070/B080)
+- Acceptance (MUST):
+  - XP/Vista Client kann verbinden, bekommt PPP-IP aus dem vorgesehenen Pool (B060)
+  - Full-Tunnel funktioniert (Default-Route über VPN), keine User↔User Kommunikation (Peer-Isolation)
+  - Reconnect stabil (DPD/LCP-Echo), keine “Ghost Sessions” (B090/B180)
 
-PH3: Webpanel Core
-- OpenResty+PHP-FPM+DB
-- user login IP-bound
-- stats from accounting
-- diag endpoint
-- Onboarding (B155): Verify-Wall nach Login (PENDING -> Code/Resend/Support), Panel-Innenleben erst nach Verify; Claim nur nach Verify und nur per Claim-Token (keine VPN-Client-Credentials nötig).
-- Enforcement via Restricted Mode / Walled Garden (B150):
-  - Portal-Only Allowlist (Panel/Status/Diag + DNS optional)
-  - Trigger durch B155/B050 (restricted flag/state) – kein RADIUS reject für Gates
+PH2: QoS / Bandbreitenkontrolle
+- Ziel: Pro pppX Limits und kontrollierbares Verhalten (User/Admin unterschiedlich).
+- MUST:
+  - tc/ip-up Hook Konzept und Umsetzungsvorgaben sind gültig (B190)
+- Acceptance (MUST):
+  - Limits greifen deterministisch pro Verbindung (pppX), ohne globale Nebenwirkungen
 
-PH4: DNS Stack
-- Unbound + AdGuard
-- rewrite vpn.status
-- blocking custom ip -> 10.77.0.1
-Hinweis: Ohne PH6 (CA+MITM) können HTTPS-Blockseiten bei geblockten Domains noch Zertifikatswarnungen zeigen.
+PH3: Webpanel Core (Onboarding / Claim / Status)
+- Ziel: Minimales internes Webpanel (Status/Onboarding), ohne Internet-Abhängigkeit.
+- MUST:
+  - Onboarding/Claim-Flow ist Claim-Token-basiert (kein VPN-Client-Secret nötig) (B155)
+  - Panel ist nur über VPN/Service-IP erreichbar (Scope via nft) (B220/D003)
+- Acceptance (MUST):
+  - Claim-Token Flow funktioniert end-to-end (UNCLAIMED → CLAIMED) gemäß B155
+  - Keine unnötigen externen Abhängigkeiten für Erstbetrieb (kein “Internet muss gehen, sonst Setup tot”)
 
-PH5: DNS Enforcement
-- DNAT 53 from ppp* to 10.77.0.1
+PH4: DNS-Stack + DNS-ZWANG + Zeitbasis
+- Ziel: Namensauflösung und Zeit sind stabil/erzwingbar, damit XP/Web/CA später nicht kollabieren.
+- MUST:
+  - Unbound + AdGuardHome intern auf Service-IP (B200)
+  - DNS-Zwang: DNAT TCP/UDP 53 → 10.77.0.1 (B210)
+  - NTP-Strategie aktiv (Client Zeitsync pre-connect + optional NTP-DNAT auf Service-IP) (B260)
+- Acceptance (MUST):
+  - DNS-Bypass-Versuch (z.B. 8.8.8.8:53) landet trotzdem intern auf 10.77.0.1 (tcp+udp)
+  - XP Client kann nach Connect eine plausible Zeit erreichen (keine Zert-/TLS-Deadlocks durch falsche Uhr)
 
-PH6: MITM HTTPS Blockpage
-- CA infra + MyPal NSS import
-- cert cache + ratelimit
-- full tests
+PH5: CA / Trust / Blockpage-Integration (Webstack-Foundation)
+- Ziel: Interne HTTPS-Services ohne Browser-Warnung + Blockpage Pfad vorbereitet.
+- MUST:
+  - Webstack intern (OpenResty + PHP-FPM + DB; admin-only Extras optional) (B220/D004)
+  - DNS Rewrite (z.B. vpn.status) auf Service-IP + Panel erreichbar (B200)
+  - Root-CA Workflow + XP/MyPal/NSS Import definiert (B250/B240)
+  - AdGuard Blocking mode “Custom IP” zeigt auf internen Webserver (B230)
+- Acceptance (MUST):
+  - https://vpn.status im Admin-Netz ohne Warnung (nach CA-Vertrauen)
+  - XP/MyPal: nach CA-Import ebenfalls ohne Warnung auf internen HTTPS-Endpoints
+  - Blockpage-Pfad: geblockte Domain führt auf interne Blockpage (Custom IP)
 
-PH7: Premium
-- Quota/Volumenlimit (Monetization): DB-Felder + Enforcement über B150 (restricted when quota<=0)
-- Expiry / Laufzeit (Monetization): DB-Felder + Enforcement über B150 (restricted when expired)
-- Maintenance/Broadcast Banner im Panel (SQL Flag) (Support-Reduktion)
+PH6: Operability / Enforcement Paket (Diag + Fail2ban + Logs + Backup)
+- Ziel: Betriebssicherheit vor “Premium”: Diagnose, Schutz, Rotation/Recovery.
+- MUST:
+  - /diag Endpoint (Support/Status) verfügbar (B270)
+  - Fail2ban-Package aktiv (F2B_EVENT Emission + Jails + Matrix + E2E Package) (B340–B343, D010, D011)
+  - Logging/Rotation/Disk-Full Schutz (B330)
+  - Backup/Restore Minimum für DB + Konfig (B320)
+- Acceptance (MUST):
+  - F2B_EVENT Contract validiert (genau 1 Event pro Request; kein Bann bei localhost/NA)
+  - Tooling-Nachweis (tcpdump/radsniff) für SrcIP/Calling-Station-Id in Events
+  - Disk-Full/Rotation: Logs rotieren, System bleibt stabil, Recovery-Prozess dokumentiert
 
+5) ABNAHME-PRINZIP (STOP-REGEL)
+- Jede Phase hat MUST-Acceptance-Checks. Wenn ein MUST-Check fehlschlägt: STOP, Fix, erneut testen.
+- Reihenfolge ist bindend: keine “oben drauf”-Features, bevor die Phase darunter stabil ist.
 
-5) MUST (Acceptance)
-- Jede Phase hat Tests; fail -> stop and fix.
-
-6) CHANGELOG
+================================================================================
+CHANGELOG
+================================================================================
+- v1.2 (2026-01-13): Added canonical PH1–PH6 (DNS/DNS-zwang, Web/CA/Blockpage, Operability incl. /diag + Fail2ban + logs + backup) and restored sequential phase structure.
 - v1.1: Rollout-Text für PH3 auf neues Onboarding aktualisiert (Verify-Wall + Claim-Token; keine Gate#1/Gate#2 Deadlines als Onboarding-Mechanik).
 - v1.0: Initial
-
 ================================================================================

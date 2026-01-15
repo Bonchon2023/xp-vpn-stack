@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B220_WEBSTACK_OPENRESTY_PHPFPM_DB.txt
+xp-vpn-stack/blocks/B220_WEBSTACK_OPENRESTY_PHPFPM_DB.txt
 ================================================================================
 BLOCK-ID: B220
 TITLE: Webstack intern (OpenResty + PHP-FPM + DB + phpMyAdmin)
 VERSION: v1.0
+DATUM: 2026-01-06
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B060, B150, B200
+INFLUENCES: B240
 OWNER-INTENT: Panel/Portal/Blockpage auf interner Service-IP, niemals WAN.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- Webstack ist strikt intern (Service-IP/VPN) und nie WAN-exposed; DB-Tools (phpMyAdmin) sind admin-only.
+- Kein „Feature-Creep“: nur das, was Panel/Portal braucht; alles andere ist out-of-scope.
+- Härtung ist Pflicht: RateLimits, sichere Cookies, minimale PHP-Exposure, klare getrennte vhosts/scopes.
 ================================================================================
 
 1) ZWECK
@@ -51,7 +60,8 @@ OWNER-INTENT: Panel/Portal/Blockpage auf interner Service-IP, niemals WAN.
 - From user net: can open panel only.
 - From admin net: can open admin tools.
 
-10) CHANGELOG
+================================================================================
+CHANGELOG
+================================================================================
 - v1.0: Initial
-
 ================================================================================

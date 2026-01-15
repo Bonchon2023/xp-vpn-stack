@@ -1,8 +1,9 @@
-vpn_masterkonzept/decisions/D010_FAIL2BAN_RADIUS_EVENT_CLASSIFICATION_POLICY_DENY.txt
+xp-vpn-stack/decisions/D010_FAIL2BAN_RADIUS_EVENT_CLASSIFICATION_POLICY_DENY.txt
 ================================================================================
 DECISION-ID: D010
 TITLE: Fail2ban (RADIUS) – kanonische Event-Klassifikation + POLICY_DENY (log-only)
-DATE: 2026-01-11
+VERSION: v1.3
+DATUM: 2026-01-14
 STATUS: ACCEPTED
 OWNER: Marco (Owner) + ChatGPT (Co-Architect)
 ================================================================================
@@ -19,7 +20,7 @@ CONTEXT
     - UNKNOWN_USER (Enumeration/Fishing) vs.
     - KNOWN_BADPASS (Bruteforce, aber NAT-sensitiv) vs.
     - BACKEND_ERROR (SQL down o.ä. → NICHT bannen)
-  - Zusätzlich: Support/Observability leidet, wenn Policy-Blocks (Disabled/Expired/Verify-Wall etc.) als generische Rejects verschwinden.
+  - Zusätzlich: Support/Observability leidet, wenn echte Kernel-Policy-Blocks (z.B. DISABLED/BANNED/ADMIN_LOCK/ABUSE_HOLD/MAINTENANCE) als generische Rejects verschwinden und nicht deterministisch als POLICY_DENY sichtbar sind.
 
 - Anforderungen (MUST/SHOULD/OPTIONAL):
   MUST:
@@ -37,23 +38,44 @@ DECISION
 - Wir entscheiden uns für:
   A) Dedizierte FreeRADIUS linelog “F2B_EVENT” Logline (key=value) als einzige Parsing-Quelle für Fail2ban auf RADIUS-Ebene.
      - Beispiel-Format (kanonisch):
-       F2B_EVENT: Class=<CLASS> User=<USER> SrcIP=<IP-or-NA> Reason=<REASON>
-     - Fail2ban matcht ausschließlich diese Logline und extrahiert SrcIP über <HOST>.
+       F2B_EVENT: Class=<CLASS> SrcIP=<IP-or-NA> User=<USER_ENC> Outcome=<DENY|RESTRICT|OK> Reason=<REASON> Detail=<DETAIL_ENC-or-NA>
+(Hinweis: `User`/`Detail` sind RFC3986-percent-encoded; leere Werte => `NA`; Caps: User<=64, Detail<=256 (nach Encoding).)
+     - Fail2ban matcht ausschließlich diese Logline und extrahiert SrcIP über <ADDR> (IP-only; SrcIP=NA darf nie matchen).
+
+  A.1) Emission bei ACCEPT ist MUST (Audit/Forensik)
+     - Jeder erfolgreiche Login erzeugt ein `F2B_EVENT` mit `Class=OK`, `Outcome=OK`, `Reason=R_OK`.
+     - Fail2ban matcht ausschließlich ban-relevante Klassen (z.B. UNKNOWN_USER/KNOWN_BADPASS); `Class=OK` wird ignoriert.
+
+  A.2) Guard gegen Doppel-Emission ist MUST (deterministisch)
+     - request-lokales Flag: `control:F2B_EMITTED`
+       - Pre-Check: wenn ==1 => skip
+       - Post-Set: nach Emission => =1
+
+  A.3) Sanitizing ist MUST (unquoted Struktur bleibt stabil)
+     - `User` und `Detail` werden RFC3986-percent-encoded (UTF-8 bytes; unreserved: A–Z a–z 0–9 - . _ ~).
+     - leere Werte => `NA`
+     - Caps (nach Encoding): User<=64, Detail<=256; safe truncate (kein halbes %HH)
+     - Begründung: verhindert Log-Injection/Whitespace-Bruch ohne B341-Regex zu verändern.
+
+  A.4) SrcIP Hardening
+     - SrcIP ausschließlich aus Calling-Station-Id wenn parsebar, sonst `NA`.
+     - Verbotene Quellen: Framed-IP, NAS-IP, Packet-Src-IP, DNS/Hostname.
 
   B) Kanonische Klassen (RADIUS):
      - UNKNOWN_USER    (User existiert nicht: sql -> NOTFOUND)
      - KNOWN_BADPASS   (User existiert, Passwort falsch: deterministisch über MSCHAP reject)
      - BACKEND_ERROR   (SQL/Backend Fehler: sql -> FAIL / DB down / timeout etc.)
-     - POLICY_DENY     (log-only) (User bekannt + Auth ok, aber Policy blockiert: disabled/expired/verify-wall/pending/etc.)
+     - POLICY_DENY     (log-only) (User bekannt + Auth ok, aber Kernel-Policy blockiert: disabled/banned/admin_lock/abuse_hold/maintenance/etc.)
+       (Hinweis: Quota/Expiry/UNCLAIMED_OVERDUE/RateLimit sind RESTRICT (ACCEPT/Walled Garden) und gehören nicht in POLICY_DENY (Reject). Verify/Claim sind PANEL-only.)
        -> POLICY_DENY wird geloggt, aber von Fail2ban ignoriert (kein Jail-Match).
 
   C) Deterministische Klassifikation (kein Text-Matching):
      - authorize:
-       - sql NOTFOUND  => set control flag: F2B_CLASS_STATE="UNKNOWN"
-       - sql FAIL      => set control flag: F2B_CLASS_STATE="BACKEND_ERROR"
-       - sql OK        => set control flag: F2B_CLASS_STATE="KNOWN"
+       - sql NOTFOUND  => set `&control:Tmp-String-0 = "UNKNOWN"`        (IDENTITY_STATE)
+       - sql FAIL      => set `&control:Tmp-String-0 = "BACKEND_ERROR"`  (IDENTITY_STATE)
+       - sql OK        => set `&control:Tmp-String-0 = "KNOWN"`          (IDENTITY_STATE)
      - authenticate (MSCHAP):
-       - mschap REJECT => set control flag: F2B_AUTH_DETAIL="MSCHAP_FAIL"
+       - mschap REJECT => set `&control:Tmp-String-1 = "MSCHAP_FAIL"`    (AUTH_DETAIL)
      - post-auth reject:
        - UNKNOWN       => log Class=UNKNOWN_USER
        - BACKEND_ERROR => log Class=BACKEND_ERROR
@@ -61,8 +83,10 @@ DECISION
        - KNOWN + !MSCHAP_FAIL => log Class=POLICY_DENY (log-only)
 
   D) Exklusive Reservierung der FreeRADIUS Scratchpad-Slots (Invariant):
-     - &control:Tmp-String-0 = F2B_CLASS_STATE (UNKNOWN | KNOWN | BACKEND_ERROR)
-     - &control:Tmp-String-1 = F2B_AUTH_DETAIL (MSCHAP_FAIL | "")
+     - &control:Tmp-String-0 = IDENTITY_STATE (UNKNOWN | KNOWN | BACKEND_ERROR)
+     - &control:Tmp-String-1 = AUTH_DETAIL    (NONE | MSCHAP_FAIL)
+     - &control:Tmp-String-2 = POLICY_OUTCOME (OK | RESTRICT | DENY)
+     - &control:Tmp-String-3 = POLICY_REASON  (R_* | NONE)
      - Diese Slots dürfen für keine anderen Zwecke verwendet werden.
 
 - Alternative B (verworfen): Kein POLICY_DENY
@@ -101,15 +125,20 @@ CONSEQUENCES
   - Wenn SrcIP nicht als IP formatierbar ist, kann Event nicht gebannt werden.
 
 - Mitigations (wie wir die Nachteile absichern):
-  - Invariants: Tmp-String-0/1 exklusiv reservieren und als MUST dokumentieren (dieser Decision-Record + T-Spec).
-  - SrcIP Safety: Fallback SrcIP=NA; Fail2ban matcht nur echte IPs (<HOST>), NA wird ignoriert.
-  - Tests/Akzeptanz: Explizite Testfälle für UNKNOWN_USER, KNOWN_BADPASS, BACKEND_ERROR, POLICY_DENY, sowie “localhost nie bannen”.
+  - Invariants: Tmp-String-0..3 exklusiv reservieren und als MUST dokumentieren (dieser Decision-Record + T-Spec).
+  - SrcIP Safety: Fallback SrcIP=NA; Fail2ban matcht nur echte IPs (<ADDR>), NA wird ignoriert.
+  - Tests/Akzeptanz: Explizite Testfälle für UNKNOWN_USER, KNOWN_BADPASS, BACKEND_ERROR, POLICY_DENY sowie “localhost nie bannen”.
 
 LINKED BLOCKS
 - B050_SQL_AAA_RADIUS.txt
 - B300_SECURITY_STEALTH_GUIDELINES.txt
 - B330_LOGGING_MONITORING_RETENTION_ALERTS.txt
 
+================================================================================
 CHANGELOG
+================================================================================
+- v1.3 (2026-01-14): Drittprüfung L-1..L-5 gespiegelt: ACCEPT-Emission ist MUST (Class=OK), deterministischer Flag-Guard `control:F2B_EMITTED`, Sanitizing-Contract via RFC3986 Percent-Encoding inkl. NA-Marker + Caps (User<=64, Detail<=256), SrcIP Hardening (Calling-Station-Id only; verbotene Quellen explizit), Terminologie-Fix in C) (F2B_CLASS_STATE/F2B_AUTH_DETAIL -> Tmp-String-0/1).
+- v1.2 (2026-01-13): Beispiele bereinigt: Verify/Claim als PANEL-only; Quota/Expiry/UNCLAIMED_OVERDUE/RateLimit sind RESTRICT (ACCEPT) und keine POLICY_DENY Reject-Gründe; POLICY_DENY Beispiele auf echte Kernel-Blocks fokussiert.
+- v1.1 (2026-01-13): Normalized VERSION header field (protocol compliance).
 - v1.0: initial (Policy: POLICY_DENY = YES, log-only; deterministische RADIUS Event-Klassifikation via control flags + linelog)
 ================================================================================

@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B110_NFT_L2TP_ONLY_VIA_IPSEC.txt
+xp-vpn-stack/blocks/B110_NFT_L2TP_ONLY_VIA_IPSEC.txt
 ================================================================================
 BLOCK-ID: B110
 TITLE: nftables: L2TP (UDP 1701) nur via IPsec/XFRM
-VERSION: v1.1
+VERSION: v1.2
+DATUM: 2026-01-14
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B060, B100
+INFLUENCES: alle
 OWNER-INTENT: UDP 1701 darf nie "blank" im Internet stehen.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- UDP 1701 ist ausschließlich erlaubt, wenn IPsec/XFRM-Policy greift; „nacktes L2TP“ wird konsequent gedroppt.
+- Keine Test-Ausnahme: Debug läuft über IPsec, sonst verwässert die Sicherheitsgarantie.
+- Die Umsetzung muss XFRM-Policy-Match (reqid/policy) nutzen, nicht nur Quell-IP, sonst ist NAT unsicher.
 ================================================================================
 
 1) ZWECK
@@ -15,7 +24,7 @@ OWNER-INTENT: UDP 1701 darf nie "blank" im Internet stehen.
 - Keine Ausnahme.
 
 3) ABHÄNGIGKEITEN
-- Requires: B100
+- Requires: B060, B100
 - Influences: Security posture
 
 4) INPUTS
@@ -40,8 +49,10 @@ OWNER-INTENT: UDP 1701 darf nie "blank" im Internet stehen.
 9) TESTS
 - external UDP scan: 1701 closed/filtered.
 
-10) CHANGELOG
+================================================================================
+CHANGELOG
+================================================================================
+- v1.2 (2026-01-14): Konsistenz: DATUM aktualisiert; REQUIRES/ABHÄNGIGKEITEN um B060 ergänzt (ens13 Interface-Quelle); Changelog-Datierung standardisiert. Keine Regeländerung.
 - v1.1: Scope-Präzisierung: UDP/1701 XFRM-Check gilt nur auf WAN-Input (iifname "ens13"); VPN-Input (ppp*) bleibt unberührt.
 - v1.0: Initial
-
 ================================================================================

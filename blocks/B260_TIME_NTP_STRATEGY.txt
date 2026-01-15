@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B260_TIME_NTP_STRATEGY.txt
+xp-vpn-stack/blocks/B260_TIME_NTP_STRATEGY.txt
 ================================================================================
 BLOCK-ID: B260
 TITLE: Time / NTP Strategy (XP Uhr-Probleme)
 VERSION: v1.0
+DATUM: 2026-01-06
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B150, B210
+INFLUENCES: alle
 OWNER-INTENT: TLS/Panel/Blockpage zuverlässig trotz kaputter XP-Uhr.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- Zeit ist ein echtes XP-Problem: falsche Uhrzeit bricht TLS/Certs und damit Panel/Portal.
+- Kein Verlass auf public NTP für Clients im Restricted Mode – lokaler NTP-Endpoint muss erreichbar bleiben.
+- NTP-Handling muss testbar sein (DNAT UDP/123 oder PPP-Push) inkl. „Uhr ist 2004“-Worst-Case.
 ================================================================================
 
 1) ZWECK
@@ -43,7 +52,8 @@ OWNER-INTENT: TLS/Panel/Blockpage zuverlässig trotz kaputter XP-Uhr.
 9) TESTS
 - Set XP time to 2005 -> run setup -> panel works.
 
-10) CHANGELOG
+================================================================================
+CHANGELOG
+================================================================================
 - v1.0: Initial
-
 ================================================================================

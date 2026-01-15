@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B030_PRINCIPLES_POLICYMODEL.txt
+xp-vpn-stack/blocks/B030_PRINCIPLES_POLICYMODEL.txt
 ================================================================================
 BLOCK-ID: B030
 TITLE: Principles / Policy Model
-VERSION: v1.0
+VERSION: v1.1
+DATUM: 2026-01-14
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B010, B020
+INFLUENCES: B050, B100, B120, B150, B160, B166, B200, B230
 OWNER-INTENT: Policy im OS, nicht in "VPN-Software" verankern.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- Default-Deny als Grundprinzip: alles ist verboten, bis es pro Segment/Use-Case explizit erlaubt wird.
+- Segment-Trennung (User/Admin + Service-IP) ist bindend; Ausnahmen müssen als eigener Block/Decision festgehalten werden.
+- Outcome/Reason-Codes sind kanonisch: gleiche Codes in DB, Logs, Panel und Fail2ban.
 ================================================================================
 
 1) ZWECK
@@ -47,7 +56,9 @@ OWNER-INTENT: Policy im OS, nicht in "VPN-Software" verankern.
 - Portscan User-Netz sieht nur 10.77.0.1:80/443/53 (wenn aktiv).
 + optional 10.77.0.1:123/UDP (wenn NTP aktiv).
 
-10) CHANGELOG
+================================================================================
+CHANGELOG
+================================================================================
+- v1.1 (2026-01-14): Terminologie-Fix: Outcome/Reason-Codes sind „Codes“, nicht „Tokens“.
 - v1.0: Initial
-
 ================================================================================

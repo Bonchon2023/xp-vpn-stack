@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B060_NETPLAN_IPS_SEGMENTS.txt
+xp-vpn-stack/blocks/B060_NETPLAN_IPS_SEGMENTS.txt
 ================================================================================
 BLOCK-ID: B060
 TITLE: Netzplan / IPs / Segmente / Bindings
-VERSION: v1.0
+VERSION: v1.1
+DATUM: 2026-01-14
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B010, B020, B040
+INFLUENCES: B100, B110, B120, B130, B140, B150, B200, B210, B220, B230, B260, B270, B280, B285
 OWNER-INTENT: Saubere IP-Architektur als Basis aller Policies.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- Fixe Segmentierung: User 10.77.10.0/24, Admin 10.77.20.0/24, Service-IP 10.77.0.1/32 (lo).
+- Keine zusätzlichen Netze/“Sonderrouten“ ohne Block/Decision – sonst bricht die Policy- und F2B-Logik.
+- IP-Vergabe erfolgt via PPP/IPCP; DNS/Routes werden konsistent über PPP-Push/Server-Policy gesetzt.
 ================================================================================
 
 1) ZWECK
@@ -16,7 +25,7 @@ OWNER-INTENT: Saubere IP-Architektur als Basis aller Policies.
 - Keine Vermischung der Netze.
 
 3) ABHÄNGIGKEITEN
-- Requires: B020, B040
+- Requires: B010, B020, B040
 - Influences: B100..B150, B200..B230
 
 4) INPUTS
@@ -28,8 +37,8 @@ OWNER-INTENT: Saubere IP-Architektur als Basis aller Policies.
 5) OUTPUTS (Bind-Matrix)
 - SSH bind: 127.0.0.1 + 10.77.0.1
 - OpenResty bind: 10.77.0.1:80/443
-- AdGuard DNS: 10.77.0.1:53
-- AdGuard UI: 10.77.0.1:2000 (admin only)
+- AdGuard DNS: 10.77.0.1:53 (UDP+TCP)
+- AdGuard UI: 10.77.0.1:2000 (nur Admin-Netz via nftables; Bind bleibt 10.77.0.1)
 - Unbound: 127.0.0.1:5335
 - NTP: 10.77.0.1:123 (UDP)
 
@@ -47,7 +56,9 @@ OWNER-INTENT: Saubere IP-Architektur als Basis aller Policies.
 - reboot: 10.77.0.1 existiert vor erster VPN session.
 - port checks: Web nur auf 10.77.0.1.
 
-10) CHANGELOG
+================================================================================
+CHANGELOG
+================================================================================
+- v1.1 (2026-01-14): Konsistenz/Redaktion: Header-DATUM aktualisiert; ABHÄNGIGKEITEN/Requires an Header angeglichen (B010 ergänzt); Bind-Matrix präzisiert (AdGuard DNS UDP+TCP, UI „admin only“ als nftables-Constraint klargestellt). Keine Architekturänderung.
 - v1.0: Initial
-
 ================================================================================

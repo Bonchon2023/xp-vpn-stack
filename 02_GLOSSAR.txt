@@ -1,4 +1,13 @@
-vpn_masterkonzept/02_GLOSSAR.txt
+xp-vpn-stack/02_GLOSSAR.txt
+================================================================================
+TITLE: Glossar (kanonische Begriffe)
+VERSION: v1.2
+DATUM: 2026-01-14
+STATUS: ACCEPTED
+OWNER-INTENT: Single Source of Truth für Terminologie; verhindert Drift bei UI-/DB-/Policy-Begriffen.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+================================================================================
+
 ================================================================================
 GLOSSAR / BEGRIFFE
 ================================================================================
@@ -17,9 +26,10 @@ Connection / VPN-Connection (UI-Begriff: VPN-Client): Pro Gerät genau eine Verb
 Customer: Kundenkonto im Panel/SQL, kann mehrere VPN-Connections besitzen (1 Kunde -> n Verbindungen).
 Customerwide (kundenweit): Gilt für alle Connections eines Customers (z.B. Verify-Wall im Panel / App-Layer Regeln).
 Panel-Account / Webpanel-Account: Login-Konto für das Webpanel (E-Mail/Verify/Abuse-Kontakt). Entspricht „Customer“.
+display_name: Optionaler Anzeigename für das Panel (UI-only; max 40 Zeichen; Begrüßung „Hallo <Name>“). Fallback wenn leer/NULL: email. Ausgabe im UI immer escaped (XSS-Schutz).
 VPN-Client (UI): Umgangssprachlicher/UI-Begriff für eine VPN-Connection (pro Gerät).
 Subaccount (AAA): Technischer VPN-Login-Account der VPN-Connection (pro Gerät). Besteht aus subaccount_login (Username) + subaccount_nt_hash (NT-Hash / RADIUS NT-Password; MSCHAPv2).
-subaccount_login: PPP/RADIUS Username (pro Gerät; vorkonfiguriert im VPN-Client; i.d.R. fix).
+subaccount_login: Systemgenerierter PPP/RADIUS Username (pro Gerät; AAA-Identität). Format: vpn_ + 16 Zeichen Base32 (a-z2-7), Regex ^vpn_[a-z2-7]{16}$. Random/non-enumerable; niemals user-supplied; im Panel sichtbar aber strikt read-only.
 subaccount_nt_hash: PPP/RADIUS Secret als NT-Hash (pro Gerät; im Panel änderbar per „Passwort setzen/rotieren“). SoT: NT-Hash (MSCHAPv2 / RADIUS NT-Password), kein Klartext als SoT.
 MSCHAPv2: PPP-Authentifizierungsmethode (XP-tauglich). RADIUS validiert per MSCHAPv2 gegen NT-Hash (NT-Password).
 NT-Hash / NT-Password: NT-Hash (MD4 über UTF-16LE Passwort). Wird in RADIUS als „NT-Password“ genutzt (für MSCHAPv2).
@@ -30,21 +40,23 @@ Conntrack-Flush: Löschen aller Conntrack-States einer Client-IP (bidirektional:
 Hard Cut: Enforcement-Regel (MUST): Wechsel in Restricted Mode wirkt sofort, auch für ESTABLISHED Flows (über Conntrack-Flush; kein „Soft Cut“/Auslaufenlassen).
 Fail-Closed: Sicherheitsprinzip: Bei Apply/Enforcement-Fehlern darf keine „unkontrollierte“ Session Traffic führen; deterministischer Abbruch (z.B. PPP-Session Kill) ist Pflicht.
 Claim-Token (claim_token): Ein Geräte-Token zur Übernahme (Claim) einer preprovisionierten VPN-Connection im Panel. Nie für VPN-Login.
-F2B_EVENT: Kanonische, maschinenlesbare Logzeile (key=value) für Fail2ban; enthält mindestens Class, SrcIP, User, Reason (optional Detail).
-F2B_CLASS: Kanonische Event-Klasse für Fail2ban-Entscheidungen (RADIUS): UNKNOWN_USER | KNOWN_BADPASS | BACKEND_ERROR | POLICY_DENY (log-only).
+F2B_EVENT: Kanonische, maschinenlesbare Logzeile (key=value, Prefix "F2B_EVENT:"); Pflichtfelder: Class, SrcIP, User, Outcome, Reason; optional: Detail.
+F2B_CLASS: Kanonische Event-Klasse in F2B_EVENT. Werte: UNKNOWN_USER | KNOWN_BADPASS | BACKEND_ERROR | POLICY_DENY | POLICY_RESTRICT | OK. Bannbar: nur UNKNOWN_USER, KNOWN_BADPASS.
 SrcIP: WAN-Quelle für Fail2ban; aus Calling-Station-Id nur wenn als IP parsebar, sonst NA (NA darf niemals gebannt werden).
-Tmp-String Reservation: FreeRADIUS Control-Attribute, exklusiv reserviert für Event-Klassifikation: &control:Tmp-String-0=F2B_CLASS_STATE, &control:Tmp-String-1=AUTH_DETAIL.
+Tmp-String Reservation: FreeRADIUS Control-Attribute, exklusiv reserviert: &control:Tmp-String-0=IDENTITY_STATE, &control:Tmp-String-1=AUTH_DETAIL, &control:Tmp-String-2=POLICY_OUTCOME, &control:Tmp-String-3=POLICY_REASON.
 AUTH_DETAIL: Interner Detail-Flag zur deterministischen Auth-Fehlererkennung (z.B. MSCHAP_FAIL).
+IDENTITY_STATE: Interner Auth-State (authorize) zur deterministischen Klassifikation: UNKNOWN | KNOWN | BACKEND_ERROR.
 POLICY_OUTCOME: Ergebnis einer Policy-Entscheidung für VPN-Zugang: DENY (Reject) | RESTRICT (Accept + Walled Garden) | OK (Accept + Full Tunnel).
 POLICY_DENY: Log-only Marker für „Auth ok, aber Policy blockiert“; darf niemals Fail2ban triggern (NAT-Safety).
 POLICY_RESTRICT: Outcome RESTRICT (Accept), Tunnel steht, aber Walled Garden/Restricted Mode aktiv.
-R_ Reason-Codes: Kanonische Policy-Gründe als Codes (Support/Observability), deterministisch priorisiert (z.B. R_ACCOUNT_BANNED, R_QUOTA_EXCEEDED, R_CLAIM_REQUIRED).
+R_ Reason-Codes: Kanonische Kernel-/Policy-Gründe als Codes (Support/Observability). Beispiele (B342-canonical): R_ACCOUNT_BANNED, R_POLICY_QUOTA_EXHAUSTED, R_POLICY_UNCLAIMED_OVERDUE, R_SECURITY_RATE_LIMITED; PANEL-Reasons (z.B. R_PANEL_CLAIM_REQUIRED) sind Panel-only; Legacy-Codes können als DEPRECATED Alias auf Canonicals abgebildet sein.
 R_AUTH_ Reason-Codes: Kanonische Auth-/Infra-Gründe als Codes (z.B. R_AUTH_BACKEND_SQL_DOWN, R_AUTH_BACKEND_SQL_FAIL, R_AUTH_UNKNOWN_USER, R_AUTH_KNOWN_BADPASS).
 D1a (SQL First / Fail-Closed): Sicherheitsregel: Wenn SQL/Backend nicht verfügbar ist, darf keine VPN-Session entstehen (Reject), ohne Fail2ban-Ban-Sturm.
 NAT-Safety: Sicherheitsziel: Fail2ban darf legitime Nutzer hinter NAT nicht kollektiv aussperren; daraus folgt: Bans nur für UNKNOWN_USER und KNOWN_BADPASS; niemals für POLICY_DENY/BACKEND_ERROR.
 Terminologie-Regel (MUST): Das Wort „Token“ darf im gesamten Konzept nicht unqualifiziert verwendet werden.
 Zulässig sind nur: claim_token (Claim), csrf_token (Webpanel), session_token (Webpanel). „Token“ allein ist verboten.
-Decision Record: Textdatei im decisions/ Ordner, die eine bindende Architekturentscheidung festhält (D001..D008).
+Hinweis: Verify-Code (email_verify_code) ist bewusst ein „Code“ und kein Token-Begriff.
+Decision Record: Textdatei im decisions/ Ordner, die eine bindende Architekturentscheidung festhält (D001..D012).
 DPD: Dead Peer Detection (strongSwan).
 ESP: Encapsulating Security Payload (IPsec, Proto 50).
 Expiry: Ablaufdatum einer Verbindung; nach Expiry kann DISABLED oder Restricted gesetzt werden (je Policy).
@@ -52,7 +64,10 @@ FQDN: Fully Qualified Domain Name, z.B. vpn.example.tld.
 FLUSH+REBUILD: Deterministischer Reconcile-Ansatz: nft set wird geleert und exakt aus SQL/Runtime neu aufgebaut.
 Full-Tunnel: Standard-Route der Clients geht über VPN; gesamter Traffic über den Server.
 Verify-Wall: App-Layer Onboarding-Sperre im Panel. Bis Email-Code bestätigt ist, ist der Panelzugriff auf die Verify-Seite begrenzt (kein Claim/keine Client-Verwaltung).
-UNCLAIMED / Grace: Zustand einer vorprovisionierten VPN-Connection, die noch keinem Customer zugeordnet ist. Während Grace ist Internet möglich (Full-Tunnel), damit Panel-Login/Verify/Claim durchgeführt werden kann.
+UNCLAIMED / Grace: Zustand einer vorprovisionierten VPN-Connection, die noch keinem Customer zugeordnet ist (DB-Status: PREPROVISIONED). Während Grace ist Internet möglich (Full-Tunnel), damit Panel-Login/Verify/Claim durchgeführt werden kann.
+Verify-Code (email_verify_code): Kurzlebiger, single-use Code zur E-Mail-Verifikation im Panel (Code wird im Panel eingegeben; kein Link-Klick).
+Abgrenzung: Verify-Code ist kein csrf_token, kein session_token und kein claim_token.
+Details: Flow in B155, Security/RateLimits in B285, Schema in B055.
 UNCLAIMED_OVERDUE: Grace-Zeitraum abgelaufen (z.B. 30 Tage) und Connection ist weiterhin unclaimed -> Kernel-Restricted Mode (Walled Garden: nur Panel/DNS/NTP).
 Ghost Session: “tote” Session, die in Accounting/State noch offen wirkt (z.B. WLAN weg), aber real nicht mehr lebt.
 IKEv1: Internet Key Exchange Version 1 (XP kompatibel, Legacy).
@@ -63,7 +78,7 @@ ip-up / ip-down: pppd Hooks; zentrale Integrationspunkte (Mapping, tc, policy ap
 L2TP: Layer 2 Tunneling Protocol (UDP 1701).
 LCP: Link Control Protocol (PPP Keepalive/Echo).
 Legacy Provider: OpenSSL-Mechanismus, um Legacy-Algorithmen (z.B. SHA1/3DES) auf Debian 13 nutzbar zu halten.
-Mapping (pppX -> connection_id): Runtime-Zuordnung eines PPP-Interfaces zu einer Connection-ID (SQL-Truth). MUST enthält PPPD_PID + PPP_IF + START_TS (PID-Reuse Schutz / Validierung).
+Mapping (pppX -> vpn_connection_id): Runtime-Zuordnung eines PPP-Interfaces zu einer vpn_connection_id (SQL-Truth / DB-PK). MUST enthält PPPD_PID + PPP_IF + START_TS (PID-Reuse Schutz / Validierung). Hinweis: Im /run Mapping heißt der Feldname CONNECTION_ID und trägt den Wert der vpn_connection_id.
 MITM Blockpage: HTTPS Sperrseite durch eigenes Zertifikat pro Domain (SNI), erzeugt durch interne CA.
 MSS Clamping: Setzen der TCP MSS in SYN, um Fragmentierungsprobleme zu vermeiden (MTU/Kapselung).
 NAT-T: NAT Traversal (IPsec über UDP 4500).
@@ -71,6 +86,7 @@ NSS: Mozilla Network Security Services, Zertifikatsspeicher (cert8.db/cert9.db).
 On-demand Janitor: Cleanup, der beim Login versucht stale Sessions zu schließen, um SimUse Lockouts zu verhindern.
 OpenResty: Nginx mit Lua, geeignet für dynamische TLS-Logik (MITM) + Panel/Portal-Frontend.
 Panel: Weboberfläche für User/Admin (intern, nur über VPN erreichbar; User-Login IP-bound).
+IP-bound Login (Panel): Panel-Session ist an die zugehörige VPN-Client-IP (fixed_ip der VPN-Connection) gebunden. Login/Session-Nutzung ist nur gültig, wenn die Request-Quelle diese IP ist (kein Zugriff von “fremden” VPN-IPs / kein WAN).
 pppX: Virtuelles Interface pro Clientverbindung (ppp0, ppp1, ...).
 PPPD_PID: PID des pppd-Prozesses, der die Session repräsentiert (Kill-Handle MUST). Muss aus dem pppd/ip-up Kontext stammen (kein pgrep; Race vermeiden).
 PPP_IF: Name des PPP-Interfaces (pppX), das zur Session gehört (Plausibilitätscheck).
@@ -98,6 +114,13 @@ DNAT53: DNS-Zwang via nft nat prerouting; TCP+UDP 53 wird auf 10.77.0.1:53 umgel
 DNS Counters (Counters-only): Optionales Nice-to-have: nftables Counters für DNAT53/Policy-Pfade (Pakete/Bytes), ohne Logging/Forensik (keine Ziel-IPs/Domains).
 run-state (/run/vpn-sessions): Temporärer Runtime-State (tmpfs), enthält pppX.env Mapping; nach reboot leer.
 
+================================================================================
+CHANGELOG
+================================================================================
+- 2026-01-14 v1.2: Verify-Code (email_verify_code) ergänzt + Terminologie-Regel präzisiert (Verify-Code ist Code, kein Token).
+- 2026-01-14 v1.1: Terminologie-Fix: vpn_connection_id vs connection_id sauber gezogen; Decision-Range aktualisiert; IP-bound Login definiert; UNCLAIMED<->PREPROVISIONED Klarstellung.
+- 2026-01-13 v1.0: Added VERSION/CHANGELOG sections (protocol compliance).
+================================================================================
 ================================================================================
 ENDE 02_GLOSSAR.txt
 ================================================================================

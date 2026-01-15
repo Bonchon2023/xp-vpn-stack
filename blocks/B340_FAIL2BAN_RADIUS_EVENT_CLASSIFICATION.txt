@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B340_FAIL2BAN_RADIUS_EVENT_CLASSIFICATION.txt
+xp-vpn-stack/blocks/B340_FAIL2BAN_RADIUS_EVENT_CLASSIFICATION.txt
 ================================================================================
 BLOCK-ID: B340
 TITLE: Fail2ban (RADIUS) – Kanonische Event-Klassifikation (F2B_EVENT) + NAT-Safety
-VERSION: v1.0.0
+VERSION: v2.9
+DATUM: 2026-01-15
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B050, B150, B155
+INFLUENCES: B310
 OWNER-INTENT: Deterministische, NAT-sichere Fail2ban-Auswertung auf RADIUS-Ebene ohne Self-DoS.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- F2B_EVENT ist ein Contract: pro RADIUS-Request genau ein klassifiziertes Event (Outcome/Reason + NAT-Safety Felder).
+- Backend-Fehler dürfen keine Bans auslösen; Regex/Filter müssen das technisch garantieren.
+- Validierung/Support: Events müssen per tcpdump/radsniff nachvollziehbar sein (Calling-Station-Id, SrcIP), sonst ist Debug unmöglich.
 ================================================================================
 
 ================================================================================
@@ -29,22 +38,83 @@ Fail2ban **darf ausschließlich** eine dedizierte Logline matchen (kein Parsing 
 Format (kanonisch):
 - Prefix MUSS exakt `F2B_EVENT:` sein.
 - Danach `key=value` Paare (Leerzeichen getrennt).
-- Keys (MUST): `Class`, `User`, `SrcIP`, `Reason`
+- Keys (MUST): `Class`, `SrcIP`, `User`, `Outcome`, `Reason`
 - Keys (SHOULD): `Detail`
 
 Beispiel (kanonisch):
-F2B_EVENT: Class=UNKNOWN_USER User=foo SrcIP=203.0.113.10 Reason=R_AUTH_UNKNOWN_USER Detail=NA
+F2B_EVENT: Class=UNKNOWN_USER SrcIP=203.0.113.10 User=foo%20bar Outcome=DENY Reason=R_AUTH_UNKNOWN_USER Detail=NA
+
+## 2.1 EMISSION-CONTRACT (MUST)
+Ziel: `F2B_EVENT` ist eine dedizierte Maschinen-Schnittstelle. Damit Fail2ban deterministisch bleibt, MUSS die Emission strikt geregelt sein.
+
+MUST: Genau eine Event-Zeile pro Request
+- Pro eingehendem RADIUS Request DARF exakt EINE `F2B_EVENT`-Zeile geschrieben werden.
+- Es muss eindeutig sein, ob der Request ein ACCEPT oder REJECT war:
+  - Bei REJECT: genau eine Zeile im REJECT-Pfad.
+  - Bei ACCEPT: MUSS genau eine Zeile im ACCEPT-Pfad geschrieben werden (Observability/Audit; Fail2ban ignoriert `Class=OK` technisch).
+- Doppel-Emission (ACCEPT + REJECT für denselben Request) ist VERBOTEN.
+
+MUST: Deterministischer Guard gegen Doppel-Emission (Flag-Guard)
+- Es MUSS ein request-lokales Flag verwendet werden, um sicherzustellen, dass pro Request maximal ein Event emittiert wird.
+- Kanonischer Flag-Name: `control:F2B_EMITTED`
+  - Initialzustand: nicht gesetzt oder `0`
+  - Pre-Check: Wenn `control:F2B_EMITTED==1` => keine weitere Emission (Skip).
+  - Post-Set: unmittelbar nach erfolgreicher Emission => `control:F2B_EMITTED=1`
+- Scope: request-lokal (nur aktueller RADIUS-Request).
+- MUST NOT: Kein anderer Codepfad darf dieses Flag setzen/unsetten außer dem F2B-Emitter.
+
+MUST: Post-Auth-Type / Hook-Mechanik (FreeRADIUS)
+- REJECT-Pfad:
+  - Emission MUSS im `Post-Auth-Type REJECT` über `linelog` erfolgen (dedizierte Datei für Fail2ban-Input).
+- ACCEPT-Pfad:
+  - Da ACCEPT-Emission MUST ist, MUSS sie über einen ACCEPT-Hook erfolgen (z.B. `Post-Auth-Type ACCEPT` oder am Ende der regulären `post-auth`-Sektion), ebenfalls als `F2B_EVENT`.
+- Der Emissionsort ist Teil des Contracts: Fail2ban darf nur diese dedizierte Quelle matchen (kein Parsing von Standard-Radiuslogs).
+
+Hinweis:
+- Der konkrete Logfile-Pfad für Fail2ban ist in B341 kanonisch definiert (logpath).
+
+## 2.2 SANITIZING-CONTRACT (MUST) – Percent-Encoding (RFC 3986)
+Ziel: Das Logformat ist space-separated `key=value`. Jegliches Whitespace/Control-Char im Value würde die Struktur brechen (Injection/Parser-Bruch).
+
+MUST: Sanitizing gilt für `User` und `Detail`
+- `User` und `Detail` sind potentieller User-Input und MÜSSEN deterministisch „space-safe“ gemacht werden.
+- Die Log-Struktur bleibt unquoted (kein `key="value"`), um Ripple-Effekte auf B341 (Regex) zu vermeiden.
+
+MUST: RFC3986 Percent-Encoding (lossless, reversibel)
+- Basis: UTF-8 bytes des Originalstrings.
+- Unreserved bleiben unverändert: `A–Z a–z 0–9 - . _ ~`
+- Alle anderen Bytes werden als `%HH` (Hex, upper-case empfohlen) kodiert.
+  - Beispiele: Space => `%20`, `=` => `%3D`, `"` => `%22`, `\n` => `%0A`, `\r` => `%0D`, `\0` => `%00`
+- Ergebnis ist 1-zeilig und enthält keine Whitespaces/Control-Chars.
+
+MUST: NA-Marker für leere Werte
+- Wenn Rohwert leer/NULL ist:
+  - `User=NA`
+  - `Detail=NA`
+
+MUST: Length Caps (nach Encoding) + safe truncate
+- Nach Encoding gilt:
+  - `User` max 64 Zeichen
+  - `Detail` max 256 Zeichen
+- Beim Kürzen darf kein halbes `%HH` am Ende entstehen (safe truncate; ggf. bis vor das `%` zurückschneiden).
 
 ## 3) SrcIP ERMITTLUNG / SAFETY (MUST)
 Ziel: Fail2ban bans müssen auf der **echten Peer-Quelle** basieren (WAN-IP), niemals auf `localhost`.
 
 Regel:
 - `SrcIP` MUSS eine **parsebare IPv4 oder IPv6** sein, sonst MUSS `SrcIP=NA` geloggt werden.
-- `SrcIP=NA` **darf niemals** ein Fail2ban-Match/Ban auslösen.
+- `SrcIP=NA` **darf niemals** ein Fail2ban-Match auslösen.
+  - Fail2ban Regex MUSS zwingend `<ADDR>` verwenden (nicht `<HOST>`), da `<ADDR>` nur IPs matcht und Strings wie "NA" ignoriert.
 
-Quelle:
-- `SrcIP` SOLL aus **RADIUS Calling-Station-Id (Attr 31)** abgeleitet werden, **wenn** es als IP parsebar ist.
-- Wenn Calling-Station-Id nicht parsebar ist: `SrcIP=NA`.
+Quelle (hardening):
+- `SrcIP` MUSS ausschließlich aus **RADIUS Calling-Station-Id (Attr 31)** abgeleitet werden, **wenn** es als IP parsebar ist.
+- Wenn Calling-Station-Id fehlt oder nicht parsebar ist: `SrcIP=NA`.
+
+MUST NOT (explizit verboten als SrcIP-Quelle):
+- `Framed-IP-Address` (interne VPN-IP)
+- `NAS-IP-Address` / `NAS-IPv6-Address` (Server/NAS)
+- Packet-Source-IP (NAT/Docker/Proxy)
+- DNS/Hostnames als Ersatz
 
 Self-DoS Schutz:
 - `SrcIP` MUSS gegen Loopback/localhost geschützt werden:
@@ -55,47 +125,73 @@ Klassifikation darf **nicht** auf Logtext-Regex/Fehlermeldungen basieren.
 Stattdessen wird ein deterministischer Status über reservierte Control-Flags geführt.
 
 ### 4.1 Reservierte Control Slots (MUST, Invariant)
+Die Flags müssen explizit initialisiert und gesetzt werden (Unlang-Logik):
+
+1. Init (Vor jeder Klassifikation):
+   update control {
+       Tmp-String-0 := "UNKNOWN"     # IDENTITY_STATE
+       Tmp-String-1 := "NONE"        # AUTH_DETAIL
+       Tmp-String-2 := "OK"          # POLICY_OUTCOME
+       Tmp-String-3 := "NONE"        # POLICY_REASON
+   }
+
+2. Authorize Phase (SQL Return):
+   if (fail) { update control { Tmp-String-0 := "BACKEND_ERROR" } }
+   elsif (notfound) { update control { Tmp-String-0 := "UNKNOWN" } }
+   else { update control { Tmp-String-0 := "KNOWN" } }
+
+3. Authenticate Phase (MSCHAP):
+   if (reject) { update control { Tmp-String-1 := "MSCHAP_FAIL" } }
+
 Diese Slots sind exklusiv reserviert:
-- `&control:Tmp-String-0` = `F2B_CLASS_STATE`
-- `&control:Tmp-String-1` = `AUTH_DETAIL`
+- `&control:Tmp-String-0` = `IDENTITY_STATE` (Werte: UNKNOWN | KNOWN | BACKEND_ERROR)
+- `&control:Tmp-String-1` = `AUTH_DETAIL`    (Werte: NONE | MSCHAP_FAIL)
+- `&control:Tmp-String-2` = `POLICY_OUTCOME` (Werte: OK | RESTRICT | DENY)
+- `&control:Tmp-String-3` = `POLICY_REASON`  (Werte: R_* | NONE)
 
 Sie dürfen für keinen anderen Zweck verwendet werden.
 
 ### 4.2 Kanonische Werte
-`F2B_CLASS_STATE` (MUST, authorize-Phase):
+`IDENTITY_STATE` (MUST, authorize-Phase):
 - `UNKNOWN`        (User existiert nicht / SQL NOTFOUND)
 - `KNOWN`          (User existiert / SQL OK)
 - `BACKEND_ERROR`  (SQL FAIL / Timeout / Backend down)
 
 `AUTH_DETAIL` (MUST, authenticate-Phase):
 - `MSCHAP_FAIL`    (MSCHAPv2 Reject für einen KNOWN User)
-- leer/NA          (sonst)
+- `NONE`           (sonst)
 
 ### 4.3 Mapping auf Fail2ban-Klassen (MUST, post-auth reject)
 Die `Class` in `F2B_EVENT` MUSS wie folgt abgeleitet werden:
 
 A) UNKNOWN_USER (Fail2ban-relevant)
-- Wenn `F2B_CLASS_STATE=UNKNOWN`
+- Wenn `IDENTITY_STATE=UNKNOWN`
 => `Class=UNKNOWN_USER`
 => `Reason=R_AUTH_UNKNOWN_USER`
 
 B) BACKEND_ERROR (nicht bannen)
-- Wenn `F2B_CLASS_STATE=BACKEND_ERROR`
+- Wenn `IDENTITY_STATE=BACKEND_ERROR`
 => `Class=BACKEND_ERROR`
 => `Reason=R_AUTH_BACKEND_SQL_DOWN` ODER `Reason=R_AUTH_BACKEND_SQL_FAIL` (je nach Detektion)
 => Fail2ban MUSS dieses Event ignorieren (siehe B341).
 
 C) KNOWN_BADPASS (Fail2ban-relevant)
-- Wenn `F2B_CLASS_STATE=KNOWN` UND `AUTH_DETAIL=MSCHAP_FAIL`
+- Wenn `IDENTITY_STATE=KNOWN` UND `AUTH_DETAIL=MSCHAP_FAIL`
 => `Class=KNOWN_BADPASS`
 => `Reason=R_AUTH_KNOWN_BADPASS`
 
 D) POLICY_DENY (log-only, nicht bannen)
-- Wenn `F2B_CLASS_STATE=KNOWN` UND `AUTH_DETAIL!=MSCHAP_FAIL`
-UND der Login dennoch mit Reject endet (Policy/State)
-=> `Class=POLICY_DENY`
-=> `Reason=POLICY_DENY`
+- Wenn Outcome=DENY (aus Policy), aber Auth war OK
+=> `Class=POLICY_DENY`, `Outcome=DENY`, `Reason=<R_KERNEL_REASON>` (B342-canonical; niemals R_PANEL_*)
 => Fail2ban MUSS dieses Event ignorieren (NAT-Safety).
+
+E) POLICY_RESTRICT (log-only, nicht bannen)
+- Wenn Outcome=RESTRICT (aus Policy)
+=> `Class=POLICY_RESTRICT`, `Outcome=RESTRICT`, `Reason=<R_KERNEL_REASON>` (B342-canonical; niemals R_PANEL_*)
+
+F) OK (log-only, nicht bannen)
+- Wenn Outcome=OK
+=> `Class=OK`, `Outcome=OK`, `Reason=R_OK`
 
 ## 5) NAT-SAFETY / BAN-REGEL (MUST)
 Fail2ban darf **nur** diese Klassen bannen:
@@ -103,18 +199,29 @@ Fail2ban darf **nur** diese Klassen bannen:
 - `KNOWN_BADPASS`
 
 Fail2ban darf **niemals** bannen bei:
-- `BACKEND_ERROR` (D1a: Backend down => Fail-Closed Reject, aber kein Ban-Sturm)
-- `POLICY_DENY`   (Policy-Block ist kein Angriff; NAT-safety)
+- `BACKEND_ERROR`    (D1a: Backend down => Fail-Closed Reject, aber kein Ban-Sturm)
+- `POLICY_DENY`      (Policy-Block ist kein Angriff; NAT-safety)
+- `POLICY_RESTRICT`  (Self-Service/Walled Garden; NAT-safety)
+- `OK`               (Success; NAT-safety)
 
 ## 6) OBSERVABILITY (MUST)
 `F2B_EVENT` ist eine **Maschinen-Schnittstelle**. Sie MUSS stabil bleiben.
-`Reason` MUSS kanonisch sein (R_AUTH_* oder POLICY_DENY).
+`Reason` MUSS kanonisch sein (Auth/Infra: `R_AUTH_*` nach B340; Kernel/Policy: B342-canonical `R_*` inkl. Domains `R_ACCOUNT_*`/`R_POLICY_*`/`R_SECURITY_*` + `R_OK`; DEPRECATED Codes nur als Alias auf Canonicals). `R_PANEL_*` ist PANEL-only und DARF in RADIUS F2B_EVENT nicht verwendet werden.
+
+Fallback (nur wenn zwingend nötig, vermeiden):
+- `R_AUTH_UNSPECIFIED` (nur Auth/Infra; niemals für Policy-Reasons verwenden)
+
+- VERALTET/VERBOTEN: `R_AUTH_BACKEND_SQL_ERROR` darf nicht verwendet werden (Legacy). Muss zu `R_AUTH_BACKEND_SQL_FAIL` migriert werden.
 
 Erwartete Operator-Nutzung:
 - Support/Debug liest `F2B_EVENT` (Class/Reason/SrcIP) für Auth/Abuse.
 - Policy/Outcome Debug erfolgt über Policy-Logs (siehe B342/B166), nicht über Fail2ban.
 
 ## 7) TESTS / DOD (MUST)
+T0 OK (ACCEPT Emission MUST):
+- erfolgreicher Login -> `Class=OK`, `Outcome=OK`, `Reason=R_OK`, **kein Ban**.
+- `User`/`Detail` sind percent-encoded (RFC3986); leere Werte => `NA`.
+
 T1 UNKNOWN_USER:
 - falscher Username -> `Class=UNKNOWN_USER`, `SrcIP` = echte Peer-IP, Ban möglich.
 
@@ -130,9 +237,37 @@ T4 POLICY_DENY:
 T5 Self-DoS:
 - wenn Calling-Station-Id = localhost/127.0.0.1/::1 oder nicht-IP -> `SrcIP=NA` und **kein Ban**.
 
+T6 Collision Safety:
+- Tmp-String-0 bis -3 dürfen von keinem anderen Modul überschrieben werden (Test durch inject).
+
+T7 Policy Logging:
+- RESTRICT Outcome erzeugt `Class=POLICY_RESTRICT` und `Outcome=RESTRICT` in F2B_EVENT (ohne Ban).
+
+T8 Tooling-Nachweis (empfohlen, Support/Validierung):
+- Ziel: Nachweis, dass `Calling-Station-Id`/Peer-IP korrekt ankommt und daraus `SrcIP` korrekt in `F2B_EVENT` abgeleitet wird
+  (insb. NAT-Safety: niemals localhost/NA bannen).
+- tcpdump (Beispiel, kann je nach Setup variieren):
+  - Capture auf Loopback (RADIUS lokal): `tcpdump -ni lo udp port 1812 -vv`
+  - Erwartung: RADIUS-Requests sind sichtbar; `Calling-Station-Id` ist im Request enthalten (oder wird im Radius-Log sichtbar).
+- radsniff (Beispiel, falls installiert; Syntax kann je nach Version variieren):
+  - RADIUS-Pakete dekodieren (z.B. auf `lo`/Port 1812) und Attribute wie `Calling-Station-Id` prüfen.
+- Erwartung (MUST):
+  - `Calling-Station-Id` = echte Peer-IP (oder definierter Fallback), und `F2B_EVENT` übernimmt exakt diese Peer-IP deterministisch in `SrcIP=<ADDR>` (B340 Contract: `SrcIP` ist parsebare Peer-IP oder `NA`).
+  - Wenn `Calling-Station-Id` localhost/127.0.0.1/::1 oder nicht-IP ⇒ `SrcIP=NA` und Fail2ban-Regex darf nicht matchen.
+
 ================================================================================
-2) CHANGELOG
+CHANGELOG
 ================================================================================
+- v2.9 (2026-01-15): Contract-Härtung/Zeilenfest: REJECT-Emission im Hook-Abschnitt von SOLL→MUSS; einzige verbliebene Ellipse im T8-Tooling-Teil entfernt (kein Format-/Logikwechsel).
+- v2.8 (2026-01-14): Redaktions-Fix im Abschnitt „Post-Auth-Type / Hook-Mechanik“: ACCEPT-Pfad Formulierung auf MUST konsolidiert (kein „optional/SOLL/wenn“), ohne Ellipsen/Platzhalter.
+- v2.7 (2026-01-14): Drittprüfung L-1..L-5 umgesetzt: ACCEPT-Emission ist MUST (Class=OK), deterministischer Flag-Guard `control:F2B_EMITTED`, SrcIP hardening (Calling-Station-Id only; verbotene Quellen explizit), Sanitizing-Contract via RFC3986 Percent-Encoding inkl. NA-Marker + Caps (User=64, Detail=256), T0 OK-Test ergänzt. Keine Änderung an B341 erforderlich.
+- v2.6 (2026-01-14): Konsistenz: 4.2 Kanonische Werte bereinigt (doppelte Definition `F2B_CLASS_STATE` entfernt; `IDENTITY_STATE` bleibt kanonisch). Keine Logikänderung.
+- v2.5 (2026-01-14): Redaktion/Konsistenz: Header-DATUM aktualisiert; 4.2 „Kanonische Werte“ bereinigt (AUTH_DETAIL/IDENTITY_STATE nicht doppelt; AUTH_DETAIL Default ist konsistent `NONE`). Keine Logikänderung.
+- v2.4 (2026-01-13): Placeholder/Regeln präzisiert: Policy-Reasons sind B342-canonical Kernel-Reasons (`<R_KERNEL_REASON>`, niemals R_PANEL_*); Observability-Regel um Domains/Alias-Konzept erweitert (B342-konsistent).
+- v2.3 (2026-01-13): Tests ergänzt: Tooling-Nachweis (tcpdump/radsniff) für Calling-Station-Id/SrcIP zur Support/Validierung.
+- v2.2 (2026-01-12): Emission-Contract ergänzt: Post-Auth-Type REJECT / ACCEPT-Hook + Invariante „genau eine F2B_EVENT Logline pro Request“ (löschfest ohne T-Buffer).
+- v2.1 (2026-01-12): Auth-Fallback `R_AUTH_UNSPECIFIED` dokumentiert (aus T-SOT übernommen), ohne Semantikänderung der Ban-Regeln.
+- v2.0 (2026-01-12): T-SOT Sync: Outcome als MUST-Key in F2B_EVENT, IDENTITY_STATE Naming (statt F2B_CLASS_STATE), NAT-Safety „niemals bannen“ um POLICY_RESTRICT/OK erweitert, Reason-Regel präzisiert, `<HOST>`-Hinweis korrigiert.
 - v1.0.0 (2026-01-11): Neu angelegt. Kanonisches `F2B_EVENT` Format + deterministische Klassifikation + NAT-Safety + Self-DoS Schutz.
 ================================================================================
 END BLOCK B340

@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B285_PANEL_SECURITY_MODEL.txt
+xp-vpn-stack/blocks/B285_PANEL_SECURITY_MODEL.txt
 ================================================================================
 BLOCK-ID: B285
 TITLE: Panel Security Model (AuthN/AuthZ/CSRF/RateLimit/Audit/Scopes)
-VERSION: v1.3
+VERSION: v1.8
+DATUM: 2026-01-14
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B050, B220, B270, B280
+INFLUENCES: B150, B166, B310, B330
 OWNER-INTENT: Panel ist die Zentrale. Zugriff muss sicher, deterministisch und XP-tauglich sein – ohne WAN-Exposure, mit klaren Scopes, RateLimits und Audit.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- Sicherheitsmodell ist Pflicht: AuthN/AuthZ, CSRF, RateLimit, Audit-Log – kein „wird schon“. 
+- Keine „Admin überall“: admin-only Bereiche sind technisch enforced (Netz/Role/Scope), nicht nur per Menü.
+- Session/Cookie-Härtung (SameSite, Secure, HttpOnly) + IP/Device-Binding optional; alles testbar dokumentieren.
 ================================================================================
 
 1) ZWECK (WAS wird gelöst?)
@@ -28,11 +37,13 @@ OWNER-INTENT: Panel ist die Zentrale. Zugriff muss sicher, deterministisch und X
 - Requires:
   - B050 (SQL als Source of Truth; Status/Flags/Restricted)
   - B220 (Webstack intern; Service-Bindings; DB lokal)
+  - B270 (siehe B270; wird von diesem Block vorausgesetzt)
   - B280 (Panel Features/Flows: Allowlist Login, Verify-Wall, Claim)
   - docs/nft_service_ip_scopes.txt (Input-Scopes: wer darf welche Ports/Paths erreichen)
 - Influences:
   - B150 (Restricted Mode muss Panel/Verify/Claim erreichbar lassen)
   - B166 (Apply/Reconcile Trigger bei Policy-relevanten Panel-Aktionen)
+  - B310 (nutzt/konkretisiert dieses Panel-Security-Modell als Downstream-Block)
   - B330 (Logging/Retention/Alerts)
 
 4) INPUTS (Konzept-Daten/Signale)
@@ -45,7 +56,13 @@ OWNER-INTENT: Panel ist die Zentrale. Zugriff muss sicher, deterministisch und X
 - Connection-Status/Flags aus SQL:
   - restricted_effective (Quota/Expiry/Manual/UNCLAIMED_OVERDUE)
   - fixed_ip pro Connection
-- Claim Token (App-Layer) und Verify-Code (App-Layer)
+- claim_token (App-Layer) und Verify-Code (email_verify_code, App-Layer)
+- Verify-Code Security-Contract (MUST):
+  - Zustellung: per E-Mail; Benutzer kann Code auf anderem Gerät abrufen und im Panel eingeben.
+  - Speicherung: Klartext-Code wird nicht persistiert; serverseitig wird nur ein Hash gespeichert (verify_code_hash, siehe DB-Schema B055).
+  - TTL: Verify-Code hat eine definierte Ablaufzeit (SQL-first Setting) und endet technisch in verify_code_expires_at (siehe B055).
+  - RateLimits: getrennte Limits für Code-Eingabe und Resend (SQL-first Settings); Failures führen nicht zu User-Enumeration.
+  - Single-use: erfolgreicher Code invalidiert sich sofort (oder wird nach Erfolg gelöscht/rotiert).
 
 5) OUTPUTS (Sicherheitsgarantien)
 - Kein WAN-Login möglich (Panel ist intern-only; Scopes enforced).
@@ -71,6 +88,9 @@ OWNER-INTENT: Panel ist die Zentrale. Zugriff muss sicher, deterministisch und X
 
 6.2 AuthN (Login, Passwörter, Sessions)
 - Session-basierte AuthN (XP-tauglich; keine modernen Browser-Features voraussetzen).
+- Login-Identifier (SoT): Panel-Login erfolgt ausschließlich über customers.email (E-Mail bleibt SoT).
+- display_name ist UI-only (max 40) und darf AuthN/AuthZ/Policy niemals beeinflussen; Ausgabe im UI ist escaped (XSS-Schutz).
+- subaccount_login ist die VPN-AAA-Identität (PPP/RADIUS Username), system-generated/non-enumerable; im Panel nur read-only sichtbar und niemals als Panel-Login zu verwenden.
 - Passwörter:
   - Speicherung nur gehasht (PHP password_hash), bevorzugt Argon2id; falls nicht verfügbar: bcrypt.
   - Keine Klartextpasswörter in Logs, niemals.
@@ -122,9 +142,9 @@ OWNER-INTENT: Panel ist die Zentrale. Zugriff muss sicher, deterministisch und X
   - Request VPN-IP == fixed_ip der Ziel-Connection
 - Weitere Claims:
   - dürfen aus einer bereits login-berechtigten Customer-Connection erfolgen (Request VPN-IP ∈ Allowlist)
-- Claim Token Speicherung:
-  -   - claim_token wird serverseitig nur gehasht gespeichert (wie Passwort-Reset Tokens).
-- Token hat KEINE separate Config-TTL.
+- claim_token Speicherung:
+  - claim_token wird serverseitig nur gehasht gespeichert (wie Passwort-Reset Tokens).
+- claim_token hat KEINE separate Config-TTL.
 - Gültigkeit ist SQL-first ausschließlich durch vpn_connections.claim_deadline begrenzt (Hard-Stop).
   - Default: claim_deadline = created_at + 180 Tage
   - „Deadline verlängern“ setzt claim_deadline = NOW() + 180 Tage (kanonisch)
@@ -162,6 +182,10 @@ A) Login-Fails (pro Customer + pro Source-IP):
 - Lockout: 15 Minuten (nur Login; Verify/Resend/Claim separat)
 - Nach Lockout: Fehler bleibt neutral („Login fehlgeschlagen“), kein Detail.
 
+Hinweis (SQL-first, MUST):
+- Die folgenden Werte sind Default-Zielwerte, die als SQL-first Settings persistiert und zur Laufzeit geladen werden.
+- Sie sind NICHT als PHP-Hardcodes zu verstehen (Hardcodes sind nur als klar markierte Notfall-Fallbacks erlaubt).
+
 B) Verify-Code Eingabe (pro Customer):
 - Window: 30 Minuten
 - Max Fails: 10
@@ -173,7 +197,7 @@ C) Verify Resend (pro Customer):
 - Max Resends: 10 pro 24 Stunden
 - Bei Überschreitung: Support-Hinweis anzeigen.
 
-D) Claim Token Fails (pro Token + pro Customer):
+D) Claim Token Fails (pro claim_token + pro Customer):
 - Window: 30 Minuten
 - Max Fails: 10
 - Lockout: 30 Minuten für Claim-Endpoint
@@ -188,8 +212,8 @@ E) Admin-sensible Aktionen (optional strenger):
   - Zustandsänderungen sind ausschließlich über POST/PUT/DELETE erlaubt.
   - Begründung: Recheck-Minimum + CSRF-Schutz verlassen sich darauf, dass "state-changing" technisch eindeutig ist.
 - CSRF-Pattern (MUST):
-  - Synchronizer Token Pattern (Token im Session-Store, in Form-Feld/Header)
-  - Token Rotation mindestens pro Session; optional pro Form.
+  - Synchronizer Token Pattern (csrf_token im Session-Store, zusätzlich im Form-Feld/Header oder Header)
+  - csrf_token Rotation mindestens pro Session; optional pro Form.
 - SameSite Cookie ist Ergänzung, aber ersetzt CSRF nicht.
 - File-Uploads (falls vorhanden) ebenfalls CSRF-geschützt.
 
@@ -214,6 +238,23 @@ E) Admin-sensible Aktionen (optional strenger):
   - Verify code sent / verify success / verify fail / verify lockout
   - Claim success / claim fail / claim lockout
   - Admin: create/revoke connection, change speed profile, quota, expiry, manual restricted, disable/enable, grace reset, unclaim
+  - Admin: session hardcut (VPN-Session sofort beenden)
+6.11 Admin Hardcut – Privilege Separation (MUST, D012)
+- Panel-Prozess (www-data) darf NIEMALS direkt kill/poff/pppd-Terminate ausführen.
+- Umsetzung MUSS über einen sudo Wrapper laufen (B167):
+  - sudo /usr/local/bin/vpn-session-kill <vpn_connection_id>
+- sudoers MUST:
+  - www-data darf ausschließlich dieses eine Script ausführen (keine Shell, keine Wildcards).
+  - Argumente müssen eingeschränkt sein (nur Integer).
+- Wrapper MUST (Input Validation):
+  - vpn_connection_id muss strikt Integer sein, sonst Abbruch + Audit Event.
+  - Keine Ausführung von DB/OS-Kommandos mit unvalidierten Parametern.
+- Reihenfolge (Hardcut-first):
+  1) technisch killen (pppd/xl2tpd Session)
+  2) danach reconcile/policy-apply (nft/tc) für deterministische Konsistenz
+  3) best effort: stale locks entfernen (falls vorhanden)
+- Verboten:
+  - "Clear lock only" / DB-only cleanup ohne technischen Kill (Split-Brain/Zombie-Traffic Risiko).
 - Audit Event Minimum-Felder:
   - timestamp (UTC)
   - actor_role (USER/ADMIN)
@@ -280,11 +321,17 @@ E) Admin-sensible Aktionen (optional strenger):
   - Es darf keine Zustandsänderung via GET möglich sein.
   - Wenn ein User versucht, eine Action per GET auszuführen (z.B. Claim/Resend/Disable), muss das serverseitig unmöglich sein (kein Endpoint / method not allowed / denies).
 
-10) CHANGELOG (Block-intern)
+================================================================================
+CHANGELOG
+================================================================================
+- v1.8 (2026-01-14): Konsistenz-Fix: Header/Abhängigkeiten harmonisiert (REQUIRES/INFLUENCES ↔ Abschnitt 3); Verify-Code Contract präzisiert (verify_code_hash/verify_code_expires_at); RateLimit-DEFAULT-Policy klar als SQL-first Defaults (keine PHP-Hardcodes) markiert.
+- v1.7 (2026-01-14): Terminologie-Fix: RateLimit-Header präzisiert: „pro claim_token + pro Customer“ statt „pro Token“.
+- v1.6 (2026-01-14): Terminologie/Format fix: claim_token in 4/6.5 konsistent (kein unqualifiziertes „Token“, Bullet-Format repariert); CSRF-Pattern nutzt csrf_token statt „Token“.
+- v1.5 (2026-01-14): Admin Hardcut Security (D012) kanonisiert: Privilege Separation (www-data darf nie killen), sudo wrapper vpn-session-kill, Input Validation + Hardcut-first Reihenfolge, Verbot “Clear lock only”.
+- v1.4 (2026-01-14): AuthN-SoT präzisiert: Panel-Login=customers.email; display_name UI-only (max40, escaped, Fallback=email); subaccount_login getrennte VPN-AAA-Identität, system-generated und nur read-only im Panel.
 - v1.3 (2026-01-09): Session-Fixation Schutz ergänzt (Session-ID Regeneration nach Login und nach Verify-Success); Recheck-Minimum als MUST für state-changing Requests ergänzt; SQL-first Pflicht für RateLimits/TTLs ergänzt (keine Magic Numbers im PHP); Mini-Upgrade: HTTP-Semantik festgezurrt (GET side-effect free) + Negativtest ergänzt. Bestehender Changelog bleibt unverändert (inkl. doppelter v1.2 Einträge).
-- v1.2 (2026-01-09): Claim-Token Ablaufzeit SQL-first gemacht: keine 30-Tage Config-TTL mehr; Bound an vpn_connections.claim_deadline (180d) gemäß Konzept.
+- v1.2.1 (2026-01-09): Claim-Token Ablaufzeit SQL-first gemacht: keine 30-Tage Config-TTL mehr; Bound an vpn_connections.claim_deadline (180d) gemäß Konzept.
 - v1.2 (2026-01-09): Terminologie-Regel umgesetzt: „Token“ in Claim-Speicherung präzisiert auf claim_token (kein unqualifiziertes „Token/Tokens“).
 - v1.1 (2026-01-09): Terminologie-Fix: „Token“ im Diagnose-Teil präzisiert (csrf_token vs claim_token). „Token-Bruteforce“ zu „Claim-Token-Bruteforce“ umbenannt.
 - v1.0 (2026-01-07): Neu angelegt als Block B285. Inhalt konsolidiert: Panel AuthN/AuthZ/CSRF/RateLimit/Audit/Scopes + Restricted-Bootstrap Reachability.
-
 ================================================================================

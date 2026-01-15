@@ -1,15 +1,24 @@
-vpn_masterkonzept/blocks/B056_RADIUS_SCHEMA_MAPPING.txt
+xp-vpn-stack/blocks/B056_RADIUS_SCHEMA_MAPPING.txt
 ================================================================================
 BLOCK-ID: B056
-TITLE: RADIUS SQL Schema + Mapping + SimUse-Atomic Lock Lifecycle
-VERSION: v1.2
+TITLE: RADIUS SQL Schema + Mapping + SimUse-Atomic Lock (Guard/Mutex)
+VERSION: v1.8
+DATUM: 2026-01-14
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B050
+INFLUENCES: alle
 OWNER-INTENT: Verbindliches Mapping zwischen Core-DB (B055) und FreeRADIUS SQL (radcheck/radreply/radacct) inkl. atomarem Session-Lock gegen SimUse-Races.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- Mapping ist request-deterministisch: pro Auth-Request genau ein Ergebnis (Outcome+Reason) und ein eindeutig korrelierbares Event.
+- Businesslogik gehört in DB/Script/Policy-Layer, nicht in untestbare RADIUS-unlang-Blöcke.
+- SimUse/Lock-Guard (Mutex) muss race-free sein (Parallel-Connects, Reconnect-Stürme, Prozess-Restarts).
 ================================================================================
 
 ================================================================================
-1) INHALT (Token=Claim-only; AAA via MSCHAPv2 + NT-Hash)
+1) INHALT (claim_token=Claim-only; AAA via MSCHAPv2 + NT-Hash)
 ================================================================================
 
 Priority: MUST
@@ -19,7 +28,10 @@ Map vpn_connections to FreeRADIUS SQL users (subaccount_login model) and ensure 
 Claim-Tokens (claim_token/claim_token_hash) are App-Layer only and MUST NOT be used for PPP/RADIUS auth.
 
 ## 2) Identity Model
-- VPN client connects using subaccount_login (User-Name) + password (validated via subaccount_nt_hash / RADIUS NT-Password; MSCHAPv2). No manual input needed on XP because the client profile is preconfigured.
+- VPN client connects using subaccount_login (User-Name) + password (validated via subaccount_nt_hash / RADIUS NT-Password; MSCHAPv2).
+  - subaccount_login ist serverseitig generiert (niemals frei wählbar / niemals user-supplied), nicht-enumerierbar.
+  - Format (kanonisch): "vpn_" + 16 Zeichen Base32 (Alphabet: a-z2-7).
+  - XP: Keine manuelle Eingabe nötig, da das Client-Profil vorprovisioniert ist.
 - FreeRADIUS receives User-Name = subaccount_login and validates MSCHAPv2 against NT-Hash (NT-Password) from SQL backend.
 - IPsec PSK is an IPsec-layer secret and is NOT part of RADIUS/PPP credential mapping.
 
@@ -30,22 +42,38 @@ Claim-Tokens (claim_token/claim_token_hash) are App-Layer only and MUST NOT be u
 - radreply:
   - push Framed-IP-Address (optional static), Framed-Route, DNS (if used), etc.
 
-## 4) Atomic SimUse guard (FIX REQUIRED)
-- On Access-Request, before ACCEPT:
-  - Try INSERT into active_session_locks(vpn_connection_id, session_key, acquired_at, expires_at, state)
-  - If UNIQUE constraint hit: reject or TEMPFAIL based on policy
-- On Accounting-Stop:
-  - Mark lock released, set release_reason
-- Janitor:
-  - Expire locks past expires_at
+## 4) Atomic SimUse guard (KANONISCH, Guard/Mutex – kein Lifecycle)
+- Zweck: Schließt das Race-Fenster „check radacct“ → „ACCEPT“ gegen Parallel-Logins.
+- active_session_locks ist KEIN Session-State und NICHT „Truth“.
 
-## 5) Notes
-- radacct is not a lock; treat as history.
-- Simultaneous-Use is insufficient alone; use DB lock table.
+Acquire (authorize, ganz am Ende, kurz vor OK/ACCEPT):
+- INSERT active_session_locks (vpn_connection_id, session_key, acquired_at=NOW(), expires_at=NOW()+20s)
+- Wenn UNIQUE(vpn_connection_id) verletzt / Lock existiert und nicht expired:
+    -> deterministischer Abbruch (REJECT oder definierter deny/restrict Pfad gemäß B050/B342).
+
+Release (accounting, Acct-Start):
+- Sobald Acct-Start geschrieben wird (radacct wird Truth), MUSS der Guard sofort weg:
+  -> DELETE active_session_locks WHERE vpn_connection_id = <id>
+- Safety: Wenn Acct-Start nie kommt (Crash/Drop), greift TTL (expires_at) + Janitor-Cleanup (B168).
+
+TTL:
+- expires_at ist kanonisch: NOW()+20s (siehe D012 O1).
+- Expired Locks dürfen im Auth-Pfad ignoriert/gelöscht werden (idempotent).
+
+## 5) Notes (Truth-Hierarchie, D012)
+- radacct ist Truth für "Session aktiv" (stop_time IS NULL).
+- /run/vpn-sessions/*.env ist nur Runtime-Validierung für Ghost-Detection (B168/B165), niemals Truth.
+- active_session_locks verhindert Parallel-Login-Races; es ersetzt nicht radacct und ist kein Lifecycle-Store.
 
 ================================================================================
-3) CHANGELOG
+CHANGELOG
 ================================================================================
+- v1.8 (2026-01-14): Konsistenz/Redaktion: NOTES „unlang“ Schreibweise korrigiert; Acquire-INSERT an Core-Schema angepasst (acquired_at=NOW(), kein „meta“); Deny/Restrict-Referenz auf kanonische Policy-Quelle B050/B342 harmonisiert.
+- v1.7 (2026-01-14): Terminologie-Präzisierung: „claim_token=Claim-only“ statt unqualifiziertem „Token=Claim-only“ im INHALT-Header.
+- v1.6 (2026-01-14): Identity Model präzisiert: subaccount_login ist server-generated, nicht-enumerierbar; Format vpn_+16 Base32 (a-z2-7) kanonisiert.
+- v1.5 (2026-01-14): Redaktion: Terminologie bereinigt – “Lifecycle” in TITLE/NOTES ersetzt durch “Guard/Mutex” (inhaltlich unverändert, bleibt Modell A+B).
+- v1.4 (2026-01-14): Guard-Semantik finalisiert: active_session_locks = Mutex (kein Lifecycle), Release auf Acct-Start (nicht Stop), TTL=20s (D012) und Text entsprechend harmonisiert.
+- v1.3 (2026-01-14): Session-Control kanonisiert gemäß D012: radacct als Truth (stop_time IS NULL), active_session_locks nur als kurzlebiger Mutex (TTL 20s), Release auf Accounting-Start (DELETE), kein PENDING/ACTIVE Lifecycle.
 - v1.2 (2026-01-09): Terminologie-Fix: subaccount_secret entfernt, kanonisch subaccount_nt_hash/NT-Password (MSCHAPv2). Redaktion: doppelte Überschrift „2) 2)“ korrigiert.
 - v1.1 (2026-01-09): Semantik-Fix: Token=Claim-only. RADIUS/PPP Auth via subaccount_login + MSCHAPv2 (NT-Password/NT-Hash). Hinweis auf IPsec-PSK als separater Layer. Abschnitts-Header „unverändert“ korrigiert.
 - v1.0 (2026-01-07): Neu angelegt. Inhalt aus T02_RADIUS_SCHEMA_MAPPING in Block-Form übernommen (ohne inhaltliche Änderung).

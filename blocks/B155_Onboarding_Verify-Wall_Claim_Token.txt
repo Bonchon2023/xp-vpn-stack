@@ -1,14 +1,20 @@
+xp-vpn-stack/blocks/B155_Onboarding_Verify-Wall_Claim_Token.txt
 ================================================================================
-BLOCK ID: B155
+BLOCK-ID: B155
 TITLE: Onboarding / Verify-Wall / Claim Token
-VERSION: v2.3
+VERSION: v2.7
+DATUM: 2026-01-14
 STATUS: ACTIVE
 OWNER: Marco
 OWNER-INTENT: Minimaler Support + verifizierbare Kontakt-Email. Panel-Innenleben erst nach Email-Code-Verifikation; Claim nur nach Verifikation und nur per Claim-Token (keine VPN-Client-Credentials nötig).
 PRIORITY: MUST
 REQUIRES: B050, B150, B280, B220
 INFLUENCES: B240 (Setup-Tool / Claim Token Distribution)
+
 NOTES:
+- Verify-Wall ist App-Layer (Panel-Guard): Sichtbarkeit/Access des Panel-Innenlebens wird über Customer-Status (PENDING/ACTIVE) gesteuert; nftables/Kernel-Restricted bleibt davon unabhängig (Restricted-Trigger: QUOTA/EXPIRY/MANUAL/UNCLAIMED_OVERDUE; siehe B150/B050/B166).
+- Claim ist nur nach Email-Verifikation zulässig; Claim-Token ist Pflicht und muss rotierbar sein ohne Lockout.
+- Der Ablauf muss auch im Restricted Mode funktionieren (Portal/DNS/HTTPS zur Service-IP), damit User self-healen kann.
 - Kein nftables-Regeldetail (das ist B150).
 - Keine UI/UX-Screens (das ist B280).
 - Keine RADIUS Attribute-Mappings im Detail (das ist B050).
@@ -37,6 +43,7 @@ NOTES:
   - Code eingeben
   - Code neu senden
   - Support kontaktieren
+- Verify-Code (email_verify_code) = Email-Verifikationscode (Code-Eingabe im Panel; kein Link). Details/RateLimits/Speicherung: B285/B055.
 
 3) SOURCE OF TRUTH (MUST)
 - SQL ist Source of Truth ab Tag 1 (keine chap-secrets Migration).
@@ -56,6 +63,9 @@ NOTES:
 5.1 VPN_CONNECTIONS (pro Gerät/Subaccount)
 - id
 - subaccount_login (PPP Username; RADIUS User-Name; MSCHAPv2)  [fix, kein AAA-Mapping-Variant]
+  - Format (KANONISCH): vpn_ + 16 Zeichen Base32 (a-z2-7), lowercase; Regex: ^vpn_[a-z2-7]{16}$
+  - Erzeugung (MUST): ausschließlich serverseitig random/non-enumerable; niemals user-supplied (Anti-Enumeration).
+  - Panel (MUST): im Panel sichtbar für Support/Transparenz, aber strikt read-only (nie editierbar).
 - subaccount_nt_hash (VPN-Subaccount Secret; RADIUS NT-Password / NT-Hash für MSCHAPv2)  [für Claim nicht nötig; im Panel per „Passwort setzen/rotieren“ änderbar]
 - fixed_ip
 - status (PREPROVISIONED/CLAIMED/DISABLED)
@@ -71,6 +81,7 @@ NOTES:
 - email
 - password_hash (Panel Login)
 - email_verified_at (NULL bis Verify)
+- display_name (optional, max 40; UI-only; Begrüßung im Panel; Fallback = email; output escaped)
 
 5.3 CUSTOMER LOGIN-ALLOWLIST (Panel Login IP-bound)
 - Login ist IP-bound über VPN-IP (B280):
@@ -80,7 +91,8 @@ NOTES:
 6) PANEL FLOW (KANONISCH)
 
 6.1 Registrierung
-- User registriert Panel-Account (email + Panel-Passwort).
+- User registriert Panel-Account (email + Panel-Passwort, optional display_name).
+- Hinweis im UI: display_name wird nur im Panel für die Anrede genutzt (UI-only); wenn leer: Anrede fällt auf email zurück.
 - Account entsteht als PENDING (email_verified_at NULL).
 - System sendet Verify-Code per Email.
 
@@ -104,7 +116,7 @@ NOTES:
   - User eingeloggt ist
   - Claim-Token eingegeben wird (keine VPN-Client-Credentials)
 - Claim-Prozess:
-  - Token_hash Match -> Ziel-Connection wird eindeutig bestimmt
+  - claim_token_hash Match -> Ziel-Connection wird eindeutig bestimmt
   - Claim-Authorization (Anti-Abuse):
     - Fall A: Erster Claim für diesen Customer:
       - Request VPN-IP MUSS der fixed_ip der Ziel-Connection entsprechen
@@ -169,8 +181,8 @@ RF-01 Claim vs Hard-Stop-Janitor:
 | DB    | vpn_connection | PREPROVISIONED | status=PREPROVISIONED AND customer_id IS NULL | Internet frei bis Grace; Claim möglich | PPP/RADIUS accept |
 | DB    | vpn_connection | CLAIMED | status=CLAIMED AND customer_id gesetzt | Internet frei (sofern nicht restricted_effective) | PPP/RADIUS accept |
 | DB    | vpn_connection | DISABLED | status=DISABLED | kein VPN, kein Panel über diesen Client | RADIUS reject |
-| Kernel | restricted_effective | true | restricted_reason ∈ {QUOTA, EXPIRY, MANUAL, UNCLAIMED_OVERDUE} | "Internet gesperrt" + "Nur Panel-Zugriff" | nft/tc via B150/B166 |
-| Kernel | UNCLAIMED_OVERDUE | aktiv | customer_id IS NULL AND now > unclaimed_grace_until | "Nur Panel" bis Claim/Admin | nft via B150 |
+| Kernel | restricted_effective | true | restricted_reason ∈ {R_POLICY_QUOTA_EXHAUSTED, R_POLICY_EXPIRY_PASSED, R_POLICY_MANUAL_RESTRICTED, R_POLICY_UNCLAIMED_OVERDUE} | "Internet gesperrt" + "Nur Panel-Zugriff" | nft/tc via B150/B166 |
+| Kernel | unclaimed_overdue (Condition) | aktiv | customer_id IS NULL AND NOW() > unclaimed_grace_until | "Nur Panel" bis Claim/Admin | nft via B150 |
 
 9) TESTFÄLLE (MUST – Konzept-Tests)
 - T1: PENDING Login -> Verify-Wall; nur Code/Resend/Support sichtbar; kein Panel-Innenleben erreichbar.
@@ -186,9 +198,15 @@ RF-01 Claim vs Hard-Stop-Janitor:
 - UI/Panel Screens: B280
 - RADIUS Attribute Mapping: B050
 
-11) CHANGELOG
+================================================================================
+CHANGELOG
+================================================================================
 HINWEIS: Der Changelog kann historische Begriffe enthalten. Maßgeblich ist der aktuelle Blocktext/Glossar.
 
+- v2.7 (2026-01-14): Wording-Fix in NOTES: Verify-Wall als App-Layer klargestellt; keine implizite Kopplung/„Ersatz“ von nftables-Gates (Kernel-Restricted bleibt separat, siehe B150/B050/B166).
+- v2.6 (2026-01-14): Begriffe ergänzt: Verify-Code (email_verify_code) benannt; Claim-Prozess präzisiert: claim_token_hash statt unqualifiziertem Token_hash; Changelog-Terminologie: „Codes“ statt „Tokens“.
+- v2.5 (2026-01-14): display_name (UI-only, max 40, Fallback=email) im Onboarding verankert; subaccount_login kanonisiert (vpn_ + base32(a-z2-7) + 16, ^vpn_[a-z2-7]{16}$), system-generated/non-enumerable; Panel zeigt subaccount_login read-only.
+- v2.4: State-Table an B342 angepasst: restricted_reason nutzt B342-canonical R_POLICY_* Codes; UNCLAIMED_OVERDUE Tabellenzeile als Condition benannt (keine Verwechslung mit Reason-Code R_POLICY_UNCLAIMED_OVERDUE).
 - v2.3: AAA-Semantik fixiert: Token=Claim-only. PPP/RADIUS Username ist subaccount_login (kein „je nach Mapping“). VPN-Subaccount Secret als NT-Hash (MSCHAPv2) benannt; Panel-Passwortfunktion als „setzen/rotieren“ präzisiert (kein Klartext-Auslesen). Zweck-Text entsprechend korrigiert.
 - v2.2: claim_deadline Standardbetrieb kanonisiert (immer gesetzt, 180d, danach DISABLED hard). Admin-Actions (Grace reset / Deadline verlängern / Re-enable / Re-provision) + Determinismus (Claim vs Janitor) + State-Table (ENTWURF) ergänzt. Gate-Terminologie im Blocktext entfernt.
 - v2.1: UNCLAIMED-30d-Flow ergänzt (Variante 2: unclaimed_grace_until). Neuer Restricted-Trigger UNCLAIMED_OVERDUE führt nach Ablauf zu Panel-only (Walled Garden), damit Verify+Claim weiterhin möglich sind; nach Claim sofortige Freischaltung (falls kein anderer Restricted-Reason aktiv).

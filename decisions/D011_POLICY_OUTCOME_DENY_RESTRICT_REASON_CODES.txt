@@ -1,14 +1,18 @@
+xp-vpn-stack/decisions/D011_POLICY_OUTCOME_DENY_RESTRICT_REASON_CODES.txt
 ================================================================================
-D011_POLICY_OUTCOME_DENY_RESTRICT_REASON_CODES.txt
-Version: v0.1.0 (ENTWURF)
-Status: ACCEPTED (nach Drittprüfung)
+DECISION-ID: D011
+TITLE: POLICY OUTCOME DENY RESTRICT REASON CODES
+VERSION: v1.3
+DATUM: 2026-01-13
+STATUS: ACCEPTED
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
 ================================================================================
 
 ## Kontext
 Im System existieren Zustände, die entweder:
 - den Tunnel grundsätzlich verbieten müssen (Hard Ban, Security, Backend down),
 oder
-- einen Tunnel benötigen, um Self-Service via 10.77.0.1 zu ermöglichen (Verify/Claim/Quota/Expired).
+- einen Tunnel benötigen, um Self-Service via 10.77.0.1 zu ermöglichen (RESTRICT: Quota/Expiry/Manual/UnclaimedOverdue/RateLimit; Verify/Claim sind PANEL-only und ändern den Kernel-Outcome nicht).
 
 Ohne Trennung führte POLICY_DENY als Reject zu einem Architekturkonflikt:
 Self-Service war unmöglich, obwohl das Master-Konzept Walled Garden vorsieht.
@@ -19,20 +23,23 @@ Self-Service war unmöglich, obwohl das Master-Konzept Walled Garden vorsieht.
 - RESTRICT := Accept, aber Walled Garden.
 - OK       := Accept, Full Tunnel.
 
-2) Reason-Codes sind kanonisch als R_... festgelegt (siehe T03), inkl. Prioritätenkette:
+2) Reason-Codes sind kanonisch als R_... festgelegt (siehe B342), inkl. Prioritätenkette:
 Backend (0) > Hard Admin (1) > Security (2) > Self-Service (3) > OK (4)
 
 2.1) Abgrenzung Reason-Codes (SoT):
-- T03 ist SoT für Policy-Outcomes/Policy-Reasons (R_ACCOUNT_*, R_CLAIM_*, R_QUOTA_*, R_RATE_LIMITED, R_OK, ...).
-- T01 ist SoT für Auth-Reasons (R_AUTH_*), mindestens:
+- B342 ist SoT für Policy-Outcomes/Kernel-Reasons (canonical R_* inkl. R_ACCOUNT_*, R_POLICY_*, R_SECURITY_* sowie R_OK und DEPRECATED→ALIAS Mapping); inkl. Domains + Prioritätenkette.
+- B340 ist SoT für Auth-Reasons (R_AUTH_*), mindestens:
   - R_AUTH_UNKNOWN_USER
   - R_AUTH_KNOWN_BADPASS
   - R_AUTH_BACKEND_SQL_DOWN
   - R_AUTH_BACKEND_SQL_FAIL
-Regel: R_AUTH_* werden in T03/D011 nicht dupliziert (nur referenziert).
+  - R_AUTH_UNSPECIFIED (Fallback; vermeiden, nur wenn zwingend nötig)
+Regel: R_AUTH_* werden in B342/D011 nicht dupliziert (nur referenziert).
 
-3) POLICY_DENY bleibt Observability (Log-only), aber nicht Fail2ban-relevant.
-Fail2ban reagiert ausschließlich auf UNKNOWN_USER und KNOWN_BADPASS (NAT-Safety + D1a).
+3) F2B_EVENT Klassen POLICY_DENY und POLICY_RESTRICT sind Observability (Log-only) und NICHT Fail2ban-relevant.
+(Hinweis: Das betrifft die Log-Klassifikation, nicht die Policy-Outcomes DENY/RESTRICT/OK.)
+
+Fail2ban reagiert ausschließlich auf Class=UNKNOWN_USER und Class=KNOWN_BADPASS (NAT-Safety + D1a).
 
 ## Begründung
 - D1a: SQL down darf keine Session erlauben => DENY ohne Ban.
@@ -45,6 +52,11 @@ Fail2ban reagiert ausschließlich auf UNKNOWN_USER und KNOWN_BADPASS (NAT-Safety
 - Policy-Apply muss RESTRICT-Zustände in Kernel-Enforcement übersetzen (Walled Garden).
 
 ================================================================================
-Changelog:
+CHANGELOG
+================================================================================
+- v1.3 (2026-01-13): Kontext/SoT präzisiert: Verify/Claim sind PANEL-only (kein Kernel-RESTRICT); B342-Referenz auf canonical Kernel-Reasons (R_ACCOUNT_/R_POLICY_/R_SECURITY_ + Aliases) aktualisiert.
+- v1.2 (2026-01-13): Normalized VERSION/CHANGELOG headings (protocol compliance).
+- v1.1 (2026-01-12): Referenz „siehe T03“ entfernt (Tasks werden gelöscht) und auf B342 als SoT umgestellt.
+- v1.0 (ENTWURF): SoT-Referenzen aktualisiert: T01/T03 -> B340/B342; Auth-Fallback R_AUTH_UNSPECIFIED als referenzierter Code ergänzt.
 - v0.1.0 (ENTWURF): Introduced canonical DENY/RESTRICT/OK outcomes and R_ Reason-Code catalog with deterministic priorities.
 ================================================================================

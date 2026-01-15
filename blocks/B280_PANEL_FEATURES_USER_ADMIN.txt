@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B280_PANEL_FEATURES_USER_ADMIN.txt
+xp-vpn-stack/blocks/B280_PANEL_FEATURES_USER_ADMIN.txt
 ================================================================================
 BLOCK-ID: B280
 TITLE: Panel Features (User/Admin)
-VERSION: v1.8
+VERSION: v1.11
+DATUM: 2026-01-14
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B190
+INFLUENCES: B310
 OWNER-INTENT: Self-service, weniger Support, klare Trennung.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- Panel-Funktionsumfang ist strikt getrennt (User vs Admin); Admin sieht nur, was für Betrieb nötig ist.
+- Kein Shop/Payment/Marketing: Panel ist Betriebs- und Support-Oberfläche.
+- UI muss Outcome/Reason-Codes korrekt übersetzen (Restricted/Expired/Quota/Unclaimed) und klare Next-Steps anzeigen.
 ================================================================================
 
 1) ZWECK
@@ -35,13 +44,13 @@ OWNER-INTENT: Self-service, weniger Support, klare Trennung.
   - Panel zeigt restricted_reason + klare Handlung (Claim / Quota / Expiry / Manual).
   - Zusätzlich (App-Layer unabhängig von restricted_reason): Wenn Customer PENDING ist, bleibt die Verify-Wall aktiv (Code/Resend/Support).
   - Panel bleibt erreichbar, auch wenn Internet gesperrt ist (Walled Garden).
-- UNCLAIMED_OVERDUE (Restricted Reason):
+- UNCLAIMED_OVERDUE (Condition; Restricted Reason-Code: R_POLICY_UNCLAIMED_OVERDUE):
   - Panel zeigt für UNCLAIMED Grace alle 3 Formen parallel:
     - Countdown ("noch X Tage")
     - Datum ("bis DD.MM.YYYY", aus unclaimed_grace_until)
     - Warnstufen (z.B. ab Tag 20 gelb, ab Tag 28 rot)
     Sichtbarkeit: Admin immer; User sichtbar mit klarer CTA ("Bitte claimen, sonst nur noch Panel-Zugriff").
-  - Wenn UNCLAIMED_OVERDUE aktiv: Panel-CTA ist "Verify + Claim", da Internet erst nach Claim wieder frei wird.
+  - Wenn R_POLICY_UNCLAIMED_OVERDUE aktiv: Panel-CTA ist "Verify + Claim", da Internet erst nach Claim wieder frei wird.
   - Admin-Action: "Grace reset (30 Tage)":
     - setzt ausschließlich unclaimed_grace_until = NOW()+30d
     - setzt unclaimed_grace_set_at = NOW()
@@ -51,6 +60,10 @@ OWNER-INTENT: Self-service, weniger Support, klare Trennung.
     - setzt claim_deadline_set_at = NOW()
     - verändert NICHT unclaimed_grace_until
   - Admin sieht zusätzlich claim_deadline als Datum; optional Warnstufe kurz vor Hard-Stop (Admin-only).
+  - Admin-Action: "Session beenden (Hardcut)":
+    - beendet eine aktive VPN-Session sofort (Kill-first), um Zombie-Traffic zu verhindern
+    - Umsetzung: Panel triggert Hardcut über Privilege Separation (B285) und Tooling (B167: vpn-session-kill)
+    - Erwartung: danach reconcile/policy-apply, damit nft/tc deterministisch korrekt sind
 - DISABLED (re-aktivierbar):
 - Admin-Action: "Re-enable" setzt status=PREPROVISIONED und triggert Apply/Reconcile (B166).
 - Panel-Statusänderungen, die Kernel-Policy beeinflussen (Claim/Unclaim/Quota/Expiry/Manual/Speed), MÜSSEN serverseitig ein Apply triggern (B166), damit Wirkung sofort greift.
@@ -76,6 +89,8 @@ OWNER-INTENT: Self-service, weniger Support, klare Trennung.
 
 6) MUST
 - IP-bound login enforcement.
+- Panel-Anrede (UI): nutzt customers.display_name (optional, max 40, UI-only). Fallback wenn leer/NULL: customers.email („Hallo user@…“). Ausgabe stets escaped (XSS-Schutz).
+- Connection-Details (UI): zeigt vpn_connections.subaccount_login als „VPN-Login“ (read-only). Der Wert ist system-generated und darf im Panel niemals editierbar sein.
 - Password reset uses external mail infra (your mailserver).
 - Stats come from radacct.
 
@@ -90,10 +105,15 @@ OWNER-INTENT: Self-service, weniger Support, klare Trennung.
 - Create user+2 connections -> both show in panel, stats correct.
 - Claim #1: User verbindet über unclaimed Connection-IP -> Claim Token + (Request IP == fixed_ip) -> Connection wird zugeordnet.
 - Claim #2: User ist über erlaubte bestehende Connection eingeloggt -> Claim Token für neue Connection -> Zuordnung klappt, auch wenn neue Connection nicht aktiv ist; Allowlist kann neue IP optional NICHT zum Login zulassen.
-- UNCLAIMED_OVERDUE Test: unclaimed_grace_until überschritten -> restricted_reason=UNCLAIMED_OVERDUE; Panel erreichbar; Verify+Claim möglich; nach Claim sofort frei.
+- UNCLAIMED_OVERDUE Test: unclaimed_grace_until überschritten -> restricted_reason=R_POLICY_UNCLAIMED_OVERDUE; Panel erreichbar; Verify+Claim möglich; nach Claim sofort frei.
 - Admin Grace Reset Test: UNCLAIMED_OVERDUE aktiv -> Admin setzt Grace reset -> restricted entfernt (wenn kein weiterer Grund) -> Internet frei.
 
-10) CHANGELOG
+================================================================================
+CHANGELOG
+================================================================================
+- v1.11 (2026-01-14): restricted_reason kanonisiert: UNCLAIMED_OVERDUE ist Condition-Label, Reason-Code ist R_POLICY_UNCLAIMED_OVERDUE (B342). Tests entsprechend angepasst.
+- v1.10 (2026-01-14): Admin-Feature “Session beenden (Hardcut)” ergänzt (Kill-first). Referenzen: B285 (Security/Privilege Separation), B167 (vpn-session-kill), D012 (Session-Control kanonisch).
+- v1.9 (2026-01-14): UI-SoT ergänzt: display_name (UI-only, max40, Fallback=email, escaped) für Anrede; subaccount_login im Panel sichtbar aber strikt read-only.
 - v1.8 (2026-01-08): UNCLAIMED Grace UI (Countdown+Datum+Warnstufen) konsolidiert; Admin-Actions semantisch präzisiert (Grace reset nur Grace, Deadline verlängern setzt claim_deadline=NOW()+180d); claim_deadline Admin-Sicht ergänzt; DISABLED Re-enable auf PREPROVISIONED kanonisiert.
 - v1.7 (2026-01-07): ABHÄNGIGKEITEN ergänzt (B155 Verify-Wall/Claim, B166 Apply/Reconcile), keine Logikänderung.
 - v1.6: Apply-Trigger präzisiert: Verify (Email-Verify) ist App-Layer und kein Kernel-Policy-Trigger; Apply nur für Claim/Unclaim/Quota/Expiry/Manual/Speed. (Optional: restricted CTA/Reason Text schichtentrennend präzisiert.)
@@ -103,5 +123,4 @@ OWNER-INTENT: Self-service, weniger Support, klare Trennung.
 - v1.2: Panel-Verhalten bei Restricted Mode präzisiert: reason anzeigen + CTA; Panel bleibt erreichbar während Internet-Walled-Garden aktiv ist.
 - v1.1: Panel als eine Webapp mit Rollen (USER/ADMIN) präzisiert. IP-bound Login (Allowlist Mode ALL/SELECT) konkretisiert. Claim-Regeln ergänzt: erster Claim nur aus Ziel-Connection; weitere Claims aus bereits allowlisted Connection möglich; neue Connection kann optional vom Panel-Login ausgeschlossen bleiben.
 - v1.0: Initial
-
 ================================================================================

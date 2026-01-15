@@ -1,0 +1,113 @@
+xp-vpn-stack/blocks/B171_SESSION_CONTROL_KNOTENPUNKT.txt
+================================================================================
+BLOCK-ID: B171
+TITLE: Session Control (SimUse=1) — Knotenpunkt / Quick Map (Truth, Guard, Repair, Hardcut)
+VERSION: v1.0
+DATUM: 2026-01-14
+STATUS: ACTIVE
+PRIORITY: MUST
+REQUIRES: D012, B056, B168, B169
+INFLUENCES: B310, B280, B285, B167, B166
+OWNER-INTENT: Ein einziger Einstiegspunkt, der die Session-Control-Invarianten festnagelt “zeilenfest” zusammenläuft.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- Truth/Guard/Repair sind strikt getrennte Verantwortlichkeiten (Separation of Concerns).
+- Kein zweites “Truth-System” neben radacct (kein Model C).
+- XP/L2TP/IPsec bleibt kompatibel: Entscheidungen hängen nicht von modernen Client-Features ab.
+
+================================================================================
+1) ZWECK
+================================================================================
+Dieser Block ist der Knotenpunkt für “Session Control”:
+- TRUTH: Wie wird “Session aktiv” entschieden?
+- GUARD: Wie verhindern wir Parallel-Login Races?
+- REPAIR: Wie reparieren wir Ghost Sessions deterministisch?
+- OVERRIDE: Wie kann Admin sicher eingreifen, ohne Split-Brain?
+
+Kanonisch festgelegt durch Decision D012.
+
+================================================================================
+2) KANONISCHE KERNAUSSAGEN (D012 in Kurzform)
+================================================================================
+A) TRUTH (Model A):
+- Session aktiv := radacct.stop_time IS NULL (einzige Wahrheit).
+
+B) GUARD (Model B):
+- active_session_locks ist nur Mutex/Guard (kurzlebig).
+- TTL: 20s.
+- Release: Acct-Start -> DELETE lock row.
+- Keine PENDING/ACTIVE State-Machine.
+
+C) REPAIR:
+- On-Demand Janitor (B169) + Periodic Janitor (B168) schließen nur echte Ghosts:
+  - Ghost := radacct offen UND kein VALID Runtime-Mapping (B168/B165).
+- /run ist nur Validierung, nie Wahrheit.
+
+D) OVERRIDE:
+- Admin Hardcut-first (B280 Feature, B285 Security, B167 Tooling):
+  - technisch killen -> reconcile/cleanup.
+
+================================================================================
+3) FLOW (HIGH LEVEL, ABER OPERATIONSNAH)
+================================================================================
+3.1 RADIUS Login Flow (authorize) – B169
+- normalize username (trim-only)
+- map subaccount_login -> vpn_connection_id (SQL-first)
+- acquire mutex lock (active_session_locks, expires_at=NOW()+20s)
+- check radacct: stop_time IS NULL?
+  - nein: ACCEPT
+  - ja: on-demand janitor attempt (bounded, rate-limited, cache)
+      - wenn janitor schließt: re-check radacct -> ACCEPT
+      - wenn weiterhin offen: REJECT (No Takeover)
+
+3.2 Accounting Start – B165/B167/B169
+- Sobald Acct-Start eintrifft:
+  - lock wird sofort gelöscht (Guard hat seinen Dienst getan)
+  - ip-up erstellt /run/vpn-sessions/*.env
+  - vpn-policy-apply setzt Policies (nft) + QoS (tc)
+
+3.3 Ghost Repair – B168/B169
+- periodic janitor sweep schließt stale radacct nur, wenn Runtime-Mapping ungültig ist
+- on-demand janitor wirkt nur “pointed” für die betroffene connection_id
+
+3.4 Admin Hardcut – B280/B285/B167
+- Panel löst Hardcut aus (ADMIN only)
+- Panel darf nicht selbst killen
+- sudo wrapper vpn-session-kill <vpn_connection_id> führt kill + reconcile durch
+
+================================================================================
+4) INVARIANTEN (MUST)
+================================================================================
+- “Session aktiv” wird niemals aus /run abgeleitet, nur radacct.
+- Kein Takeover im authorize-flow.
+- Lock ist nie Langzeit-State. TTL <= 20s, Release auf Acct-Start.
+- Admin Hardcut: Kill -> Reconcile (niemals nur DB-Änderung).
+
+================================================================================
+5) FAILURE MODES (WAS PASSIERT DANN)
+================================================================================
+- Access-Accept ohne Acct-Start:
+  - Lock läuft nach 20s ab (kein Dauerlockout).
+  - radacct bleibt ggf. leer (oder offen ohne stop) -> janitor regelt, je nach Fall.
+- DB down:
+  - Auth fail-closed; janitor best-effort, keine Endlos-Loops (siehe B167/B169).
+- Disk voll (/run/logs):
+  - darf TRUTH nicht beeinflussen; nur Diagnose leidet (Monitoring/Retention in DoD, B310).
+- Admin “Clear lock only”:
+  - verboten (Split-Brain Risiko).
+
+================================================================================
+6) REFERENZEN
+================================================================================
+- Decision: D012 (kanonisch)
+- Blocks: B056 (Schema/Guard), B169 (authorize flow), B168 (janitor),
+         B167 (wiring/tools), B280 (feature), B285 (security model), B310 (tests)
+
+================================================================================
+CHANGELOG
+================================================================================
+- v1.0 (2026-01-14): Neu. Session-Control-Knotenpunkt gemäß D012 (Truth/Guard/Repair/Override) + Invarianten + Failure Modes.
+================================================================================
+END BLOCK B171
+================================================================================

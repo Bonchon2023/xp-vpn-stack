@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B230_HTTPS_BLOCKPAGE_MITM_CA.txt
+xp-vpn-stack/blocks/B230_HTTPS_BLOCKPAGE_MITM_CA.txt
 ================================================================================
 BLOCK-ID: B230
 TITLE: HTTPS Blockpage (MITM) / CA / On-the-fly Certs / RateLimit
 VERSION: v1.0
+DATUM: 2026-01-06
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B150, B200, B220
+INFLUENCES: alle
 OWNER-INTENT: HTTPS Blockpage ohne Warnungen auf XP/MyPal.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- HTTPS-Blockpage/MITM ist nur für Blocklisten-Ziele gedacht (Custom IP → interne Blockpage), nicht für generelles MITM.
+- Ohne installierte interne Root-CA auf dem Client darf diese Funktion nicht als „funktioniert“ gelten.
+- Zertifikats-Generierung muss gecached/gerate-limited sein, sonst wird der Server bei vielen Requests zum DoS-Ziel.
 ================================================================================
 
 1) ZWECK
@@ -52,7 +61,8 @@ OWNER-INTENT: HTTPS Blockpage ohne Warnungen auf XP/MyPal.
 - Block domain -> HTTPS opens blockpage without warning on MyPal.
 - Flood subdomains -> server remains responsive.
 
-10) CHANGELOG
+================================================================================
+CHANGELOG
+================================================================================
 - v1.0: Initial
-
 ================================================================================

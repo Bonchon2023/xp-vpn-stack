@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B140_NFT_OUTBOUND_ABUSE_BLOCKS.txt
+xp-vpn-stack/blocks/B140_NFT_OUTBOUND_ABUSE_BLOCKS.txt
 ================================================================================
 BLOCK-ID: B140
 TITLE: nftables Outbound Abuse Blocks (Reputation-Schutz)
 VERSION: v1.0
+DATUM: 2026-01-06
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B060, B120
+INFLUENCES: alle
 OWNER-INTENT: Server-IP nicht auf Blacklists landen lassen.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- Reputation-Schutz ist Pflicht: SMTP (25/465/587) sowie SMB/NetBIOS-Outbound werden für User blockiert.
+- Admin-Netz kann optional anders behandelt werden, aber User-Netz bekommt keine „Mailserver“-Freiheit.
+- Implementiere Blocks im Forward-Pfad vor NAT und logge nur rate-limited, sonst Disk-Full-Risiko.
 ================================================================================
 
 1) ZWECK
@@ -39,7 +48,8 @@ OWNER-INTENT: Server-IP nicht auf Blacklists landen lassen.
 9) TESTS
 - From client: telnet/smtp connect fails, smb fails.
 
-10) CHANGELOG
+================================================================================
+CHANGELOG
+================================================================================
 - v1.0: Initial
-
 ================================================================================

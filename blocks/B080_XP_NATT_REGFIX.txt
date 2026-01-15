@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B080_XP_NATT_REGFIX.txt
+xp-vpn-stack/blocks/B080_XP_NATT_REGFIX.txt
 ================================================================================
 BLOCK-ID: B080
 TITLE: XP NAT-T Registry Fix (AssumeUDPEncapsulationContextOnSendRule)
-VERSION: v1.0
+VERSION: v1.1
+DATUM: 2026-01-14
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B040
+INFLUENCES: B310
 OWNER-INTENT: NAT Traversal zuverlässig für Kunden hinter Routern.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- Registry-Fix ist Pflicht bei NAT (AssumeUDPEncapsulationContextOnSendRule); ohne das ist „geht manchmal“ nicht akzeptabel.
+- Die Änderung ist Client-seitig (Setup-Tool); der Server „heilt“ das nicht automatisch.
+- Nach Setzen des DWORD ist ein Reboot erforderlich; Validierung über NAT-T (UDP 4500) und stable reconnect Tests.
 ================================================================================
 
 1) ZWECK
@@ -16,7 +25,7 @@ OWNER-INTENT: NAT Traversal zuverlässig für Kunden hinter Routern.
 
 3) ABHÄNGIGKEITEN
 - Requires: B040
-- Influences: B240
+- Influences: B310
 
 4) INPUTS
 - Setup-Tool mit Adminrechten
@@ -37,7 +46,9 @@ OWNER-INTENT: NAT Traversal zuverlässig für Kunden hinter Routern.
 9) TESTS
 - Auf frischem XP: Tool setzt Key, nach reboot VPN connect.
 
-10) CHANGELOG
+================================================================================
+CHANGELOG
+================================================================================
+- v1.1 (2026-01-14): Konsistenz: DATUM aktualisiert; Influences-Drift bereinigt (B310 statt B240). Keine inhaltliche Änderung.
 - v1.0: Initial
-
 ================================================================================

@@ -1,6 +1,15 @@
-vpn_masterkonzept/04_BLOCK_INDEX.txt
+xp-vpn-stack/04_BLOCK_INDEX.txt
 ================================================================================
-BLOCK INDEX (MASTER v2.4)
+TITLE: Block Index
+VERSION: v1.1
+DATUM: 2026-01-14
+STATUS: ACCEPTED
+OWNER-INTENT: Navigations- und Dependency-Index der Blocks (Datei, Status, Requires/Influences).
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+================================================================================
+
+================================================================================
+BLOCK INDEX
 ================================================================================
 
 [B010] META / Scope & Constraints
@@ -34,7 +43,7 @@ BLOCK INDEX (MASTER v2.4)
 - Status: ACTIVE | Priority: MUST
 - Requires: B040
 
-[B056] RADIUS Schema Mapping + SimUse Atomic Lock Lifecycle
+[B056] RADIUS SQL Schema + Mapping + SimUse-Atomic Lock (Guard/Mutex)
 - Datei: blocks/B056_RADIUS_SCHEMA_MAPPING.txt
 - Status: ACTIVE | Priority: MUST
 - Requires: B050, B055
@@ -129,6 +138,11 @@ BLOCK INDEX (MASTER v2.4)
 - Datei: blocks/B170_SESSION_STABILITY_DPD_LCP.txt
 - Status: ACTIVE | Priority: MUST
 - Requires: B040
+
+[B171] Session Control (SimUse=1) — Knotenpunkt / Quick Map (Truth, Guard, Repair, Hardcut)
+- Datei: blocks/B171_SESSION_CONTROL_KNOTENPUNKT.txt
+- Status: ACTIVE | Priority: MUST
+- Requires: D012, B056, B168, B169
 
 [B180] systemd Restart + Healthchecks
 - Datei: blocks/B180_SYSTEMD_RESTART_HEALTHCHECKS.txt
@@ -235,6 +249,13 @@ BLOCK INDEX (MASTER v2.4)
 - Status: ACTIVE | Priority: MUST
 - Requires: B340, B341, B342
 
+
+================================================================================
+CHANGELOG
+================================================================================
+- v1.1 (2026-01-14): B171 Session-Control-Knotenpunkt ergänzt.
+- v1.0 (2026-01-13): Added VERSION/CHANGELOG sections (protocol compliance).
+================================================================================
 ================================================================================
 ENDE 04_BLOCK_INDEX.txt
 ================================================================================

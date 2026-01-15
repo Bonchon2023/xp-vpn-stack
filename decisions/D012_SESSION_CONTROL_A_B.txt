@@ -1,0 +1,106 @@
+xp-vpn-stack/decisions/D012_SESSION_CONTROL_A_B.txt
+================================================================================
+DECISION-ID: D012
+TITLE: Session Control (SimUse=1) — Model A (Truth) + Model B (Guard) + Janitor Repair
+VERSION: v1.0
+DATUM: 2026-01-14
+STATUS: ACCEPTED
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+================================================================================
+
+## 0) Kontext / Problem
+Das System ist ein High-Security VPN-Stack (Legacy Windows XP + Modern), bei dem mehrere asynchrone Komponenten zusammenwirken:
+- RADIUS Auth (Access-Request/Accept/Reject)
+- PPP/L2TP (xl2tpd/pppd) + Kernel Runtime (pppX, PID, Interface, /run)
+- RADIUS Accounting (Acct-Start/Interim/Stop) -> radacct (SQL)
+- Panel (PHP) als Admin-Controlplane (SQL-first)
+
+Diese Komponenten sind nicht perfekt synchron. Das erzeugt unvermeidbare Randfälle:
+- Race: zwei nahezu gleichzeitige Access-Requests vor Accounting-Start.
+- Ghost: radacct sagt „aktiv“ (stop_time NULL), Runtime ist aber tot (PID/Interface weg) oder umgekehrt (Stop fehlt).
+
+Ziel ist deterministisches, auditierbares Session Control bei SimUse=1, ohne zweite „Wahrheit“ (keine zusätzliche State-Machine neben radacct).
+
+## 1) Entscheidung (KANONISCH)
+Wir legen Session Control final fest als:
+- Model A (Truth): radacct ist die einzige Wahrheit für „Session aktiv“.
+- Model B (Guard): active_session_locks ist ausschließlich ein kurzlebiger Mutex (Guard) zur Schließung des Race-Fensters im Login-Moment.
+- Repair: Janitor ist der einzige Mechanismus, der Ghosts erkennt und radacct/runtime konsistent repariert, wobei Kernel-/run-Infos nur als Validierungs- und Repair-Signal dienen (nicht als Truth für Login-Entscheidungen).
+
+Model C (Stateful Lifecycle wie PENDING/ACTIVE als zweite Session-State-Machine) wird verworfen.
+
+## 2) Invarianten / Hierarchie (MUST)
+I1) Truth-Hierarchie:
+- SQL (radacct) führt für die Frage „Session aktiv“.
+- Kernel-/run-Infos dienen nur der Validierung und Reparatur (Janitor), nicht als alleinige Gate-Wahrheit.
+
+I2) Definition „Session aktiv“:
+- Eine Session gilt als aktiv genau dann, wenn in radacct eine zugehörige Session existiert mit stop_time IS NULL.
+  (Details/Join-Schlüssel sind in den zuständigen Blocks definiert.)
+
+I3) SimUse=1 Verhalten:
+- Wenn „Session aktiv“ (radacct offen) => Login wird fail-closed abgewiesen (No Takeover durch User).
+
+I4) Guard-Charakter:
+- active_session_locks ist KEIN Session-State. Er darf nicht als „Session lebt“ interpretiert werden.
+- Guard ist kurzlebig, TTL-bereinigt, und schützt nur das Auth-Race-Fenster.
+
+I5) Admin-Hardcut-first:
+- Admin darf niemals „nur DB bereinigen“ ohne technischen Kill.
+- Reihenfolge ist zwingend: Kill/Terminate technisch -> danach Reconcile (DB/Accounting/Policy).
+
+## 3) Zeilenfeste Parameter & Wiring (O1–O5 FINAL)
+O1) Lock TTL (Guard):
+- expires_at = NOW() + 20 seconds (KANONISCH)
+
+O2) Lock Acquire / Release Punkte:
+- Acquire: FreeRADIUS authorize (ganz am Ende, kurz vor OK/ACCEPT Entscheidung).
+  - Wenn Guard-Lock nicht erlangt werden kann (existing unexpired lock): sofort REJECT (oder definierter deny/restrict Pfad gemäß B169/B342).
+- Release: FreeRADIUS accounting (Acct-Start).
+  - Sobald Acct-Start da ist, existiert Truth (radacct) -> Guard muss weg.
+- Safety: Wenn Acct-Start nie kommt, greift TTL (Lock läuft ab).
+
+O3) Ghost-Definition (KANONISCH, referenziert):
+- Ghost = radacct Session offen (stop_time IS NULL) UND kein valides Runtime-Mapping gemäß B168 (PID+StartTS/Interface Validierung negativ).
+- Details der Runtime-Validierung sind ausschließlich in B168 kanonisch.
+
+O4) Admin-Hardcut Tooling (KANONISCH, privilege separated):
+- System-Tool: /usr/local/bin/vpn-session-kill <vpn_connection_id>
+- Panel (PHP/www-data) darf NICHT direkt killen.
+- Privilege Separation: www-data darf via sudoers ausschließlich dieses Skript aufrufen.
+- Wrapper muss Input strikt validieren (Integer ID), Lookup/Validation durchführen und danach Kill+Reconcile ausführen.
+- Alle Hardcut-Aktionen sind auditpflichtig (Wer/Wann/Warum/Ergebnis).
+
+O5) Tests (Acceptance, MUST):
+Mindestens folgende Tests müssen in B310 als Akzeptanzfälle stehen:
+- Parallel-Login Race: zwei parallele Access-Requests -> genau ein ACCEPT; zweiter wird abgewiesen (Guard wirkt).
+- ACCEPT ohne Acct-Start: Access-Accept erfolgt, Accounting-Start bleibt aus -> nach 20s TTL darf erneuter Login nicht dauerhaft blockiert sein.
+- Ghost: radacct offen, Runtime tot -> Janitor erkennt Ghost (gemäß B168), reconciled -> danach Login möglich.
+- Admin Hardcut: Hardcut-first (Kill -> Reconcile) erzeugt keine Zombie-Traffic/Unaccounted Session und hinterlässt auditierbaren Zustand.
+
+## 4) Separation of Concerns (SoC) – Zuständigkeiten
+- B169: Login/On-Demand Janitor Flow + Gate-Entscheidungen (Truth via radacct, No Takeover) + Referenzen auf Guard/Janitor.
+- B056: DB Schema/Mapping für Guard (active_session_locks), TTL, Acquire/Release Semantik (ohne Lifecycle).
+- B168: Ghost-Kriterien + Runtime-Validierung + Repair/Janitor-Mechanik (kanonisch).
+- B310: Akzeptanztests / DoD Nachweise.
+- B280: Panel Feature „Admin kann Sessions beenden (Hardcut)“ (funktional).
+- B285: Panel Security Model: Privilege Separation + Audit + „Panel killt nie direkt“ (Security Enforcement).
+- B167: System Wiring/Toolpfade (KANONISCH: /usr/local/bin/vpn-session-kill) und Integration.
+- B166: Technische Kill-/Reconcile-Details (PPP/Kernel), sofern dort geführt.
+
+## 5) Security Rationale (Kurz)
+- Verhindert Split-Brain durch zweite Wahrheit (keine Lock-State-Machine neben radacct).
+- Fail-Closed vermeidet Session-Hijacking/Takeover-Angriffe.
+- Guard schließt Race-Fenster deterministisch.
+- Janitor repariert unvermeidbare Ghosts kontrolliert, ohne Login-Gates auf volatile Runtime-Artefakte zu stützen.
+- Admin Hardcut-first vermeidet Zombie-Traffic und unaccounted/unpoliced Sessions.
+
+## 6) Nicht-Ziele (Non-Goals)
+- Keine User-getriebene Session-Übernahme („Takeover“).
+- Keine vollständige Replikation des RADIUS/PPP-Zustands in eine zweite DB-State-Machine.
+
+================================================================================
+CHANGELOG
+================================================================================
+- v1.0 (2026-01-14): Accepted decision set for Session Control: Model A Truth (radacct) + Model B Guard (active_session_locks mutex, TTL 20s), No Takeover, Janitor ghost repair via B168, Admin Hardcut-first with privilege separation and canonical tooling contract.
+================================================================================

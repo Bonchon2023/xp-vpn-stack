@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B050_SQL_AAA_RADIUS.txt
+xp-vpn-stack/blocks/B050_SQL_AAA_RADIUS.txt
 ================================================================================
 BLOCK-ID: B050
 TITLE: SQL AAA / FreeRADIUS / Accounting
-VERSION: v1.17
+VERSION: v1.20
+DATUM: 2026-01-14
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B010, B020, B030, B040, B055, B056, B270
+INFLUENCES: alle
 OWNER-INTENT: SQL als Source of Truth, RADIUS als Enforcement + Logging.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- RADIUS/SQL ist die Autorität für Auth + Policy: keine lokalen chap-secrets als Produktions-Truth (nur evtl. Debug).
+- Backend-Fehler (SQL down etc.) dürfen niemals Bans triggern; sie müssen als eigener Reason-Code sichtbar sein.
+- Accounting-Events sind Teil des Contracts (Quota/Janitor/F2B): Format und Felder dürfen nicht „still“ abweichen.
 ================================================================================
 
 1) ZWECK
@@ -23,7 +32,7 @@ OWNER-INTENT: SQL als Source of Truth, RADIUS als Enforcement + Logging.
 - claim_token / claim_token_hash ist ausschließlich Claim-only (Panel) und NIE Bestandteil des VPN-Login-Flows.
 
 3) ABHÄNGIGKEITEN
-- Requires: B040, B055, B056, B270
+- Requires: B010, B020, B030, B040, B055, B056, B270
 - Influences: B160, B150, B280, B270
 
 4) INPUTS
@@ -52,12 +61,14 @@ OWNER-INTENT: SQL als Source of Truth, RADIUS als Enforcement + Logging.
 - Sub-Accounts pro Gerät zwingend (damit feste IPs eindeutig sind).
 - PPP Username (RADIUS User-Name) MUSS identisch sein mit vpn_connections.subaccount_login (Option 1).
 - subaccount_login MUSS eindeutig sein (UNIQUE) für aktive Verbindungen, damit ip-up die CONNECTION_ID deterministisch per SQL Lookup ermitteln kann (siehe B167).
-- Keine Parallel-Sessions: Pro subaccount_login / connection_id ist maximal 1 gleichzeitige PPP-Session erlaubt (pro Gerät genau 1 Verbindung).
+- subaccount_login Format ist kanonisch und MUSS validiert werden: ^vpn_[a-z2-7]{16}$ (Prefix "vpn_" + 16 Zeichen Base32 (a-z2-7), lowercase).
+- subaccount_login wird ausschließlich serverseitig random/non-enumerable generiert (niemals user-supplied; Anti-Enumeration). Panel darf den Wert anzeigen, aber nur read-only.
+- Keine Parallel-Sessions: Pro subaccount_login / vpn_connection_id (CONNECTION_ID) ist maximal 1 gleichzeitige PPP-Session erlaubt (pro Gerät genau 1 Verbindung).
 - Enforcement erfolgt in FreeRADIUS über Simultaneous-Use=1 (radacct-basiert):
   - Wenn bereits eine aktive Session existiert (radacct stop_time IS NULL), MUSS ein weiterer Login für denselben subaccount_login abgelehnt werden.
 - WICHTIG (Stabilität): Simultaneous-Use=1 (radacct) ist nicht atomar gegen Parallel-Logins/Race.
-- Zusätzlich MUSS ein atomarer Session-Lock/Lifecycle umgesetzt werden (siehe B056 + B168/B169 + B310).
-  - Ziel: "genau 1 aktive Session pro subaccount_login" auch bei gleichzeitigen Login-Versuchen deterministisch erzwingen.
+- Zusätzlich MUSS ein atomarer Session-Lock als Guard/Mutex (KEIN Lifecycle) umgesetzt werden (siehe B056 + B168/B169 + B310).
+  - Ziel: Parallel-Login-Race deterministisch verhindern (check radacct -> ACCEPT Fenster); Truth bleibt radacct (stop_time IS NULL).
 - Stale-Sessions werden aktiv vermieden/abgeräumt (siehe B170 DPD/LCP):
   - Wenn eine Session „hängt“, muss sie durch DPD/LCP/Timeout zuverlässig beendet werden, damit Simultaneous-Use nicht dauerhaft blockiert.
 - Stale radacct Sessions dürfen Simultaneous-Use nicht dauerhaft blockieren: DB-Janitor/Sweeper ist in B168 definiert (Interim 300s, Threshold 900s, Timer 5min, Safety-Check /run/vpn-sessions).
@@ -73,9 +84,13 @@ OWNER-INTENT: SQL als Source of Truth, RADIUS als Enforcement + Logging.
 - Hinweis: Onboarding/Email-Verify ist App-Layer (Verify-Wall, B155/B280) und kein Restricted-Trigger mehr.
 - Auswertung (Precedence):
   1) DISABLED/BANNED/Missbrauch -> RADIUS reject (kein VPN)
-  2) Sonst: ACCEPT + restricted_effective (true/false) + restricted_reason (string)
-- restricted_reason MUSS eindeutig sein (z.B. QUOTA / EXPIRY / MANUAL / UNCLAIMED_OVERDUE).
-- Hinweis: restricted_reason ist ein berechneter Reason-Code (Reply/Logging/Panel-Anzeige); er muss nicht zwingend als DB-Feld persistiert werden, solange er deterministisch aus SQL ableitbar ist.
+  2) Sonst: ACCEPT + restricted_effective (true/false) + restricted_reason (string; B342-canonical R_* Token; niemals R_PANEL_*)
+- restricted_reason MUSS eindeutig sein (canonical R_KERNEL_REASON nach B342), z.B.: R_POLICY_QUOTA_EXHAUSTED / R_POLICY_EXPIRY_PASSED / R_POLICY_MANUAL_RESTRICTED / R_POLICY_UNCLAIMED_OVERDUE (optional zusätzlich: R_SECURITY_RATE_LIMITED*).
+  - Quota <= 0                     -> R_POLICY_QUOTA_EXHAUSTED => Reason=R_POLICY_QUOTA_EXHAUSTED
+  - Expiry überschritten           -> R_POLICY_EXPIRY_PASSED => Reason=R_POLICY_EXPIRY_PASSED
+  - manual_restricted              -> R_POLICY_MANUAL_RESTRICTED => Reason=R_POLICY_MANUAL_RESTRICTED
+  - UNCLAIMED_OVERDUE              -> R_POLICY_UNCLAIMED_OVERDUE => Reason=R_POLICY_UNCLAIMED_OVERDUE
+- Hinweis: restricted_reason ist ein deterministischer Reason-Code (B342-canonical Token), server-managed. Er kann als computed Value abgeleitet werden ODER (empfohlen für Debug/Fast-Path) persistiert werden (Schema-Felder in B055: restricted_reason + restricted_effective).
 - Quota-Accounting darf NICHT per Paket/Traffic DB-Reads erzeugen:
   - Usage wird über pppX Kernel-Counter als Deltas gesammelt und batchweise geschrieben.
 - Session-Mapping pppX -> connection_id + Collector-Lifecycle sind in B165 definiert.
@@ -124,7 +139,12 @@ OWNER-INTENT: SQL als Source of Truth, RADIUS als Enforcement + Logging.
 - Janitor Test (B168): stale radacct (stop_time NULL + acctupdatetime > 900s) wird geschlossen -> Simultaneous-Use block ist weg; Safety-Check verhindert false positives, wenn /run/vpn-sessions Mapping existiert.
 - Immediate Reconnect Test: Crash erzeugt stale radacct (stop_time NULL) -> On-Demand Cleanup (B168) läuft beim Login-Versuch -> Login wird sofort wieder möglich, ohne Parallel-Sessions zu erlauben.
 
-10) CHANGELOG
+================================================================================
+CHANGELOG
+================================================================================
+- v1.20 (2026-01-14): Konsistenz-Fix: Header-DATUM aktualisiert; REQUIRES/ABHÄNGIGKEITEN harmonisiert (inkl. B040/B055/B056/B270); Terminologie präzisiert (vpn_connection_id statt connection_id im Parallel-Session-Satz); restricted_reason Persistenz-Note an B055 angepasst (persistiert oder computed, aber stets deterministisch/server-managed).
+- v1.19 (2026-01-14): Kanonisches subaccount_login Format/Entropy (^vpn_[a-z2-7]{16}$) + system-generated/non-enumerable + Panel read-only Sichtbarkeit als MUST ergänzt.
+- v1.18 (2026-01-13): restricted_reason auf B342-canonical R_POLICY_* Token umgestellt (Mapping Quota/Expiry/Manual/UNCLAIMED_OVERDUE); explizit klargestellt: niemals R_PANEL_* im AAA/Kernel-Kontext.
 - v1.17 (2026-01-09): PPP Auth finalisiert: MSCHAPv2 + NT-Hash (NT-Password) als SQL-SoT dokumentiert; Claim-Token als strikt Claim-only im AAA-Kontext klargestellt.
 - v1.16 (2026-01-07): Task-Wortlaut entfernt: atomarer Session-Lock verweist jetzt auf B056 + B168/B169 + B310 (inhaltlich unverändert).
 - v1.15 (2026-01-07): Task-Referenz entfernt. DB-Schema/Mapping sind jetzt Block-basiert in B055/B056 (keine inhaltliche Änderung).
@@ -143,5 +163,4 @@ OWNER-INTENT: SQL als Source of Truth, RADIUS als Enforcement + Logging.
 - v1.2: Restricted State/Flag Modell konkretisiert (SQL-first): Quellen (Gate#1/Gate#2/Quota/Expiry/Manual), Precedence (reject nur DISABLED/BANNED), restricted_reason vereinheitlicht.
 - v1.1: Reject-Policy klargezogen: Terminologie BAN -> BANNED vereinheitlicht. Trennung explizit gemacht: DISABLED/BANNED/Missbrauch = RADIUS reject; Gates/Quota/Expiry = ACCEPT + restricted state/flag (Enforcement über B150).
 - v1.0: Initial
-
 ================================================================================

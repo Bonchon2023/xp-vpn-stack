@@ -1,11 +1,20 @@
-vpn_masterkonzept/templates/BLOCK_TEMPLATE.txt
+xp-vpn-stack/templates/BLOCK_TEMPLATE.txt
 ================================================================================
 BLOCK-ID: B000
 TITLE: <Kurz & eindeutig>
 VERSION: v1.0
+DATUM: YYYY-MM-DD
 STATUS: ACTIVE | DRAFT | DEPRECATED
 PRIORITY: MUST | SHOULD | OPTIONAL
-OWNER-INTENT: <Warum existiert der Block?>
+REQUIRES: <Liste der Block-IDs, z.B. B050, B150>
+INFLUENCES: <Liste der Block-IDs, auf die dieser Block wirkt>
+OWNER-INTENT: <Warum existiert dieser Block? Was ist das Ziel?>
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- <Relevante Abgrenzung / Constraint 1>
+- <Relevante Abgrenzung / Constraint 2>
+- <Wichtiger technischer Hinweis>
 ================================================================================
 
 1) ZWECK (WAS wird gelöst?)
@@ -41,7 +50,8 @@ OWNER-INTENT: <Warum existiert der Block?>
 9) TESTS / ACCEPTANCE CRITERIA
 - …
 
-10) CHANGELOG (Block-intern)
-- v1.0: …
-- v1.1: …
+================================================================================
+CHANGELOG
+================================================================================
+
 ================================================================================

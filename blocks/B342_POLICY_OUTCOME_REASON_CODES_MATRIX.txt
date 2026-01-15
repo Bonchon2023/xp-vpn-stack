@@ -1,171 +1,365 @@
-vpn_masterkonzept/blocks/B342_POLICY_OUTCOME_REASON_CODES_MATRIX.txt
+xp-vpn-stack/blocks/B342_POLICY_OUTCOME_REASON_CODES_MATRIX.txt
 ================================================================================
 BLOCK-ID: B342
-TITLE: Policy Outcomes (DENY/RESTRICT/OK) + Reason-Codes (R_ / R_AUTH_) + Matrix/Prioritäten
-VERSION: v1.0.0
+TITLE: Reason Registry (Domains + Outcomes) für R_* / R_AUTH_* inkl. Kernel-Prioritäten + Aliases (No Drift)
+VERSION: v2.6
+DATUM: 2026-01-14
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B050, B150, B280, B285, B310, B340, B341
+INFLUENCES: B150, B166, B280, B285, B310, B340, B341, B343
 OWNER-INTENT: Deterministische, supportbare Outcome/Reason-Semantik ohne Architekturkonflikt (Self-Service bleibt möglich).
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- Reason-Codes sind kanonisch: nur definierte Codes; alles Unbekannte wird als BACKEND_ERROR/UNKNOWN klassifiziert.
+- Precedence-Regeln sind bindend (z.B. BackendError > AuthFail), sonst entstehen unlogische UI/F2B Effekte.
+- Matrix muss direkt testbar sein (B310) und darf keine „stillen“ Aliase enthalten, ohne sie explizit zu dokumentieren.
 ================================================================================
 
 ================================================================================
 1) INHALT
 ================================================================================
 
-## 1) KANONISCHE OUTCOMES (MUST)
+## 1) KANONISCHE OUTCOMES (MUST, systemweit)
+Hinweis:
+- OUTCOME ist eine **semantische** Kategorie (DENY/RESTRICT/OK/INFO) und gilt systemweit.
+- Die **technische Umsetzung** hängt von der DOMAIN ab (siehe 1.1).
+
 - OUTCOME=DENY
   - RADIUS: Access-Reject
-  - Effekt: **kein Tunnel** (kein Panel, kein Walled Garden)
+  - Effekt (Kernel): **kein Tunnel**
 - OUTCOME=RESTRICT
-  - RADIUS: Access-Accept
-  - Effekt: Tunnel steht, aber **Restricted Mode/Walled Garden** greift (nur erlaubte Ziele, v.a. 10.77.0.1)
+  - RADIUS: Access-Accept (restricted_effective=true)
+  - Effekt (Kernel): Tunnel steht, aber **Restricted Mode/Walled Garden** greift (nur erlaubte Ziele, v.a. 10.77.0.1)
 - OUTCOME=OK
   - RADIUS: Access-Accept
-  - Effekt: Full Tunnel (normale Nutzung)
+  - Effekt (Kernel): Full Tunnel (normale Nutzung)
+- OUTCOME=INFO
+  - Kein Kernel-Enforcement per se (typisch: PANEL/JOB/OPS)
+  - Effekt: reines Status-/UX-/Ops-Signal (z.B. Verify pending), **darf RADIUS Outcome nicht „heimlich“ ändern**
 
-## 2) REASON-CODES (MUST)
-Reason-Codes sind kanonische, kurze Codes für Observability/Support.
-Sie sind **deterministisch priorisiert** (siehe Matrix).
+## 1.1 DOMAINS (MUST, verhindert Semantik-Drift)
+Jeder Reason-Code ist genau **einer** Domain zugeordnet:
 
-### 2.1 R_ (Policy/State)
-- `R_*` beschreibt Policy-/State-Gründe (Account/Quota/Expiry/Claim/Verify etc.)
+- DOMAIN=RADIUS
+  - Code wirkt direkt in der RADIUS/Auth-Pipeline (Reject vs Accept+Restricted vs Accept).
+- DOMAIN=PANEL
+  - Code beschreibt UI-/Self-Service-Status (Verify/Claim/Ownership etc.).
+  - **Wichtig:** PANEL-Codes sind **kein** Kernel-Enforcement und dürfen kein RADIUS-RESTRICT erzwingen.
+- DOMAIN=JOB
+  - Code beschreibt State-Transitions durch Janitor/Scheduler (z.B. claim_deadline → DISABLED setzen).
+- DOMAIN=SECURITY
+  - Code beschreibt Abuse/RateLimit/Operational-Schutz. Kann RADIUS beeinflussen, ist aber fachlich SECURITY.
+- DOMAIN=OPS
+  - Code beschreibt Backend/Infra-Degradation (DB down, spool full etc.).
 
-### 2.2 R_AUTH_ (Auth/Infra)
-- `R_AUTH_*` beschreibt Auth-/Infra-Gründe (z.B. SQL down, unknown user, badpass).
-- **R_AUTH_ gehört logisch zu Auth**, wird aber im Outcome-Matrix-Format geführt.
+================================================================================
+2) REASON REGISTRY (MUST) + ALIAS POLICY (MUST)
+================================================================================
 
-## 3) PRIORITÄTENKETTE (MUST, deterministisch)
-Wenn mehrere Reasons gleichzeitig zutreffen, gilt **immer** die erste zutreffende Kategorie:
+## 2.1 Grundregeln (bindend)
+- Reason-Codes sind kanonische Codes: nur definierte Codes; alles Unbekannte wird als BACKEND_ERROR/UNKNOWN klassifiziert (siehe B340/B343).
+- **Ein Code = eine Bedeutung**. Kein wechselndes Wording, keine Synonym-Drift.
+- Jeder Code hat feste Metadaten: DOMAIN + OUTCOME + Kurzbeschreibung + (falls Kernel-relevant) SQL-State-Abhängigkeit.
+- R_AUTH_* (Auth/Infra) sind SoT in B340; dieses Dokument referenziert sie nur.
 
-Prio 0 (Backend/Infra) >
-Prio 1 (Hard Admin) >
-Prio 2 (Security/Operational Violations) >
-Prio 3 (Self-Service States) >
-Prio 4 (OK)
+## 2.2 Alias-Mechanik (MUST, Breaking-Change Schutz)
+Ziel: Umbenennungen/Refactorings ohne Drift.
+
+- Ein Alias-Code ist ein normaler `R_*` Code mit:
+  - Status: DEPRECATED
+  - `ALIAS_OF: R_CANONICAL_CODE`
+  - Outcome/Domain werden vom canonical Code übernommen.
+- Regel:
+  - Intern (Logs/Events/DB) MUSS der **canonical Code** verwendet werden.
+  - Alias darf optional in Input/Legacy-Logs vorkommen, wird aber sofort normalisiert.
+- In diesem Block sind Aliases **explizit** gelistet (keine „stillen Aliase“).
+
+================================================================================
+3) PRIORITÄTENKETTE (MUST, deterministisch) — nur für RADIUS/KERNEL
+================================================================================
+Deterministische Reihenfolge, first-match wins (nur Codes, die den Kernel/RADIUS-Outcome beeinflussen: DOMAIN=RADIUS sowie Kernel-wirksame DOMAIN=SECURITY/OPS).
+
+PRIO 0: Backend Failure (sticht alles) [R_AUTH_*]
+- Wenn SQL Connection down -> R_AUTH_BACKEND_SQL_DOWN -> Outcome DENY
+- Wenn SQL Query/Operation fail -> R_AUTH_BACKEND_SQL_FAIL -> Outcome DENY
+
+PRIO 1: Hard Administrative Bans (DENY)
+- R_ACCOUNT_BANNED > R_ABUSE_HOLD > R_ACCOUNT_DISABLED > R_ACCOUNT_LOCKED_ADMIN
+
+PRIO 2: Security / Operational Protections (DENY oder RESTRICT)
+- R_SIMUSE_ACTIVE > R_SECURITY_RATE_LIMITED_RADIUS > R_SECURITY_RATE_LIMITED
+- OPTIONAL (wenn Feature bewusst aktiviert ist): R_REGION_BLOCKED > R_ADMIN_ONLY_SCOPE > R_MAINTENANCE_LOCK
+
+PRIO 3: Self-Service Restricted States (RESTRICT; Self-Service muss möglich bleiben)
+- R_POLICY_MANUAL_RESTRICTED > R_POLICY_EXPIRY_PASSED > R_POLICY_QUOTA_EXHAUSTED > R_POLICY_UNCLAIMED_OVERDUE
+
+PRIO 4: Success (OK)
+- Wenn PREPROVISIONED & Grace aktiv: R_POLICY_PREPROVISIONED_GRACE_ACTIVE
+- sonst: R_OK
 
 Konsequenz:
-- Prio 0/1/2 können DENY sein (wenn Self-Service nicht vorgesehen ist).
-- Prio 3 MUSS RESTRICT sein (Self-Service muss möglich bleiben).
-- Prio 4 ist OK.
-
-## 4) REASON-CODE MATRIX (KANONISCH)
+- Verify/Claim/Ownership sind PANEL/JOB und **dürfen** diese RADIUS-Kette nicht beeinflussen.
+- PRIO 3 MUSS RESTRICT sein (B050/B155: Self-Service bleibt möglich, Panel erreichbar).
+- Rate-Limits sind SECURITY; Standard ist RESTRICT (Panel erreichbar), nicht „hart deny“ (sonst kein Self-Service).
 
 ================================================================================
-PRIO 0 — BACKEND / INFRA (sticht alles)
+4) REASON-CODE MATRIX (KANONISCH)
+================================================================================
+
+================================================================================
+PRIO 0 — BACKEND / INFRA (sticht alles) [R_AUTH_*]
 ================================================================================
 R_AUTH_BACKEND_SQL_DOWN
+- DOMAIN: OPS (R_AUTH_*; SoT B340)
 - Outcome: DENY
 - Kurz: SQL/Backend nicht verfügbar (Fail-Closed, D1a)
-- Notes: kein Fail2ban-Ban-Sturm (siehe B340/B341)
+- Notes: keine Bans aufgrund SQL_DOWN (siehe B340/B341)
 
 R_AUTH_BACKEND_SQL_FAIL
+- DOMAIN: OPS (R_AUTH_*; SoT B340)
 - Outcome: DENY
 - Kurz: SQL Fehler/Timeout/Pool/Conn refused (Fail-Closed)
 - Notes: wie SQL_DOWN; granulare Ursache ist optional außerhalb des Codes
 
 ================================================================================
-PRIO 1 — HARD ADMIN (DENY)
+PRIO 1 — HARD ADMIN (DENY) [RADIUS]
 ================================================================================
 R_ACCOUNT_BANNED
+- DOMAIN: RADIUS
 - Outcome: DENY
 - Kurz: Account permanent gebannt
 - Notes: kein Tunnel
 
 R_ABUSE_HOLD
+- DOMAIN: RADIUS
 - Outcome: DENY
 - Kurz: Abuse-Hold aktiv
 - Notes: kein Tunnel
 
 R_ACCOUNT_DISABLED
+- DOMAIN: RADIUS
 - Outcome: DENY
 - Kurz: Account deaktiviert (Admin)
 - Notes: kein Tunnel
 
 R_ACCOUNT_LOCKED_ADMIN
+- DOMAIN: RADIUS
 - Outcome: DENY
 - Kurz: Account gesperrt (Admin Lock/Investigation)
 - Notes: kein Tunnel
 
 ================================================================================
-PRIO 2 — SECURITY / OPERATIONAL VIOLATIONS (DENY)
+PRIO 2 — SECURITY / OPERATIONAL PROTECTIONS (DENY/RESTRICT) [RADIUS + SECURITY]
 ================================================================================
-R_CLAIM_IP_MISMATCH
-- Outcome: DENY
-- Kurz: Claim/Bind-IP mismatch (Security Reject)
-
-R_CLIENT_NOT_ASSIGNED
-- Outcome: DENY
-- Kurz: VPN-Client/Subaccount nicht diesem Customer zugeordnet
-
 R_SIMUSE_ACTIVE
+- DOMAIN: RADIUS
 - Outcome: DENY
 - Kurz: SimUse Lock aktiv (aktive Session vorhanden)
 
-R_RATE_LIMITED
-- Outcome: DENY
+R_SECURITY_RATE_LIMITED
+- DOMAIN: SECURITY
+- Outcome: RESTRICT
 - Kurz: Rate-Limit greift (Schutz gegen Stuffing/Bruteforce)
+- Notes: RESTRICT (Panel erreichbar). Keine „harten“ Rejects als Default, sonst kein Self-Service.
+
+R_SECURITY_RATE_LIMITED_RADIUS
+- DOMAIN: SECURITY
+- Outcome: RESTRICT
+- Kurz: Rate-Limit greift explizit in der RADIUS/Auth-Pipeline (Spezialisierung)
+- Notes: Spezialisierung von R_SECURITY_RATE_LIMITED; Legacy-Code R_RATE_LIMITED_RADIUS ist Alias auf diesen Code (siehe 5).
 
 OPTIONAL (nur wenn Feature bewusst aktiviert ist):
 R_REGION_BLOCKED
+- DOMAIN: SECURITY
 - Outcome: DENY
 - Kurz: Region/Geo block
 
 R_ADMIN_ONLY_SCOPE
+- DOMAIN: RADIUS
 - Outcome: DENY
 - Kurz: Nur Admin-Scope erlaubt (User im falschen Scope)
 
-================================================================================
-PRIO 3 — SELF-SERVICE STATES (RESTRICT / WALLED GARDEN)
-================================================================================
-R_ACCOUNT_NOT_VERIFIED
-- Outcome: RESTRICT
-- Kurz: E-Mail nicht verifiziert (Verify-Wall)
-
-R_VERIFY_WALL_PENDING
-- Outcome: RESTRICT
-- Kurz: Verify-Wall pending (Code ausstehend)
-
-R_CLAIM_REQUIRED
-- Outcome: RESTRICT
-- Kurz: Device/Client noch nicht geclaimt
-
-R_ACCOUNT_EXPIRED
-- Outcome: RESTRICT
-- Kurz: Subscription abgelaufen (Renew im Panel)
-
-R_QUOTA_EXCEEDED
-- Outcome: RESTRICT
-- Kurz: Quota leer (Top-up/Status im Panel)
+R_MAINTENANCE_LOCK
+- DOMAIN: OPS
+- Outcome: DENY
+- Kurz: Maintenance Lock aktiv (geplante Sperre)
+- Notes: kein Tunnel
 
 ================================================================================
-PRIO 4 — SUCCESS (OK)
+PRIO 3 — SELF-SERVICE RESTRICTED STATES (RESTRICT) [RADIUS]
 ================================================================================
-R_OK
+R_POLICY_MANUAL_RESTRICTED
+- DOMAIN: RADIUS
+- Outcome: RESTRICT
+- Kurz: Admin hat Account in Restricted gesetzt (manual_restricted)
+- SQL-State: manual_restricted=1
+
+R_POLICY_EXPIRY_PASSED
+- DOMAIN: RADIUS
+- Outcome: RESTRICT
+- Kurz: Account abgelaufen (Expiry überschritten)
+- SQL-State: now > expiry
+
+R_POLICY_QUOTA_EXHAUSTED
+- DOMAIN: RADIUS
+- Outcome: RESTRICT
+- Kurz: Quota erschöpft (<=0)
+- SQL-State: quota <= 0
+
+R_POLICY_UNCLAIMED_OVERDUE
+- DOMAIN: RADIUS
+- Outcome: RESTRICT
+- Kurz: PREPROVISIONED/UNCLAIMED, Grace überschritten (Self-Service nur noch via Panel)
+- SQL-State: customer_id IS NULL AND now > unclaimed_grace_until
+
+================================================================================
+PRIO 4 — OK (Success) [RADIUS]
+================================================================================
+R_POLICY_PREPROVISIONED_GRACE_ACTIVE
+- DOMAIN: RADIUS
 - Outcome: OK
-- Kurz: Full Tunnel erlaubt
+- Kurz: PREPROVISIONED/UNCLAIMED innerhalb Grace-Zeitfenster (Full Tunnel erlaubt)
+- SQL-State: customer_id IS NULL AND now <= unclaimed_grace_until
 
-## 5) KONSISTENZ-REGELN (MUST)
-C1: Kein Reason aus Prio 3 darf DENY sein (sonst bricht Self-Service).
-C2: Prio 0 sticht immer (SQL down/fail => DENY).
-C3: Hard Admin bleibt DENY.
-C4: Security Violations bleiben DENY.
-C5: QUOTA/EXPIRED/VERIFY/CLAIM_REQUIRED bleiben RESTRICT.
-
-## 6) OBSERVABILITY / LOGGING CONTRACT (MUST)
-Wenn eine Verbindung bewertet wird, MUSS geloggt werden:
-- outcome = DENY/RESTRICT/OK
-- reason_code = einer der oben definierten Codes
-- (SHOULD) reason_detail = kurzer Debug-String (nicht kanonisch, darf variieren)
-
-## 7) TESTS / DOD (MUST)
-- Matrix-Check: Für jeden Reason ist Outcome exakt wie oben.
-- Prioritäten-Check: Wenn Prio0 + irgendwas => Prio0 gewinnt.
-- Self-Service-Check: NOT_VERIFIED/CLAIM_REQUIRED/EXPIRED/QUOTA => RESTRICT, Panel erreichbar.
-- Hard-Admin-Check: BANNED/DISABLED => DENY, kein Tunnel.
+R_OK
+- DOMAIN: RADIUS
+- Outcome: OK
+- Kurz: Normalbetrieb (keine Restrict/Deny Bedingungen aktiv)
 
 ================================================================================
-2) CHANGELOG
+PANEL — UI/SELF-SERVICE STATES (kein Kernel-Enforcement)
 ================================================================================
+R_PANEL_VERIFY_PENDING
+- DOMAIN: PANEL
+- Outcome: INFO
+- Kurz: E-Mail nicht verifiziert (Verify-Wall aktiv)
+- Notes: darf RADIUS Outcome nicht ändern (B155)
+
+R_PANEL_VERIFY_IN_PROGRESS
+- DOMAIN: PANEL
+- Outcome: INFO
+- Kurz: Verifizierung gestartet, Abschluss ausstehend
+- Notes: tie-break gegenüber VERIFY_PENDING nur im Panel-UX
+
+R_PANEL_CLAIM_REQUIRED
+- DOMAIN: PANEL
+- Outcome: INFO
+- Kurz: Client soll geclaimt werden (Info). Innerhalb Grace kein Kernel-Restrict.
+- Notes: Kernel-Restrict erst bei R_POLICY_UNCLAIMED_OVERDUE (B155/B050)
+
+R_PANEL_CLAIM_IP_MISMATCH
+- DOMAIN: PANEL
+- Outcome: DENY
+- Kurz: Claim/Bind-IP mismatch (Claim-Aktion verweigert)
+- Notes: betrifft Claim-Aktion, nicht den VPN-Kernel-Outcome
+
+R_PANEL_CONNECTION_NOT_OWNED
+- DOMAIN: PANEL
+- Outcome: DENY
+- Kurz: Verbindung/Client gehört nicht zu diesem Customer (Ownership/AuthZ im Panel)
+
+================================================================================
+JOB — STATE TRANSITIONS (Janitor/Scheduler)
+================================================================================
+R_JOB_DISABLE_UNCLAIMED_DEADLINE_PASSED
+- DOMAIN: JOB
+- Outcome: INFO
+- Kurz: claim_deadline überschritten → UNCLAIMED wird DISABLED gesetzt
+- Notes: danach greift im Kernel R_ACCOUNT_DISABLED (DENY)
+
+================================================================================
+5) ALIASES / DEPRECATIONS (MUST, explizit)
+================================================================================
+Regel: Aliases sind DEPRECATED und zeigen auf canonical Codes.
+
+- R_ACCOUNT_NOT_VERIFIED        -> ALIAS_OF: R_PANEL_VERIFY_PENDING
+- R_VERIFY_WALL_PENDING         -> ALIAS_OF: R_PANEL_VERIFY_IN_PROGRESS
+- R_CLAIM_REQUIRED              -> ALIAS_OF: R_PANEL_CLAIM_REQUIRED
+- R_CLAIM_IP_MISMATCH           -> ALIAS_OF: R_PANEL_CLAIM_IP_MISMATCH
+- R_CLIENT_NOT_ASSIGNED         -> ALIAS_OF: R_PANEL_CONNECTION_NOT_OWNED
+- R_RATE_LIMITED                -> ALIAS_OF: R_SECURITY_RATE_LIMITED
+- R_RATE_LIMITED_RADIUS         -> ALIAS_OF: R_SECURITY_RATE_LIMITED_RADIUS
+
+================================================================================
+6) OUTCOME BERECHNUNG (KANONISCH, RADIUS/KERNEL)
+================================================================================
+Kernel-Outcome wird ausschließlich aus SQL-State + R_AUTH_* abgeleitet (B050/B165/B169).
+
+Pseudo-Logik (vereinfacht):
+- Wenn R_AUTH_BACKEND_SQL_* -> DENY
+- Sonst wenn status in {BANNED, DISABLED, ...} -> DENY (R_ACCOUNT_*)
+- Sonst wenn SimUse-Policy verletzt -> DENY (R_SIMUSE_ACTIVE)
+- Sonst wenn RateLimit aktiv -> RESTRICT (R_SECURITY_RATE_LIMITED[_RADIUS])
+- Sonst wenn manual_restricted -> RESTRICT (R_POLICY_MANUAL_RESTRICTED)
+- Sonst wenn expiry passed -> RESTRICT (R_POLICY_EXPIRY_PASSED)
+- Sonst wenn quota exhausted -> RESTRICT (R_POLICY_QUOTA_EXHAUSTED)
+- Sonst wenn unclaimed overdue -> RESTRICT (R_POLICY_UNCLAIMED_OVERDUE)
+- Sonst wenn preprovisioned grace active -> OK (R_POLICY_PREPROVISIONED_GRACE_ACTIVE)
+- Sonst -> OK (R_OK)
+
+Wichtig:
+- Verify/Claim/Ownership (PANEL) ändern **nie** den Kernel-Outcome (kein heimlicher RESTRICT).
+- claim_deadline wirkt über JOB: setzt status=DISABLED, danach greift DENY im Kernel.
+
+================================================================================
+7) TESTS / DOD (MUST)
+================================================================================
+- Matrix-Check: Für jeden Code sind DOMAIN + OUTCOME exakt wie oben.
+- Alias-Check: Jeder Alias ist explizit gelistet; intern wird auf canonical normalisiert.
+- Prioritäten-Check (Kernel): PRIO0 schlägt alles; PRIO1 > PRIO2 > PRIO3 > PRIO4.
+- Regression gegen B050/B155:
+  - Verify pending / Claim required (PANEL) => **kein** Kernel-RESTRICT.
+  - PREPROVISIONED innerhalb Grace => OK (Full Tunnel).
+  - UNCLAIMED_OVERDUE => RESTRICT (Panel erreichbar).
+  - claim_deadline passed => JOB setzt DISABLED => Kernel DENY.
+- RateLimit-Check: RateLimit => RESTRICT (Panel erreichbar), kein hard deny als Default.
+- F2B-Check: SQL_DOWN/SQL_FAIL erzeugt keine Bans (B340/B341), Events sind sauber klassifiziert.
+
+================================================================================
+8) HUMAN MESSAGE MAPPING (OPTIONAL)
+================================================================================
+Zweck:
+- Optionale, konsistente “Human Messages” für Panel/Support/Logs (UX), **ohne Einfluss** auf Enforcement/Policy-Logik.
+
+Regeln:
+- Kein Enumeration-Leak: USER-Text bleibt generisch, Details nur im Admin-Log.
+- Bei DENY ist User-Text bewusst knapp (kein „BANNED“ vs „DISABLED“ unterscheiden, falls das ein Leak wäre).
+
+## 8.1 Kernel (RADIUS) Mapping
+- (DENY,    R_ACCOUNT_DISABLED)         -> "Zugriff nicht möglich."
+- (DENY,    R_ACCOUNT_BANNED)           -> "Zugriff nicht möglich."
+- (DENY,    R_ABUSE_HOLD)               -> "Zugriff nicht möglich."
+- (DENY,    R_SIMUSE_ACTIVE)            -> "Bereits verbunden (Mehrfachverbindung nicht erlaubt)."
+
+- (RESTRICT,R_POLICY_UNCLAIMED_OVERDUE) -> "Zugriff eingeschränkt. Bitte im Panel fortfahren."
+- (RESTRICT,R_POLICY_QUOTA_EXHAUSTED)   -> "Zugriff eingeschränkt (Quota). Panel erreichbar."
+- (RESTRICT,R_POLICY_EXPIRY_PASSED)     -> "Zugriff eingeschränkt (abgelaufen). Panel erreichbar."
+- (RESTRICT,R_POLICY_MANUAL_RESTRICTED) -> "Zugriff eingeschränkt. Panel erreichbar."
+- (RESTRICT,R_SECURITY_RATE_LIMITED)    -> "Zu viele Versuche. Bitte warten. Panel erreichbar."
+- (RESTRICT,R_SECURITY_RATE_LIMITED_RADIUS) -> "Rate-Limit aktiv. Bitte warten. Panel erreichbar."
+
+- (OK,      R_POLICY_PREPROVISIONED_GRACE_ACTIVE) -> "OK"
+- (OK,      R_OK)                           -> "OK"
+
+## 8.2 Panel (UI) Mapping
+- (INFO,    R_PANEL_VERIFY_PENDING)        -> "Bitte E-Mail verifizieren."
+- (INFO,    R_PANEL_VERIFY_IN_PROGRESS)    -> "Verifizierung läuft. Bitte abschließen."
+- (INFO,    R_PANEL_CLAIM_REQUIRED)        -> "Client kann geclaimt werden."
+- (DENY,    R_PANEL_CLAIM_IP_MISMATCH)     -> "Claim abgelehnt."
+- (DENY,    R_PANEL_CONNECTION_NOT_OWNED)  -> "Aktion nicht erlaubt."
+
+================================================================================
+CHANGELOG
+================================================================================
+- v2.6 (2026-01-14): Redaktion/Konsistenz: Trunkierung in 2.1 („alles Unbekannte…“) korrigiert; Prioritätenkette in 3) präzisiert (gilt für kernel-wirksame Codes, inkl. SECURITY/OPS, nicht nur „RADIUS-Domain“). Keine Policy-Änderung.
+- v2.5 (2026-01-14): Grundregeln Terminologie-Fix: „Reason-Codes sind kanonische Codes“ (kein „Tokens“). (No semantic change.)
+- v2.4 (2026-01-14): Terminologie-Fix: Reason-Codes werden als „Codes“ bezeichnet (kein „Tokens“), Header-Datum aktualisiert. (No semantic change.)
+- v2.3 (2026-01-13): B342 refactored zur systemweiten Reason-Registry (Domains + Aliases). Kernel-Outcome-Matrix an B050/B155 ausgerichtet: Verify/Claim/Ownership sind PANEL/JOB (kein Kernel-RESTRICT), eingeführt: PREPROVISIONED-Grace (OK) + UNCLAIMED_OVERDUE (RESTRICT) + claim_deadline Job-Transition; RateLimit auf SECURITY/RESTRICT (Panel erreichbar); Legacy-Codes als explizite DEPRECATED Aliases.
+- v2.2 (2026-01-13): OPTIONAL ergänzt: Human Message Mapping (Outcome+Reason -> Benutzertext) für Panel/Support ohne Einfluss auf Enforcement.
+- v2.1 (2026-01-12): `R_RATE_LIMITED_RADIUS` ergänzt (aus T-SOT Matrix übernommen) und Prioritätenkette entsprechend erweitert.
+- v2.0 (2026-01-12): T-SOT Sync: Prioritätenlogik explizit gemäß T03 (PRIO 0–4 inkl. >-Kette), R_AUTH_* SoT-Verweis auf B340 präzisiert (keine semantische Drift).
 - v1.0.0 (2026-01-11): Neu angelegt. Kanonische Outcomes (DENY/RESTRICT/OK) + Reason-Codes inkl. Prioritätenkette und Matrix (Policy + R_AUTH_).
 ================================================================================
 END BLOCK B342

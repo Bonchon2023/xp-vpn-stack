@@ -1,8 +1,21 @@
-BLOCK: B166_POLICY_APPLY_RECONCILE
-VERSION: v1.10
+xp-vpn-stack/blocks/B166_POLICY_APPLY_RECONCILE.txt
+================================================================================
+BLOCK-ID: B166
+TITLE: Policy Apply / Reconcile (SQL→Kernel)
+VERSION: v1.11
+DATUM: 2026-01-14
 STATUS: ACTIVE
-OWNER: Marco + ChatGPT
-LAST-UPDATE: 2026-01-09
+PRIORITY: MUST
+REQUIRES: B050, B055, B056, B120, B150, B160, B165, B167
+INFLUENCES: B310
+OWNER-INTENT: Definiert die deterministische Policy-Apply/Reconcile-Kette, damit SQL-Policy driftfrei in nftables/tc wirkt.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- Policy-Apply ist „source of enforcement“: Laufzeit (nft/sets) muss kontinuierlich mit SQL-Wahrheit abgeglichen werden.
+- Keine manuellen Hotfixes direkt in nftables: Reconcile überschreibt, sonst driftet das System unbemerkt.
+- Apply muss atomar erfolgen (nft -f Transaktion / sets swap), damit aktive Sessions nicht in einen Zwischenzustand fallen.
+================================================================================
 
 ================================================================================
 1) ZWECK
@@ -41,7 +54,7 @@ LAST-UPDATE: 2026-01-09
 - Enthält mindestens:
   - PPP_IF=pppX
   - CLIENT_IP=10.77.x.y
-  - CONNECTION_ID=<int>
+  - CONNECTION_ID=<int>        (vpn_connection_id; DB-id der Connection)
   - SESSION_ID=<string>   (lokaler Identifier; nicht führend für Runtime-Aktivität)
   - START_TS=<unix>
   - PPPD_PID=<int>        (MUST Kill-Handle; pppd Prozess-PID dieser Session)
@@ -52,7 +65,7 @@ LAST-UPDATE: 2026-01-09
   - Safety-Check (MUST): Vor einem Kill MUSS zusätzlich PPP_IF + START_TS aus dem Mapping plausibilisiert werden (PID-Reuse-Schutz).
 - SESSION_ID bleibt rein diagnostisch (Logs/UI) und ist KEIN Kill-Handle.
 - Runtime-Aktivität (KANONISCH, Definition siehe B165/B167):
-  - "connection_id aktiv?" => true genau dann, wenn irgendein /run/vpn-sessions/*.env diese CONNECTION_ID enthält.
+  - "vpn_connection_id aktiv?" => true genau dann, wenn irgendein /run/vpn-sessions/*.env den Key CONNECTION_ID enthält, dessen Wert = vpn_connection_id ist (CONNECTION_ID ist nur der Env-Keyname).
   - Diese Runtime-Quelle ist führend für Apply (online/offline), Reconcile und Safety-Checks (Janitor-Integration).
 - Offline Connections haben kein Mapping => es gibt nichts am Kernel zu ändern; Policy greift beim nächsten ip-up.
 - Reconcile purgt stale /run/vpn-sessions Mappings deterministisch (PPP_IF muss im Kernel existieren), damit /run als Safety-Quelle zuverlässig bleibt.
@@ -61,7 +74,7 @@ LAST-UPDATE: 2026-01-09
 5) MODI DES TOOLS
 ================================================================================
 Modus A: Single Target (STRICT)
-- Aufruf: vpn-policy-apply --connection-id=<id>
+- Aufruf: vpn-policy-apply --connection-id=<id>   (id = vpn_connection_id)
 - Verwendet von: ip-up Hook + Panel Events (wenn einzelne Connection betroffen ist)
 
 Modus B: Reconcile All (BEST EFFORT)
@@ -78,7 +91,7 @@ Optional Modus C: Customer Scope (STRICT)
 Ablauf: vpn-policy-apply --connection-id=<id>
 
 1) SQL lesen (Control-Plane)
-- Lade effective Policy für diese connection_id:
+- Lade effective Policy für diese vpn_connection_id:
   - restricted_effective (bool)
 - restricted_reason (string; z.B. UNCLAIMED_OVERDUE / QUOTA / EXPIRY / MANUAL)
   - Hinweis: Verify-Wall ist App-Layer und erscheint NICHT als restricted_reason.
@@ -108,7 +121,7 @@ Ablauf: vpn-policy-apply --connection-id=<id>
 - Kritische Reihenfolge (Race-sicher, MUST):
   1) Policy Update: nftables/tc Enforcement setzen (Restricted-Set + Speed), sodass die Blockade im Kernel aktiv ist
   2) Hard Cut auslösen, aber nur wenn (old_kernel_restricted=false AND new_restricted=true)
-  3) Audit/Log: reason + connection_id + client_ip + "hard_cut=1" + Methode/Outcome
+  3) Audit/Log: reason + vpn_connection_id + client_ip + "hard_cut=1" + Methode/Outcome
 - Primärmechanismus (conntrack-first, MUST):
   - Conntrack-States der CLIENT_IP löschen (bidirektional), damit "ct state established,related accept" nicht als Bypass wirken kann.
   - Flush Scope (verbindlich):
@@ -137,7 +150,7 @@ Ablauf: vpn-policy-apply --connection-id=<id>
 Ablauf: vpn-policy-apply --customer-id=<id>
 - Ziel: Bulk-Operationen kundenweit anwenden (z.B. Admin-Tool: Quota/Expiry/Speed/Manual für mehrere Connections), ohne viele Einzelaufrufe zu benötigen.
 - SQL:
-  - Ermittelt alle CLAIMED connection_ids des customers + deren effective policy
+  - Ermittelt alle CLAIMED vpn_connection_ids des customers + deren effective policy
 - Runtime:
   - Nur aktive Sessions (mit Mapping) werden im Kernel geändert
   - Offline Connections werden nicht im Kernel "vorgehalten" (wirkt beim nächsten ip-up)
@@ -149,7 +162,7 @@ Ablauf: vpn-policy-apply --reconcile-all  (BEST EFFORT)
 
 1) Ist-Liste (nur aktive Sessions)
 - Enumeriere /run/vpn-sessions/*.env
-- Erzeuge Liste: (connection_id, client_ip, ppp_if)
+- Erzeuge Liste: (vpn_connection_id, client_ip, ppp_if)
 
 0.1) /run Mapping Hygiene (deterministisch)
 - Problem: /run/vpn-sessions kann stale Mapping-Files enthalten (z.B. ip-down nicht gelaufen).
@@ -165,7 +178,7 @@ Ablauf:
 
 
 2) Batch SQL Query (performant, kein N+1)
-- Lade effective policy für alle aktiven connection_ids in einem Batch:
+- Lade effective policy für alle aktiven vpn_connection_ids in einem Batch:
   - SELECT ... WHERE id IN (...)
 
 3) Apply für jede aktive Session (BEST EFFORT)
@@ -196,7 +209,7 @@ Ablauf:
       - Für jede IP in to_add (neu restricted durch Reconcile): nach erfolgreichem nft-Commit MUSS versucht werden,
         Conntrack-States der IP zu löschen (bidirektional), damit auch bestehende ESTABLISHED Flows sofort gekappt werden.
       - Wenn Conntrack-Flush fehlschlägt oder unavailable ist:
-        - Fail-Safe SHOULD: PPP Session Kill für die betroffene aktive Session (über Mapping: connection_id/ppp_if/session_id aus Schritt 1),
+        - Fail-Safe SHOULD: PPP Session Kill für die betroffene aktive Session (über Mapping: vpn_connection_id/ppp_if/session_id aus Schritt 1),
           um Hard Cut deterministisch zu erzwingen.
       - Fehlerbehandlung im Reconcile:
         - Flush fail, aber PPP Kill erfolgreich => log WARN ("hard_cut_fallback=ppp_kill"), Reconcile läuft weiter.
@@ -321,8 +334,9 @@ Offline ist KEIN Fehler:
   - Bei TEMPFAIL_SQL oder Timeout: PPP Kill, Gate bleibt bis Cleanup; kein Traffic-Leak.
 
 ================================================================================
-14) CHANGELOG
+CHANGELOG
 ================================================================================
+- v1.11 (2026-01-14): Konsistenz/Redaktion: Header-DATUM aktualisiert; REQUIRES vervollständigt (B055/B056/B120/B165/B167); Terminologie präzisiert (CONNECTION_ID ist Env-Key, semantisch vpn_connection_id; CLI-Hinweis ergänzt). Keine Logikänderung.
 - v1.10 (2026-01-10): D1a Connect-Gate integriert: connect_pending_v4 Semantik bei DB-down/Apply-Fail dokumentiert + Acceptance-Test „No-Leak Gate“ ergänzt (Verweis B167/D009).
 - v1.9 (2026-01-09): Kill-Handle kanonisiert: PPPD_PID als MUST, mit Plausibilitätscheck über PPP_IF + START_TS; SESSION_ID ausdrücklich nur Diagnose.
   STRICT-Semantik präzisiert: Conntrack-Flush-Fail ist nicht fatal, wenn PPP-Kill erfolgreich; Exit 4 nur bei Double-Fail.

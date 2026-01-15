@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B250_MYPAL_NSS_CERTIMPORT.txt
+xp-vpn-stack/blocks/B250_MYPAL_NSS_CERTIMPORT.txt
 ================================================================================
 BLOCK-ID: B250
 TITLE: MyPal NSS Cert Import (cert9.db)
 VERSION: v1.0
+DATUM: 2026-01-06
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B060, B150
+INFLUENCES: B230
 OWNER-INTENT: MyPal vertraut interner CA (keine Browserwarnung).
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- MyPal nutzt NSS (cert9.db) – Windows Zertifikatsspeicher reicht für diesen Browser nicht aus.
+- Gilt nur für NSS-basierte Browser; IE/WinHTTP nutzen andere Stores und brauchen separate Behandlung.
+- Import muss den richtigen Profilpfad treffen und verifiziert werden (Aufruf einer internen HTTPS-Seite ohne Warnung).
 ================================================================================
 
 1) ZWECK
@@ -40,7 +49,8 @@ OWNER-INTENT: MyPal vertraut interner CA (keine Browserwarnung).
 9) TESTS
 - After import: open https://blocked-domain -> no warning.
 
-10) CHANGELOG
+================================================================================
+CHANGELOG
+================================================================================
 - v1.0: Initial
-
 ================================================================================

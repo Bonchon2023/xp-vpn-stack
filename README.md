@@ -1,3 +1,13 @@
+xp-vpn-stack/README.md
+================================================================================
+TITLE: xp-vpn-stack (Repository Overview)
+VERSION: v1.0
+DATUM: 2026-01-13
+STATUS: ACCEPTED
+OWNER-INTENT: Kurzüberblick: Ziel, Struktur, Einstiegspfade und Verweis auf Master/Blocks/Decisions als Spezifikation.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+================================================================================
+
 # xp-vpn-stack
 
 A **Debian 13** “from scratch” **L2TP/IPsec (strongSwan + xl2tpd/pppd)** VPN stack designed specifically for **Windows XP / Vista** clients.
@@ -12,7 +22,7 @@ This repository is a **specification** (not an installer script yet).
 It is structured as:
 
 - **MASTER (zeilenfest)**: canonical, versioned master concept
-- **0_MASTERKONZEPT_ANALYSE.md**: Arbeits- und Abarbeitungsdatei (Hybrid), verweist auf Blocks/Decisions/Tasks (Diese Datei ist optional)
+- **0_MASTERKONZEPT_ANALYSE.md**: Arbeits-/Abarbeitungsdatei (Hybrid), verweist auf Blocks/Decisions/Tasks (optional)
 - **blocks/**: implementation blocks (B010–B343) defining the system precisely
 - **decisions/**: decision records (ADR) explaining *why* choices were made
 - **tasks/**: optional workspace files (non-canonical; the specification lives in MASTER/blocks)
@@ -54,6 +64,7 @@ The intended outcome is a reproducible server setup where the VPN software provi
   - XP time problems handled (pre-/post-connect strategy; optional NTP hijack to `10.77.0.1`)
 ## Onboarding (v2.3)
 - Verify-Wall (App-Layer): Customer PENDING sieht nach Login nur Code/Resend/Support.
+- Verify-Code ist kurzlebig + single-use; persistiert wird nur ein Hash + Ablaufzeit (kein Klartext-Code in SQL).
 - claim_token (App-Layer): Claim ordnet eine VPN-Connection einem Customer zu (claim_token als Besitznachweis; nicht für VPN-Login).
 - UNCLAIMED Grace/Overdue (Kernel): 30 Tage ab Provisioning/Erstellung Internet frei; danach UNCLAIMED_OVERDUE -> "Nur Panel-Zugriff" (Walled Garden), damit Verify+Claim weiterhin möglich sind.
 - Hard-Stop gegen Leichen (Standardbetrieb): claim_deadline immer gesetzt (180 Tage). Nach Ablauf unclaimed -> DISABLED (kein VPN/kein Panel).
@@ -144,9 +155,9 @@ See `B290_PHASE_PLAN_ROLLOUT` and the MASTER file for the authoritative phase pl
 
 ## Status
 
-- Spec baseline: **MASTER v2.3**
-- Blocks: B010–B343 present (incl. v2.3 hardening in B150/B166/B165–B169/B330 and Fail2ban/Outcome blocks B340–B343)
-- Decision records: present (incl. D008 Verify-Wall customer scope)
+- Spec baseline: **MASTER v2.4** (inhaltlich fortgeschrieben; Version bump erfolgt separat im Master)
+- Blocks: B010–B343 present (inkl. Session-Control Anchor **B171** sowie Hardening in B150/B165–B169/B330 und Fail2ban/Outcome B340–B343)
+- Decision records: present (u.a. D008 Verify-Wall customer scope, **D010/D011** Reason/Emission, **D012** Session-Control A/B)
 - Templates: present
 
 ---
@@ -158,6 +169,14 @@ See `B290_PHASE_PLAN_ROLLOUT` and the MASTER file for the authoritative phase pl
 - “DNS enforcement” means **port 53 enforcement** (DNAT), not DoH/DoT interception.
 
 ---
+
+
+
+================================================================================
+CHANGELOG
+================================================================================
+- 2026-01-13 v1.0: Added Version/Changelog sections (protocol compliance).
+================================================================================
 
 ## License
 

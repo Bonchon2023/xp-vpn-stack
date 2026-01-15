@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B090_MTU_MSS_STABILITY.txt
+xp-vpn-stack/blocks/B090_MTU_MSS_STABILITY.txt
 ================================================================================
 BLOCK-ID: B090
 TITLE: MTU / MSS Stabilität (Full-Tunnel Killer)
-VERSION: v1.0
+VERSION: v1.1
+DATUM: 2026-01-14
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B040, B060
+INFLUENCES: B120
 OWNER-INTENT: HTTPS/Modern Web zuverlässig über L2TP/IPsec.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- MTU/MSS ist ein Stabilitäts-Blocker: Full-Tunnel muss mit realen PPPoE/DS-Lite/NAT-Links funktionieren.
+- Keine globale „Holzhammer“-MTU: Clamp/MTU-Änderungen sollen gezielt auf pppX/Forward-Pfad erfolgen.
+- Validierung ist Pflicht: DF-Pings, TCP-Sessions, Downloads/Uploads + tcpdump auf Fragmentierung/PMTUD-Fails.
 ================================================================================
 
 1) ZWECK
@@ -22,7 +31,7 @@ OWNER-INTENT: HTTPS/Modern Web zuverlässig über L2TP/IPsec.
 - nftables forward path (pppX -> ens13)
 
 5) OUTPUTS
-- SYN packets werden MSS reduziert (z.B. 1280-1300)
+- SYN packets werden MSS reduziert (Start 1300; Fallback 1280 bei Problemen)
 
 6) MUST
 - MSS clamping aktiv auf ppp* forward syn
@@ -37,7 +46,9 @@ OWNER-INTENT: HTTPS/Modern Web zuverlässig über L2TP/IPsec.
 9) TESTS
 - XP browsing test auf HTTPS heavy sites, download, video metadata etc.
 
-10) CHANGELOG
+================================================================================
+CHANGELOG
+================================================================================
+- v1.1 (2026-01-14): Konsistenz: DATUM aktualisiert; REQUIRES an ABHÄNGIGKEITEN angeglichen (B060 ergänzt); OUTPUTS präzisiert (Start 1300 / Fallback 1280). Keine Verhaltensänderung.
 - v1.0: Initial
-
 ================================================================================

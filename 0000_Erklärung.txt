@@ -1,6 +1,15 @@
-0000_Erklärung.txt (v2.3)
+xp-vpn-stack/0000_Erklärung.txt
+================================================================================
+TITLE: Erklärung / Wie dieses Repo gelesen wird
+VERSION: v2.5
+DATUM: 2026-01-15
+STATUS: ACCEPTED
+OWNER-INTENT: Orientierung: erklärt Master/Blocks/Decisions/Changelog und wie Inhalte kanonisch referenziert werden.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+================================================================================
+0000_Erklärung.txt (v2.4)
 
-00_MASTER_v2.3.txt (Inhalt/Format)
+00_MASTER_v2.4.txt (Inhalt/Format)
 
 Ziel: Das ist die Datei, die du immer “komplett” rausgeben kannst, wenn du sagst „gib mir das ganze Konzept“.
 Sie enthält keine Details doppelt, sondern verweist auf Blocks.
@@ -20,8 +29,8 @@ Abhängigkeiten (Graph in Textform)
 “Aktive Entscheidungen” (z.B. OpenResty fix, SQL-first fix, Restricted Hard-Cut (conntrack+PPP-kill Fail-Safe), Hybrid Retention+Ring-Buffer (Drop Oldest), Stale-Session Janitor VALID-Mapping+Permissions+On-Demand Cache/Fallback)
 
 Tasks-Hybrid:
-- 0_MASTERKONZEPT_V2_ANALYSE.md ist die Abarbeitungs-Datei.
-- tasks/ enthält Task-Dateien / Prüfkonzepte (T01–T15), die wir in der Analyse referenzieren.
+- 0_MASTERKONZEPT_ANALYSE.md ist die Abarbeitungs-/Abarbeitungs-Datei (Hybrid).
+- tasks/ enthält optionale Workspace-Dateien/Prüfkonzepte, die in der Analyse referenziert werden können.
 
 Verweis auf Changelog + Glossar
 
@@ -40,6 +49,10 @@ Format je Block:
 
 
 Block-Datei Standard (templates/BLOCK_TEMPLATE.txt)
+
+HINWEIS (Template-Platzhalter):
+- Der folgende Ausschnitt ist ein reines Template-Beispiel aus templates/ und darf Platzhalter wie "<...>" sowie "..." enthalten.
+- In kanonischen Dateien (Root/blocks/decisions) sind solche Platzhalter nicht erlaubt; dort müssen alle Felder final befüllt sein.
 
 Das ist die “zeilenfeste” Struktur, die jede Blockdatei exakt nutzt:
 
@@ -105,7 +118,10 @@ decisions/
 ├─ D005_OFFLOAD_DEFAULT_VM.txt
 ├─ D006_NTP_MANDATORY_XP.txt
 ├─ D007_SUBACCOUNTS_PER_DEVICE.txt
-└─ D008_VERIFY_WALL_CUSTOMER_SCOPE.txt
+├─ D008_VERIFY_WALL_CUSTOMER_SCOPE.txt
+├─ D010_RADIUS_EMISSION_TMPSTRINGS.txt
+├─ D011_REASON_CODE_FAMILIES_AND_SOT.txt
+└─ D012_SESSION_CONTROL_A_B.txt
 
 
 Template:
@@ -144,6 +160,8 @@ B040 Stack → bedingt B070, B080, B090, B100…
 B050 SQL/RADIUS → bedingt B150 (Restricted/Quota), B155 (State Machine), B160 (QoS aus DB),
 B165 (Accounting Collector / Session Mapping), B166 (Policy Apply/Reconcile), B167 (Hooks/systemd),
 B168/B169 (Stale/On-demand Login Flow), B280 (Panel), B270 (Diag)
+B171 (Session-Control Anchor; Decision D012) als kanonischer Knotenpunkt für Guard/Repair/Override
+
 
 B150 Walled Garden → bedingt B166 (restricted set rebuild), B210 (DNS im Restricted Mode erlaubt),
 B220/B280 (Portal/Panel erreichbar)
@@ -208,3 +226,9 @@ Stale-Session Management ist „Kernel-Truth“ (MUST):
 - Mapping-Dateien sind nur gültig, wenn VALID (Interface-Existenz + PID + START_TS / PID-Reuse Schutz).
 - /run/vpn-sessions/ Integritätsschutz (MUST): root-only write (chmod/chown normativ), keine Manipulation durch Web-User.
 - On-Demand Janitor (Login-getriggert) soll Cache/Fallback nutzen, um SQL-DoS im Login-Pfad zu vermeiden (SHOULD).
+
+================================================================================
+CHANGELOG
+================================================================================
+
+================================================================================

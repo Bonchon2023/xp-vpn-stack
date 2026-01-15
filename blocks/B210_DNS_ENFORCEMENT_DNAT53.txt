@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B210_DNS_ENFORCEMENT_DNAT53.txt
+xp-vpn-stack/blocks/B210_DNS_ENFORCEMENT_DNAT53.txt
 ================================================================================
 BLOCK-ID: B210
 TITLE: DNS Enforcement (DNAT 53)
 VERSION: v1.7
+DATUM: 2026-01-09
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B150, B200
+INFLUENCES: alle
 OWNER-INTENT: "Idiotensicher" DNS egal was User einträgt.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- DNS-Enforcement DNAT’t sämtlichen VPN-DNS (TCP/UDP 53) auf 10.77.0.1, um Bypass zu verhindern.
+- Server-eigener DNS und Admin-Sonderfälle dürfen nicht ungewollt mit umgebogen werden (exakte Match-Kriterien).
+- DNAT muss mit conntrack/xfrm sauber zusammenspielen; Validierung: Client mit „8.8.8.8“ eingetragen darf trotzdem nur AdGuard erreichen.
 ================================================================================
 
 1) ZWECK
@@ -64,7 +73,9 @@ OWNER-INTENT: "Idiotensicher" DNS egal was User einträgt.
   - UDP/53 Counter steigt bei DNS-Queries.
   - TCP/53 Counter steigt bei TCP-DNS-Fallback.
 
-10) CHANGELOG
+================================================================================
+CHANGELOG
+================================================================================
 - v1.7 (2026-01-09): Scope/Grenzen präzisiert (nur UDP/TCP 53; DoH/DoT/DoQ out-of-scope; IPv4-only + IPv6 Policy klar); OPTIONAL Option B Counters (no logs) konkretisiert; Tests um DoH-Negativtest + optional Counter-Test ergänzt; MTU/EDNS0 Randfall ergänzt.
 - v1.6 (2026-01-07): T06 Referenzen entfernt/ersetzt durch docs/nft_service_ip_scopes.txt (Dependencies + MUST Input-Allowlist Bezug). Keine Logikänderung.
 - v1.5: Pfadpräzisierung ergänzt: DNS nach DNAT läuft über filter input (dst=10.77.0.1:53). Deshalb muss Restricted Allowlist im input (B150/T06) UDP+TCP 53 zu 10.77.0.1 erlauben; Tests um Restricted/Input-Fall erweitert; T06 als Dependency ergänzt.
@@ -73,5 +84,4 @@ OWNER-INTENT: "Idiotensicher" DNS egal was User einträgt.
 - v1.2: OPTIONAL nft syslog logging fuer externe DNS-Versuche deaktiviert/begruendet; DNS-Transparenz ueber AdGuardHome, optional spaeter Counters statt Logspam.
 - v1.1: Präzisierung: gilt für alle ppp* Clients (auch restricted); Hook/Order (nat prerouting vor filter) ergänzt; TCP-DNS Test ergänzt.
 - v1.0: Initial
-
 ================================================================================

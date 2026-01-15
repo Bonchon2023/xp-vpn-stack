@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B180_SYSTEMD_RESTART_HEALTHCHECKS.txt
+xp-vpn-stack/blocks/B180_SYSTEMD_RESTART_HEALTHCHECKS.txt
 ================================================================================
 BLOCK-ID: B180
 TITLE: systemd Auto-Restart + Healthchecks
 VERSION: v1.0
+DATUM: 2026-01-06
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B040
+INFLUENCES: alle
 OWNER-INTENT: 24/7 Betrieb ohne Handarbeit.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- Server-Komponenten müssen selbstheilend sein (Restart=on-failure) ohne manuelle Eingriffe.
+- Restart-Loops sind zu vermeiden: Backoff/StartLimit und klare Failure-Logs sind Pflicht.
+- Healthchecks müssen XFRM/IKE + xl2tpd + pppd + DNS/Portal prüfen, nicht nur „Prozess läuft“.
 ================================================================================
 
 1) ZWECK
@@ -46,7 +55,8 @@ OWNER-INTENT: 24/7 Betrieb ohne Handarbeit.
 - Kill process -> systemd restarts.
 - Simulate stuck -> healthcheck triggers restart.
 
-10) CHANGELOG
+================================================================================
+CHANGELOG
+================================================================================
 - v1.0: Initial
-
 ================================================================================

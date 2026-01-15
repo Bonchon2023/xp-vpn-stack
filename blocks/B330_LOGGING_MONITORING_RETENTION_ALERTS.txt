@@ -1,11 +1,19 @@
-vpn_masterkonzept/blocks/B330_LOGGING_MONITORING_RETENTION_ALERTS.txt
+xp-vpn-stack/blocks/B330_LOGGING_MONITORING_RETENTION_ALERTS.txt
 ================================================================================
 BLOCK-ID: B330
 TITLE: Logging / Monitoring / Retention / Alerts (Heavy User Detection)
-VERSION: v1.2.2
+VERSION: v1.6
+DATUM: 2026-01-14
 STATUS: ACTIVE
 PRIORITY: MUST
-OWNER-INTENT: Betriebssicherheit + Heavy-User/Abuse-Erkennung ohne Disk-Full/Noise.
+REQUIRES: B050, B150, B165, B166, B168, B169, B280, B285
+INFLUENCES: B165, B166, B168, B169, B270, B280, B285, B320
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- Logs dürfen keine Secrets enthalten (Passwörter/PSKs/Tokens); Sanitizing ist Pflicht.
+- Disk-Full ist ein reales Risiko: Rotation/Retention/Alerts müssen verhindern, dass der Server sich selbst abschießt.
+- Monitoring muss „Heavy User“ und Anomalien erkennen, ohne den VPN-Datenpfad zu belasten (Batching, Sampling).
 ================================================================================
 
 ================================================================================
@@ -26,6 +34,30 @@ OWNER-INTENT: Betriebssicherheit + Heavy-User/Abuse-Erkennung ohne Disk-Full/Noi
   - Wenn SQL Read timeoutet/fehlschlägt: Komponente MUSS sofort Fallback-Werte nutzen und weiterlaufen (keine Blockade/keine Kaskade).
 - Lokale Safety Ceilings (Physik-Grenze) sind IMMER aktiv, auch wenn SQL falsch konfiguriert oder DB down ist.
 
+## 1.1) SQL-FIRST SETTINGS: KEY-NAMEN (KANONISCH, MUST)
+Ziel: Alle policy-relevanten Zahlenwerte sind referenzierbar (kein Drift). Werte SOLLEN aus SQL-Settings kommen.
+Lokale Hard-Ceiling Konstanten bleiben IMMER lokal (Physik > Policy) und werden niemals aus SQL bezogen.
+
+A) Settings-Load (global):
+- settings_cache_ttl_seconds
+  - Zweck: TTL für gecachte Settings (DoS/Latency Schutz)
+  - Notfall-Fallback: 60s
+  - Lokal Hard Cap (MUST): muss lokal begrenzt werden (z.B. <= 300s), unabhängig vom SQL-Wert
+- settings_sql_read_timeout_ms
+  - Zweck: Timeout für Settings-Reads
+  - Notfall-Fallback: 200ms
+  - Lokal Hard Cap (MUST): muss lokal begrenzt werden (z.B. <= 1000ms), unabhängig vom SQL-Wert
+B) Logging/Retention Targets (policy-relevant, SQL-first):
+- log_detailed_retention_days
+- log_detailed_max_total_bytes
+- log_aggregate_retention_months
+C) Spool/Delta-Buffer Targets (policy-relevant, SQL-first; falls Spool genutzt wird):
+- spool_retention_days
+- spool_max_total_bytes
+D) NICHT in SQL (lokale Safety Ceilings, MUST):
+- LOG_HARD_MAX_BYTES (optional zusätzlich: LOG_HARD_MAX_AGE_SECONDS)
+- SPOOL_HARD_MAX_BYTES (optional zusätzlich: SPOOL_HARD_MAX_AGE_SECONDS)
+
 ## 2) WAS WIRD GELOGGT (MUST)
 A) Control-Plane / Security Events:
 - RADIUS Auth Events (Success/Fail + Reason Codes, kein Klartext-Passwort).
@@ -38,17 +70,17 @@ B) DNS Enforcement (B210):
 - FORBIDDEN: Ziel-IP/Domain Logging oder Kernel-Log pro Paket/Request.
 
 ## 3) RETENTION / ROTATION (MUST)
-- Retention muss messbar definiert sein:
-  - detailed_retention_days (oder hours)
-  - detailed_max_total_bytes
-  - aggregate_retention_months (für Heavy-User Stats)
+- Retention muss messbar definiert sein (KANONISCHE SQL-FIRST SETTINGS-KEYS, siehe 1.1):
+  - log_detailed_retention_days (oder hours)
+  - log_detailed_max_total_bytes
+  - log_aggregate_retention_months (für Heavy-User Stats)
 - SQL-first Settings:
   - Diese Werte SOLLEN aus SQL Settings geladen werden (Key/Value oder Tabelle).
   - Wenn SQL nicht verfügbar: klar markierte Notfall-Fallbacks sind zulässig (MUST: als Fallback gekennzeichnet).
 - Effective Limit Rule (MUST, Physik > Policy):
   - SQL Settings definieren Zielwerte (Control-Plane), aber die effektive Obergrenze MUSS immer durch lokale Safety Ceilings begrenzt werden:
-    - effective_max_bytes = min(sql_detailed_max_total_bytes, LOG_HARD_MAX_BYTES)
-    - effective_spool_max_bytes = min(sql_spool_max_total_bytes (falls vorhanden), SPOOL_HARD_MAX_BYTES)
+    - effective_max_bytes = min(sql_log_detailed_max_total_bytes, LOG_HARD_MAX_BYTES)   (Key: log_detailed_max_total_bytes)
+    - effective_spool_max_bytes = min(sql_spool_max_total_bytes (Key: spool_max_total_bytes; falls vorhanden), SPOOL_HARD_MAX_BYTES)
 
 - Lokale Log Safety Ceilings (MUST, immer aktiv):
   - LOG_HARD_MAX_BYTES (maximaler Gesamtspeicher für Logs, schützt vor Disk-Full)
@@ -106,10 +138,12 @@ D) Policy Failures (High Severity):
 - Hard-Cut Failure Test: conntrack flush fail + PPP-kill fail -> FATAL Alert.
 
 ================================================================================
-2) CHANGELOG
+CHANGELOG
 ================================================================================
-- v1.2.2 (2026-01-10): Terminologie-Fix/DoD: Ring-Buffer Test (Logs) nutzt konsistent current_log_bytes (statt current_total_bytes) passend zu Ceiling-Hit Alert Feldern. (Keine Policy-Änderung.)
-- v1.2.1 (2026-01-10): SQL-first Settings „ops-hart“ präzisiert: Settings-Load mit Cache + kleinem DB-Read-Timeout, sonst Notfall-Fallback (DoS/Latency-Schutz). Safety Ceilings getrennt normiert für Logs vs. Spool (beide mit Drop/Ring-Buffer MUST + Alert-Inhalte).
+- v1.6 (2026-01-14): Konsistenz-Fix: Abschnitt 3 (Retention/Rotation) nutzt nun durchgehend die kanonischen SQL-first Settings-Keys (log_* / spool_*). Unpräfixierte „Pseudo-Keys“ entfernt. Keine Policy-Änderung (Ceilings bleiben lokal).
+- v1.5 (2026-01-14): 3.2 SQL-first SoT: Platzhalter-REQUIRES entfernt und kanonische SQL-Settings-Key-Namen ergänzt (Retention/Limits + Settings-Load). Keine Änderung am Ceiling-Prinzip (Hard Ceilings bleiben lokal).
+- v1.4 (2026-01-10): Terminologie-Fix/DoD: Ring-Buffer Test (Logs) nutzt konsistent current_log_bytes (statt current_total_bytes) passend zu Ceiling-Hit Alert Feldern. (Keine Policy-Änderung.)
+- v1.3 (2026-01-10): SQL-first Settings „ops-hart“ präzisiert: Settings-Load mit Cache + kleinem DB-Read-Timeout, sonst Notfall-Fallback (DoS/Latency-Schutz). Safety Ceilings getrennt normiert für Logs vs. Spool (beide mit Drop/Ring-Buffer MUST + Alert-Inhalte).
 - v1.2 (2026-01-09): Ceiling-Hit Verhalten kanonisiert: Drop/Ring-Buffer MUST (drop oldest bis unter Ceiling) für Logs + spool/logging-meta, Alert-Inhalte (Bytes/Age) präzisiert. Policy-Failure Alerts an B166 Semantik angepasst (Double-Fail=FATAL, Single-Fail=High-Severity). DoD um Ring-Buffer Test ergänzt.
 - v1.1 (2026-01-09): B330 von Task-Migration auf deterministische Spec gehoben: messbare Retention/Rotation (SQL-first + lokale Safety Ceilings), Alerts (inkl. Spool/Ceiling-Hit), DNS "counters only" normiert, Privacy/PII Regeln ergänzt. "Version v0.4" Task-Spur aus INHALT entfernt (keine doppelte aktive Version).
 - v1.0 (2026-01-07): Neu angelegt. Inhalt aus T15_LOGGING_MONITORING_RETENTION_ALERTS in Block-Form übernommen (ohne inhaltliche Änderung).

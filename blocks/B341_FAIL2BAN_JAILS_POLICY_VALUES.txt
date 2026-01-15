@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B341_FAIL2BAN_JAILS_POLICY_VALUES.txt
+xp-vpn-stack/blocks/B341_FAIL2BAN_JAILS_POLICY_VALUES.txt
 ================================================================================
 BLOCK-ID: B341
 TITLE: Fail2ban – Jails/Filter/Aktionen (RADIUS + IKE) inkl. NAT-Safety Policy-Values
-VERSION: v1.0.0
+VERSION: v1.3
+DATUM: 2026-01-14
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B050, B100, B150, B330, B340, B342
+INFLUENCES: B270, B310, B343
 OWNER-INTENT: Konkrete Fail2ban-Policy (Parameter), die NAT-sicher ist und keine Self-DoS verursacht.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- Jails/Actions müssen NAT-sicher sein: wenn IP nicht eindeutig ist, wird nicht „blind“ nach SrcIP gebannt.
+- Keine „usedns=yes“-Überraschungen: DNS-Auflösung im Ban-Pfad ist zu vermeiden (Performance + Falschpositiv-Risiko).
+- Policy-Values (Banzeit, MaxRetry, Findtime) müssen konsistent zu Outcome/Reason-Matrix (B342) sein.
 ================================================================================
 
 ================================================================================
@@ -13,14 +22,29 @@ OWNER-INTENT: Konkrete Fail2ban-Policy (Parameter), die NAT-sicher ist und keine
 ================================================================================
 
 ## 1) GRUNDREGELN (MUST)
+- Fail2ban MUSS `usedns = no` gesetzt haben (Global).
+  - Grund: Verhindert DNS-Timeouts bei Angriffen und stellt sicher, dass "NA" nicht als Hostname aufgelöst wird.
 - Fail2ban MUSS ausschließlich `F2B_EVENT` (B340) matchen (RADIUS-Jails).
-- Fail2ban MUSS ausschließlich echte Peer-IPs bannen (`SrcIP` parsebar; sonst NA => niemals matchen).
+- Log-Quelle (MUST): Fail2ban MUSS als kanonischen Input ausschließlich die dedizierte Datei verwenden:
+  - `/var/log/freeradius/f2b-events.log`
+  - Diese Datei enthält nur `F2B_EVENT`-Zeilen (B340 Emission-Contract) und ist die einzige erlaubte Parsing-Quelle für RADIUS-Jails.
+- Fail2ban MUSS ausschließlich echte Peer-IPs bannen (`SrcIP` via `<ADDR>` Regex; sonst NA => niemals matchen).
 - Fail2ban MUSS `BACKEND_ERROR` und `POLICY_DENY` ignorieren (NAT-Safety).
 - Fail2ban MUSS Loopback/localhost effektiv schützen (zusätzlich über ignoreip).
 
 ## 2) JAILS (KANONISCH)
+MUST: Es gibt genau 3 produktive Jails (IKE + 2x RADIUS).
+
+Kanonische Jail-IDs (Identifier; SoT):
+- J1_STRONGSWAN_IKE_SCAN
+- J2_RADIUS_UNKNOWN_USER
+- J3_RADIUS_KNOWN_BADPASS
+
+
 ### 2.1 strongSwan / IKE (WAN-Protection)
 Ziel: Schutz vor IKE-Scans/Bruteforce an UDP 500/4500.
+
+Kanonischer Jail-Name (SoT): `J1_STRONGSWAN_IKE_SCAN`
 
 Empfohlene Parameter (MUST, Default):
 - findtime: 300s
@@ -34,6 +58,8 @@ Hinweis:
 ### 2.2 FreeRADIUS UNKNOWN_USER (NAT-sicher, streng)
 Ziel: User-Enumeration / Fishing aggressiv begrenzen.
 
+Kanonischer Jail-Name (SoT): `J2_RADIUS_UNKNOWN_USER`
+
 Empfohlene Parameter (MUST, Default):
 - findtime: 600s
 - maxretry: 5
@@ -41,10 +67,12 @@ Empfohlene Parameter (MUST, Default):
 
 Match-Regel (MUST):
 - failregex MUSS `Class=UNKNOWN_USER` enthalten
-- failregex MUSS `SrcIP=<HOST>` verwenden (nur echte IP)
+- failregex MUSS `SrcIP=<ADDR>` verwenden (nur echte IP, niemals <HOST>)
 
 ### 2.3 FreeRADIUS KNOWN_BADPASS (NAT-sensitiv, konservativer)
 Ziel: Bruteforce auf existierende User begrenzen, aber NAT-Kollateralschäden minimieren.
+
+Kanonischer Jail-Name (SoT): `J3_RADIUS_KNOWN_BADPASS`
 
 Empfohlene Parameter (MUST, Default):
 - findtime: 600s
@@ -53,20 +81,23 @@ Empfohlene Parameter (MUST, Default):
 
 Match-Regel (MUST):
 - failregex MUSS `Class=KNOWN_BADPASS` enthalten
-- failregex MUSS `SrcIP=<HOST>` verwenden
+- failregex MUSS `SrcIP=<ADDR>` verwenden (nur echte IP, niemals <HOST>)
 
 ## 3) FILTER (MUST)
 RADIUS Filter dürfen **nur** `F2B_EVENT` Zeilen matchen.
 
 Kanonische Filterlogik (MUST):
 - UNKNOWN_USER Filter matcht nur:
-  `^F2B_EVENT: .*Class=UNKNOWN_USER .*SrcIP=<HOST> .*`
+  ^F2B_EVENT:.*\bClass=UNKNOWN_USER\b.*\bSrcIP=<ADDR>\b.*
 - KNOWN_BADPASS Filter matcht nur:
-  `^F2B_EVENT: .*Class=KNOWN_BADPASS .*SrcIP=<HOST> .*`
+  ^F2B_EVENT:.*\bClass=KNOWN_BADPASS\b.*\bSrcIP=<ADDR>\b.*
 
-Explizit verboten:
-- Match auf `POLICY_DENY`
-- Match auf `BACKEND_ERROR`
+Explizit verboten (Negative Match):
+- Kein Match auf `SrcIP=NA` (durch <ADDR> garantiert)
+- Kein Match auf `POLICY_DENY`
+- Kein Match auf `POLICY_RESTRICT`
+- Kein Match auf `BACKEND_ERROR`
+- Kein Match auf `OK`
 - Match ohne `<HOST>` (sonst NA/localhost Risiko)
 
 ## 4) BAN-ACTION (MUST)
@@ -97,21 +128,32 @@ Zusätzlich gilt B340:
   - aber **ohne** die UNKNOWN_USER Policy zu schwächen.
 
 ## 7) TESTS / DOD (MUST)
-J1: UNKNOWN_USER Ban:
-- 6 falsche Usernames innerhalb 600s von gleicher IP => Ban ~3600s.
 
-J2: KNOWN_BADPASS Ban:
-- 51 falsche Passwörter innerhalb 600s von gleicher IP => Ban ~600s.
+J1_STRONGSWAN_IKE_SCAN (IKE-Scan Ban):
+- 11 IKE-Fail-Events innerhalb 300s von gleicher SrcIP => Ban ~900s.
+- Jail-ID (kanonisch): J1_STRONGSWAN_IKE_SCAN
 
-J3: NAT-Safety:
-- POLICY_DENY und BACKEND_ERROR Events erzeugen **nie** einen Ban.
+J2_RADIUS_UNKNOWN_USER (Enumeration Ban):
+- 6 falsche Usernames innerhalb 600s von gleicher SrcIP => Ban ~3600s.
+- Jail-ID (kanonisch): J2_RADIUS_UNKNOWN_USER
 
-J4: Self-DoS:
-- `SrcIP=NA` in `F2B_EVENT` erzeugt niemals Ban.
+J3_RADIUS_KNOWN_BADPASS (Bruteforce Ban, NAT-safe Heavy):
+- 51 falsche Passwörter innerhalb 600s von gleicher SrcIP => Ban ~600s.
+- Jail-ID (kanonisch): J3_RADIUS_KNOWN_BADPASS
+
+NAT-Safety / No-Ban für Policy/Backend (D1a):
+- POLICY_DENY, POLICY_RESTRICT, BACKEND_ERROR und OK Events erzeugen **nie** einen Ban.
+
+Self-DoS Guards (Negative Tests):
+- `SrcIP=NA` in `F2B_EVENT` erzeugt niemals Ban (Regex <ADDR>).
+- `SrcIP=127.0.0.1` erzeugt niemals Ban (Double Guard: Regex <ADDR> + ignoreip).
 
 ================================================================================
-2) CHANGELOG
+CHANGELOG
 ================================================================================
+- v1.3 (2026-01-14): Redaktion/Konsistenz: Header-DATUM aktualisiert; Header-Version an Changelog (v1.2.0) angeglichen; Tests um explizite Jail-ID-Zeilen ergänzt (drift-sicher). Keine Policy-Änderung.
+- v1.2.0 (2026-01-12): Jail-IDs (J1/J2/J3) aus T02/T04 als kanonisch verankert; Negative-Match korrigiert (POLICY_* / OK); Tests auf Jail-IDs ausgerichtet.
+- v1.1.0 (2026-01-12): Kanonischen Fail2ban-Input festgelegt: `/var/log/freeradius/f2b-events.log` (dedizierter F2B_EVENT Stream; löschfest ohne T-Buffer).
 - v1.0.0 (2026-01-11): Neu angelegt. Kanonische Jails (IKE, RADIUS UNKNOWN_USER, RADIUS KNOWN_BADPASS) + Filter/Action Regeln + NAT-Safety Policy-Values.
 ================================================================================
 END BLOCK B341

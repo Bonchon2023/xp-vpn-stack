@@ -1,8 +1,9 @@
-vpn_masterkonzept/decisions/D008_VERIFY_WALL_CUSTOMER_SCOPE.txt
+xp-vpn-stack/decisions/D008_VERIFY_WALL_CUSTOMER_SCOPE.txt
 ================================================================================
 DECISION-ID: D008
 TITLE: Email Verify ist Customer-Attribut (nicht pro Connection) und steuert Verify-Wall + Claim-Freigabe
-DATE: 2026-01-07
+VERSION: v1.3
+DATUM: 2026-01-07
 STATUS: ACCEPTED
 OWNER: Marco (Owner) + ChatGPT (Co-Architect)
 ================================================================================
@@ -50,9 +51,12 @@ CONSEQUENCES
 LINKED BLOCKS
 - B155, B280
 LINKED TASKS
-- T08, T07, T01
+- (none; tasks/T* sind non-canonical und wurden nach blocks/decisions migriert)
 
+================================================================================
 CHANGELOG
+================================================================================
+- v1.3: Linked Tasks bereinigt (T-Buffer entfernt); Referenzierung auf kanonische Blocks belassen.
 - v1.2: Konsistenzupdate: Restricted-Triggerliste auf Quota/Expiry/Manual + UNCLAIMED_OVERDUE erweitert; Risiko-Text korrigiert (Verify-Wall ist App-Layer, nicht Kernel-Restricted).
 - v1.1: Gate#2/verify_deadline/customerwide-restricted entfernt. Entscheidung neu gefasst: Email-Verify ist Customer-Attribut (email_verified_at) und wird per Verify-Wall (App-Layer) enforced; Claim nur für ACTIVE + Claim-Token; Restricted bleibt Quota/Expiry/Manual.
 - v1.0: initial

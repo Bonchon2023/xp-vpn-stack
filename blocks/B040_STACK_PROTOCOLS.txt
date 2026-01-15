@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B040_STACK_PROTOCOLS.txt
+xp-vpn-stack/blocks/B040_STACK_PROTOCOLS.txt
 ================================================================================
 BLOCK-ID: B040
 TITLE: Stack / Protokolle / Komponenten
 VERSION: v1.0
+DATUM: 2026-01-06
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B010, B020, B030
+INFLUENCES: alle
 OWNER-INTENT: Technische Basis definieren (Pakete, Rollen, Schnittstellen).
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- Kanonischer Stack: strongSwan (IKEv1) + xl2tpd + pppd + nftables; Erweiterungen nur, wenn ein eigener Block sie fordert.
+- Kein „GUI-Server“: Installation/Config muss headless reproduzierbar sein (systemd Units, Dateien, Hooks).
+- XP-Kompatibilität erfordert IKEv1/NAT-T/PPP-Auth-Entscheidungen; jede Änderung muss gegen B070/B080/B090 validiert werden.
 ================================================================================
 
 1) ZWECK
@@ -50,7 +59,8 @@ OWNER-INTENT: Technische Basis definieren (Pakete, Rollen, Schnittstellen).
 - XP kann verbinden, bekommt IP, Full-Tunnel funktioniert.
 - Zwei Clients parallel -> zwei pppX -> Policies greifen.
 
-10) CHANGELOG
+================================================================================
+CHANGELOG
+================================================================================
 - v1.0: Initial
-
 ================================================================================

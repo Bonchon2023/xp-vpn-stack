@@ -1,8 +1,8 @@
-vpn_masterkonzept/templates/DECISION_RECORD_TEMPLATE.txt
+xp-vpn-stack/templates/DECISION_RECORD_TEMPLATE.txt
 ================================================================================
 DECISION-ID: D000
 TITLE: <Kurz & eindeutig>
-DATE: <YYYY-MM-DD>
+DATUM: <YYYY-MM-DD>
 STATUS: ACCEPTED | SUPERSEDED | REJECTED
 OWNER: Marco (Owner) + ChatGPT (Co-Architect)
 ================================================================================
@@ -31,6 +31,8 @@ CONSEQUENCES
 LINKED BLOCKS
 - Bxxx, Byyy, Bzzz
 
+================================================================================
 CHANGELOG
-- v1.0: initial
+================================================================================
+
 ================================================================================

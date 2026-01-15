@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B010_META_SCOPE.txt
+xp-vpn-stack/blocks/B010_META_SCOPE.txt
 ================================================================================
 BLOCK-ID: B010
 TITLE: META / Scope & Constraints
 VERSION: v1.0
+DATUM: 2026-01-06
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: -
+INFLUENCES: alle
 OWNER-INTENT: Rahmen setzen, damit alle folgenden Blöcke konsistent bleiben.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- Gilt ausschließlich für den L2TP/IPsec-Stack (strongSwan + xl2tpd/pppd) für XP/Vista im Full-Tunnel.
+- Kein „Public Service“: Web/UI/SSH/DB sind niemals vom WAN erreichbar, nur via VPN (Service-IP/Admin-Netz).
+- Bei Konflikt gilt: Dieser Meta-Scope-Block setzt die harte Leitplanke für alle Detailblöcke.
 ================================================================================
 
 1) ZWECK
@@ -50,7 +59,8 @@ OWNER-INTENT: Rahmen setzen, damit alle folgenden Blöcke konsistent bleiben.
 9) TESTS / ACCEPTANCE CRITERIA
 - Review-Check: alle Blöcke referenzieren diese Constraints ohne Widerspruch.
 
-10) CHANGELOG
+================================================================================
+CHANGELOG
+================================================================================
 - v1.0: Initial
-
 ================================================================================

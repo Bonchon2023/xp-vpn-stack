@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B190_OFFLOAD_TUNING_DEFAULT.txt
+xp-vpn-stack/blocks/B190_OFFLOAD_TUNING_DEFAULT.txt
 ================================================================================
 BLOCK-ID: B190
 TITLE: Offload Tuning Default (VM)
 VERSION: v1.0
+DATUM: 2026-01-06
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B040
+INFLUENCES: B310
 OWNER-INTENT: VM Phantomfehler minimieren ohne Support-Diagnose beim Kunden.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- Offload-Tuning ist Default, weil IPsec/PPP mit TSO/GSO/GRO/Checksum-Offload in der Praxis oft „komisch“ wird.
+- Änderungen gelten nur für die WAN-NIC(s), nicht blind für alle Interfaces.
+- Tuning muss boot-persistent (systemd service) und messbar sein (Throughput + CPU + tcpdump auf checksum offload artefacts).
 ================================================================================
 
 1) ZWECK
@@ -42,7 +51,8 @@ OWNER-INTENT: VM Phantomfehler minimieren ohne Support-Diagnose beim Kunden.
 - After reboot: ethtool -k shows disabled features.
 - Under load: stable throughput.
 
-10) CHANGELOG
+================================================================================
+CHANGELOG
+================================================================================
 - v1.0: Initial
-
 ================================================================================

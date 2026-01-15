@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B270_DIAG_ENDPOINT.txt
+xp-vpn-stack/blocks/B270_DIAG_ENDPOINT.txt
 ================================================================================
 BLOCK-ID: B270
 TITLE: Diagnose Endpoint /diag
 VERSION: v1.0
+DATUM: 2026-01-06
 STATUS: ACTIVE
-PRIORITY: SHOULD
+PRIORITY: MUST
+REQUIRES: B220
+INFLUENCES: alle
 OWNER-INTENT: "Erste Hilfe" für Support und Setup-Tool.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- /diag ist Support-Tool: liefert Status/Checks (Tunnel, DNS, Policy, Quota) ohne Secrets preiszugeben.
+- Nur über VPN erreichbar; niemals WAN-exposed, niemals ohne Auth/Scope.
+- Diag muss korrelierbare IDs ausgeben (connection_id/trace_id), um Logs/Fail2ban/Policy eindeutig zuzuordnen.
 ================================================================================
 
 1) ZWECK
@@ -47,7 +56,8 @@ OWNER-INTENT: "Erste Hilfe" für Support und Setup-Tool.
 9) TESTS
 - Setup tool button gets green.
 
-10) CHANGELOG
+================================================================================
+CHANGELOG
+================================================================================
 - v1.0: Initial
-
 ================================================================================

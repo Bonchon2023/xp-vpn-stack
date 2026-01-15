@@ -1,11 +1,12 @@
+xp-vpn-stack/decisions/D009_CONNECT_GATING_D1A_SQL_FIRST.txt
 ================================================================================
-DECISION D009 – Connect Gating (D1a) – SQL-First / No Unpoliced Window
+DECISION-ID: D009
+TITLE: Connect Gating (D1a) – SQL-First / No Unpoliced Window
+VERSION: v1.1
+DATUM: 2026-01-10
+STATUS: ACCEPTED
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
 ================================================================================
-ID: D009
-Title: Connect Gating (D1a) – SQL-First / No Unpoliced Window (no Default-Restricted)
-Status: ACCEPTED
-Owner: Marco
-Date: 2026-01-10
 
 ================================================================================
 1) Kontext
@@ -60,8 +61,9 @@ Influences:
 - Blocks: B310 (Tests/Acceptance)
 
 ================================================================================
-6) CHANGELOG
+CHANGELOG
 ================================================================================
+- v1.1 (2026-01-13): Added VERSION header field (protocol compliance).
 - v1.0 (2026-01-10): Neu – D1a Connect-Gate als kanonische Decision festgeschrieben.
 ================================================================================
 END DECISION D009

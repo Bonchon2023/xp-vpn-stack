@@ -1,10 +1,11 @@
-vpn_masterkonzept/00_MASTER_v2.4.txt
+xp-vpn-stack/00_MASTER_v2.5.txt
 ================================================================================
 MASTER-KONZEPT: XP/Vista Full-Tunnel VPN auf Debian 13 (from scratch)
-MASTER VERSION: v2.4
+MASTER VERSION: v2.5
+DATUM: 2026-01-15
 STATUS: ACTIVE (produktionstaugliche Ziel-Architektur)
-DATUM: (von dir eintragen)
-AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
+OWNER-INTENT: Kanonisches Gesamtbild (lesbarer Master): verweist auf Blocks und definiert die bindenden Master-Regeln.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
 ================================================================================
 
 0) MASTER-REGELN (bindend)
@@ -20,8 +21,11 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
 - AAA ist SQL-first ab Tag 1 (kein chap-secrets als Master), inklusive Accounting-Grundlage.
 
 - ONBOARDING ist HARD und bindend:
-  - Modell: Verify-Wall + Claim-Token (App-Layer) + UNCLAIMED Grace/Overdue (Kernel-Restricted).
-  - Verify-Wall (App-Layer): Customer PENDING (email_verified_at NULL) -> nach Login nur Code/Resend/Support (kein Panel-Innenleben).
+  - Modell: Verify-Wall (Verify-Code, App-Layer) + Claim-Token (App-Layer) + UNCLAIMED Grace/Overdue (Kernel-Restricted).
+  - Verify-Wall (App-Layer):
+    - Customer PENDING (email_verified_at NULL) -> nach Login nur Verify-Code Eingabe / Resend / Support (kein Panel-Innenleben, kein Claim).
+    - Verify-Code (email_verify_code): kurzlebig, single-use; in SQL wird nur ein Hash (verify_code_hash) + Ablauf (verify_code_expires_at) gehalten (kein Klartext persistieren).
+    - RateLimits/Resend/Lockouts sind Bestandteil des Konzepts (Details: B155/B055).
   - Claim-Token (App-Layer, Claim-only): Verbindung wird im eingeloggten Panel per Claim-Token einem Customer zugeordnet (B155/B280 Regeln).
   - UNCLAIMED Grace: Unclaimed Connections bleiben bis unclaimed_grace_until FULL; danach restricted_reason=UNCLAIMED_OVERDUE -> Walled Garden/Portal-Only (B150).
   - Restricted (Kernel) wird nur durch QUOTA/EXPIRY/MANUAL/UNCLAIMED_OVERDUE ausgelöst, nicht durch Verify.
@@ -64,6 +68,10 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
   - Safety-Check (MUST): Mapping-Dateien in /run/vpn-sessions/ sind NICHT per Existenz "wahr",
     sondern müssen gegen Kernel-Realität validiert werden (Interface-Check + PID-Check + START_TS/PID-Reuse Schutz).
   - Integritätsschutz (MUST): /run/vpn-sessions/ root-only write (chmod/chown), keine Manipulation durch Web-User/Services.
+- Session-Control ist fail-closed (Decision D012; kanonischer Anker B171):
+  - Guard/Lock-Key ist vpn_connection_id (kein „Takeover“; keine stillen Overrides).
+  - Lock-Lifecycle/Reset ist normiert (z.B. Release/Reset über klar definierte Trigger; Details in B171/B056/B055).
+  - Ziel: Simultaneous-Use=1 bleibt erzwingbar, ohne Support-Dead-Ends (Janitor + On-demand Flow bleiben Pflicht).
 
 1) ARCHITEKTUR-KURZÜBERSICHT (1 Seite)
 - Protokoll: L2TP/IPsec (IKEv1) via strongSwan + xl2tpd + pppd
@@ -79,6 +87,7 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
     Forward+NAT, Peer-Isolation, Abuse-Outbound-Block, Walled-Garden/Restricted (HARD: QUOTA/EXPIRY/MANUAL/UNCLAIMED_OVERDUE; Verify bleibt App-Layer Verify-Wall)
   - tc: Bandbreite pro pppX (CAKE/fq_codel), live drosselbar
   - Fail2ban: Event-Klassifizierung + Jails + Outcome/Reason Codes (B340–B343) für kontrolliertes Ban/Restrict/OK Verhalten
+  - Support/Validierung (MUST im Test-/Debug-Kontext): Nachweis per tcpdump/radsniff (z.B. Calling-Station-Id/SrcIP) zur Drift-/Mismatch-Aufklärung (Details: B343/D010).
 
 - SQL-first AAA (ab Tag 1, produktkern):
   - FreeRADIUS + SQL (MySQL/MariaDB) für Auth + Accounting + Policy-Truth
@@ -153,6 +162,7 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
 - B168 Stale Session Janitor (Interim/Threshold/Safety)
 - B169 RADIUS Login Flow On-demand Janitor + Retry (RateLimit/Cache/Timeout)
 - B170 Session Stability (DPD + LCP Echo)
+- B171 Session Control Anchor (Truth/Guard/Repair/Override; Decision D012)
 - B180 systemd Restart + Healthchecks
 - B190 Offload Tuning Default (VM)
 - B200 DNS Stack Unbound + AdGuard
@@ -188,6 +198,7 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
 - B167 -> B166, B165, B168, B169 (Wiring für Apply/Reconcile/Collector/Janitor/Login-Flow)
 - B168 -> B050, B165, B167, B169 (stale erkennen/close + Safety Check + Login Flow)
 - B169 -> B050, B168 (On-demand cleanup + retry für Simultaneous-Use Lockout)
+- B171 -> B055, B056, B165, B166, B167, B168, B169 (Session-Control Guard/Locks als kanonischer Knotenpunkt; Operability/Repair/Override)
 - B220 -> B230, B270, B280 (Panel/Diag/Blockpage)
 - B230 -> B250, B260 (MyPal Trust + Zeit)
 - B240 -> B155 (Setup-Tool liefert Claim Token / führt Onboarding vorbereitend aus)
@@ -220,15 +231,20 @@ AUTOR: Marco (Owner) + ChatGPT (Co-Architect)
 - B155 ist der zentrale State-Machine Block für Verify-Wall/Claim/Grace/Hard-Stop (Deadlines/States/Enforcement/Atomicity).
 - Policy Apply/Reconcile ist deterministisch (B166/B167): restricted sets werden per FLUSH+REBUILD konsistent gehalten
 - Stale-Session-Problem wird aktiv gelöst (B168/B169), damit Simultaneous-Use=1 nicht zu Support-Lockouts führt
+- Session-Control ist fest (Decision D012) und wird im Master über den Knotenpunkt B171 kanonisiert (Guard/Locks fail-closed, Repair/Override-Pattern).
 - Hard Cut ist MUST (B150/B166): FULL -> RESTRICTED sofort inkl. ESTABLISHED (Conntrack-Flush bidirektional + PPP-Kill Fail-Safe, fail-closed).
 - Accounting Spool Ceiling Verhalten ist MUST: Drop/Ring-Buffer (Drop Oldest) + Alert (keine Stop-Policy).
 
 
 
-5) CHANGELOG & INDEX
-- Siehe: 01_CHANGELOG.txt
+5) INDEX
 - Siehe: 04_BLOCK_INDEX.txt
 
 ================================================================================
-ENDE 00_MASTER_v2.4.txt
+CHANGELOG
+================================================================================
+- Siehe: 01_CHANGELOG.txt
+================================================================================
+================================================================================
+ENDE 00_MASTER_v2.5.txt
 ================================================================================

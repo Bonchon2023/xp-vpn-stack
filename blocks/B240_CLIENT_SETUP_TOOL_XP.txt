@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B240_CLIENT_SETUP_TOOL_XP.txt
+xp-vpn-stack/blocks/B240_CLIENT_SETUP_TOOL_XP.txt
 ================================================================================
 BLOCK-ID: B240
 TITLE: Client Setup Tool (XP/Vista) - Automation Package
 VERSION: v1.0
+DATUM: 2026-01-06
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B220
+INFLUENCES: B310
 OWNER-INTENT: Käufer klickt 1x Setup -> fertig.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- Setup-Tool ist Pflicht: es automatisiert XP/Vista VPN-Config, Registry-Fix, CA-Import und einen eindeutigen Connectivity-Test.
+- Kein Handbuch-Marathon: der User soll nicht in Windows-Dialogen Einstellungen suchen müssen.
+- Tool muss Prüfungen liefern (z.B. Tunnel up, DNS forced, Portal erreichbar) und dabei keine Secrets im Klartext loggen.
 ================================================================================
 
 1) ZWECK
@@ -52,7 +61,8 @@ OWNER-INTENT: Käufer klickt 1x Setup -> fertig.
 9) TESTS
 - Clean XP VM run -> setup success -> connect works.
 
-10) CHANGELOG
+================================================================================
+CHANGELOG
+================================================================================
 - v1.0: Initial
-
 ================================================================================

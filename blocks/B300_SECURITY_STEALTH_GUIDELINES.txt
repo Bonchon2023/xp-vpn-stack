@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B300_SECURITY_STEALTH_GUIDELINES.txt
+xp-vpn-stack/blocks/B300_SECURITY_STEALTH_GUIDELINES.txt
 ================================================================================
 BLOCK-ID: B300
 TITLE: Security & Stealth Guidelines
 VERSION: v1.0
+DATUM: 2026-01-06
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: alle
+INFLUENCES: alle
 OWNER-INTENT: Leitlinien, damit Betrieb stabil und unauffällig bleibt.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- Baseline-Härtung ist nicht optional: IPv6 off, SSH eingeschränkt, minimal services, WAN ping optional/limitiert.
+- Kein Overengineering (IDS/IPS etc.) in Baseline; Fokus ist robust + verständlich.
+- Regelmäßige Updates/Backups + Log-Retention gegen Disk-Full sind Teil der Security (operational security).
 ================================================================================
 
 1) ZWECK
@@ -39,7 +48,8 @@ OWNER-INTENT: Leitlinien, damit Betrieb stabil und unauffällig bleibt.
 - Regular external scan results documented.
 - Internal access matrix validated.
 
-8) CHANGELOG
+================================================================================
+CHANGELOG
+================================================================================
 - v1.0: Initial
-
 ================================================================================

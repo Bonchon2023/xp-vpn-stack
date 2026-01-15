@@ -1,8 +1,42 @@
-vpn_masterkonzept/01_CHANGELOG.txt
+xp-vpn-stack/01_CHANGELOG.txt
 ================================================================================
-MASTER CHANGELOG
+TITLE: MASTER CHANGELOG
+VERSION: v2.4
+DATUM: 2026-01-11
+STATUS: ACCEPTED
+OWNER-INTENT: Chronologischer Master-Changelog (kanonisch), der Änderungen und Migrationen nachvollziehbar festhält.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
 ================================================================================
 ERRATA (KANONISCHKEIT): Der Changelog kann historische Begriffe enthalten. Maßgeblich für den aktuellen Stand sind MASTER/Glossar/Blocks. Historische Begriffe sind nicht kanonisch.
+
+- v2.5.0 (2026-01-15):
+  - Redaktion + Terminologie-Konsistenz (global):
+    - „Outcome/Reason sind Codes“ (nicht „Tokens“) als konsistente Begriffswahl über Policy/Onboarding/Tests vereinheitlicht.
+    - Glossar nachgezogen: vpn_connection_id vs connection_id, Claim/Verify-Begriffe, UNCLAIMED/PREPROVISIONED-Definitionen.
+    - Verify-Code (email_verify_code) als eigener Begriff/Mechanik (Hash + TTL, single-use) klargezogen.
+    - Betroffene Root-Dateien: 02_GLOSSAR, 04_BLOCK_INDEX.
+    - Betroffene Blocks: B030, B155, B342.
+
+  - Onboarding/Identity (SQL-first, non-enumerable):
+    - Identity-Model geschärft (subaccount_login als kanonische Login-Identität; Panel-Exposure read-only / non-enumerable).
+    - Customer-Onboarding-Felder/Constraints im Schema-Block konsolidiert (email_verified_at/Verify-Code/TTL/Rate-Limits als Konzeptbestandteil).
+    - Betroffene Blocks: B050, B055, B056, B155.
+
+  - Session-Control (fail-closed) + Operability:
+    - Session-Control A/B als Decision festgezogen; eigener Knotenpunkt-Block als kanonischer Anker eingeführt.
+    - Guard/Lock-Model präzisiert (vpn_connection_id als Guard-Key, kein Takeover; Release/Reset-Regeln normiert).
+    - Admin-Intervention („Hardcut“) als operatives Muster weiter kanonisiert (Wiring/Hook-Contract + Reconcile-Reihenfolge).
+    - Betroffene Decision/Blocks: D012, B171, B165, B166, B167, B168, B169.
+
+  - Fail2ban / RADIUS Event-Contract (drift-sicher):
+    - F2B_EVENT/Emission-Contract gehärtet + Beispiele/Validierung (inkl. expliziter Tooling-Nachweise tcpdump/radsniff als Support-Test).
+    - D010/D011 auf den aktualisierten Reason-/Matrix-Stand synchronisiert (SoT-Klarheit; Alias/Deprecated sauber geführt).
+    - E2E-Package/Acceptance-Katalog nachgezogen (Jail-IDs/Policy-Reasons/No-False-Ban-Sanitizing konsistent).
+    - Betroffene Decision/Blocks: D010, D011, B340, B341, B342, B343, B310.
+
+  - Phasenplan / Roadmap-Ordnung:
+    - PH1–PH6 Sequenz redaktionell nachgezogen/vereinheitlicht (DNS/DNS-Zwang/Webpanel/Fail2ban/Logging als saubere Reihenfolge, ohne neue Feature-Festlegung).
+    - Betroffener Block: B290.
 
 - v2.4.0 (2026-01-11):
   - Tasks → Blocks Migration (Fail2ban + Outcome/Reasons) abgeschlossen:

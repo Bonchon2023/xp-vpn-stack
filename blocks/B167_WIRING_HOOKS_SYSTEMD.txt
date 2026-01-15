@@ -1,8 +1,21 @@
-BLOCK: B167_WIRING_HOOKS_SYSTEMD
-VERSION: v1.13
+xp-vpn-stack/blocks/B167_WIRING_HOOKS_SYSTEMD.txt
+================================================================================
+BLOCK-ID: B167
+TITLE: Wiring: Hooks + systemd (Apply/Collector/Timer)
+VERSION: v1.15
+DATUM: 2026-01-14
 STATUS: ACTIVE
-OWNER: Marco + ChatGPT
-LAST-UPDATE: 2026-01-10
+PRIORITY: MUST
+REQUIRES: B165, B166
+INFLUENCES: B310
+OWNER-INTENT: Legt verbindlich fest, wo welche Logik läuft (Hooks/Services/Timer), damit Betrieb reproduzierbar und supportbar ist.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- Kanonische Integrationspunkte sind systemd Units/Timer und pppd ip-up/ip-down Hooks – keine „Cron-Flicks“.
+- Start-Reihenfolge/Dependencies müssen deterministisch sein (network-online, strongSwan, xl2tpd, danach Hooks).
+- Hook-Skripte müssen fehlerfest sein (set -e, Logging, Timeouts), sonst reißen sie Connect/Disconnect auf.
+================================================================================
 
 ================================================================================
 1) ZWECK
@@ -19,6 +32,7 @@ LAST-UPDATE: 2026-01-10
   - /usr/local/bin/vpn-policy-apply
 - (Optional) Zentrales Accounting-Tool:
   - /usr/local/bin/vpn-accounting-collector
+- /usr/local/bin/vpn-session-kill
 
 - PPP Hooks:
   - /etc/ppp/ip-up.d/99-vpn-hooks
@@ -27,7 +41,7 @@ LAST-UPDATE: 2026-01-10
 - Runtime Mapping (volatile):
   - /run/vpn-sessions/<ppp_if>.env   (B165)
 - Runtime-Aktivität (KANONISCH):
-  - "connection_id aktiv?" => true genau dann, wenn mindestens ein VALID Runtime-Mapping in /run/vpn-sessions/*.env existiert,
+  - "vpn_connection_id aktiv?" => true genau dann, wenn mindestens ein VALID Runtime-Mapping in /run/vpn-sessions/*.env existiert,
     dessen CONNECTION_ID=<id> ist (Definition VALID siehe B168; B165 ist darauf abgestimmt).
   - Konsequenz: Bloße Dateiexistenz ist NICHT ausreichend (Ghost-File Problem).
   - Diese Runtime-Quelle (VALID Mapping) ist führend für Janitor/Safety Checks (B168/B169) und Reconcile.
@@ -59,7 +73,7 @@ MUSS ausführen (Reihenfolge):
      - SESSION_ID
 
 2) Policy sofort anwenden (B166, STRICT):
-   - vpn-policy-apply --connection-id=<CONNECTION_ID>
+   - vpn-policy-apply --connection-id=<CONNECTION_ID>   (CONNECTION_ID = vpn_connection_id; siehe B166)
 
 Regel:
 - PPP Username Quelle für ip-up ist primär: PEERNAME (pppd env).
@@ -273,6 +287,32 @@ Kanonisch:
   - /run/vpn-accounting-collector.lock (flock)
 
 ================================================================================
+8.1) ADMIN HARDCUT TOOL (D012)
+================================================================================
+Zweck:
+- Admin kann eine aktive VPN-Session sicher beenden (Hardcut-first).
+- Panel (www-data) darf NIEMALS direkt killen -> Privilege Separation ist Pflicht (siehe B285).
+
+Tool:
+- /usr/local/bin/vpn-session-kill <vpn_connection_id>
+
+MUST Verhalten (High-Security, deterministisch):
+- Input Validation im Tool:
+  - vpn_connection_id MUSS strikt Integer sein (sonst exit != 0, audit-log).
+- Kill-first:
+  - Session technisch beenden (pppd/xl2tpd), bevorzugt über PID/Interface aus Runtime-Mapping (B165/B168).
+  - Kein "Clear lock only", kein DB-only Cleanup.
+- Danach:
+  - vpn-policy-apply / reconcile ausführen, um nft/tc deterministisch zu korrigieren.
+  - Locks (active_session_locks) best-effort entfernen (falls vorhanden).
+- Erwartung:
+  - Accounting-Stop wird idealerweise durch den Kill ausgelöst (RADIUS schließt radacct normal).
+  - Falls Accounting-Stop ausbleibt: Janitor (B168) schließt stale radacct später (Truth bleibt radacct).
+
+Security:
+- Das Panel darf das Tool nur via sudo ausführen (www-data -> nur dieses Tool, nur mit validierten Args; siehe B285).
+
+================================================================================
 9) TESTS (WIRING)
 ================================================================================
 - ip-up Test: Mapping file wird erstellt + vpn-policy-apply wird aufgerufen.
@@ -291,9 +331,11 @@ Kanonisch:
 - PPPD_PID Source Test: PPPD_PID wird aus pppd/ip-up Environment übernommen; pgrep/ps wird nicht benutzt (Audit-Check).
 
 ================================================================================
-10) CHANGELOG
+CHANGELOG
 ================================================================================
-- v1.12.1 (2026-01-10): Präzisierung: PPP-kill darf nicht vom Runtime-Mapping abhängen; PPPD_PID Quelle ist pppd/ip-up Environment, Mapping nur Spiegel/Diagnose. ip-up Zeitfenster: SQL-Settings nur bei „schnell verfügbar“, sonst sofort Fallback (keine Connect-Latenz/DoS). Konsistenzfix: fail-closed Kill-Quelle präzisiert (PPPD_PID aus pppd/ip-up env, nicht aus Mapping).
+- v1.15 (2026-01-14): Konsistenz/Terminologie: Runtime-Aktivitätsdefinition präzisiert ("vpn_connection_id aktiv?" statt "connection_id aktiv?"); ip-up Apply-Aufruf um Klarstellung ergänzt (CONNECTION_ID = vpn_connection_id; Referenz B166). Keine Verhaltensänderung.
+- v1.14 (2026-01-14): Admin Hardcut Tooling gemäß D012 ergänzt: /usr/local/bin/vpn-session-kill + Wiring/Verhaltensregeln (Kill-first -> Reconcile; sudo/Privilege Separation Referenz B285).
+- v1.13 (2026-01-10): Präzisierung: PPP-kill darf nicht vom Runtime-Mapping abhängen; PPPD_PID Quelle ist pppd/ip-up Environment, Mapping nur Spiegel/Diagnose. ip-up Zeitfenster: SQL-Settings nur bei „schnell verfügbar“, sonst sofort Fallback (keine Connect-Latenz/DoS). Konsistenzfix: fail-closed Kill-Quelle präzisiert (PPPD_PID aus pppd/ip-up env, nicht aus Mapping).
 - v1.12 (2026-01-10): Runtime-Aktivitätsdefinition auf VALID Mapping umgestellt (konsistent zu B165/B168; Ghost-Files sind kein Aktivitätsbeweis). ip-up Fail-Closed gehärtet: Wenn PPP Username nicht ermittelbar ist oder SQL Lookup fehlschlägt/DB down ist, MUSS die PPP-Session deterministisch via PPPD_PID (env) gekillt werden (kein unpoliced window).
 - v1.11 (2026-01-09): ip-up Mapping-Minimum kanonisiert: PPPD_PID + START_TS (MUST), SESSION_ID nur optional/diagnostisch (kein Kill-Handle). Lock-Contention Zeitfenster SQL-first präzisiert (SQL Setting bevorzugt, Hard Cap <=15s, Fallback default SHOULD 10s). Tests um Mapping-Minimum ergänzt.
 - v1.10 (2026-01-09): ip-up kanonisiert: bounded retry/backoff bei TEMPFAIL_LOCKED + fail-closed bis Apply (bei ausbleibendem SUCCESS -> PPP-kill via PPPD_PID). Mapping-Inhalt um PPPD_PID ergänzt. Zeitfenster normiert (MUST <= 15s, default SHOULD 10s). PPPD_PID Quelle aus pppd/ip-up env; pgrep verboten.

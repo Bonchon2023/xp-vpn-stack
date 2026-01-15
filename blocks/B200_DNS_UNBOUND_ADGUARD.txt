@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B200_DNS_UNBOUND_ADGUARD.txt
+xp-vpn-stack/blocks/B200_DNS_UNBOUND_ADGUARD.txt
 ================================================================================
 BLOCK-ID: B200
 TITLE: DNS Stack (Unbound + AdGuardHome)
 VERSION: v1.2
+DATUM: 2026-01-07
 STATUS: ACTIVE
 PRIORITY: SHOULD
+REQUIRES: B150
+INFLUENCES: B220, B230, B240
 OWNER-INTENT: Sauberer Resolver + Filter + interne rewrites.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- DNS-Stack ist intern: AdGuardHome bindet auf 10.77.0.1:53, Unbound dient als lokaler Resolver/Upstream.
+- Kein „User wählt DNS“: Clients sollen DNS nur über den Server nutzen (User-Netz darf nicht frei nach außen resolven).
+- UI/Management (AdGuard UI etc.) ist admin-only; Firewall/Bindings müssen das erzwingen.
 ================================================================================
 
 1) ZWECK
@@ -49,9 +58,10 @@ OWNER-INTENT: Sauberer Resolver + Filter + interne rewrites.
 - Restricted client: DNS funktioniert weiterhin (DNAT->10.77.0.1:53; input allowlist erlaubt 53).
 - Admin can open UI (10.77.0.1:2000), user cannot.
 
-10) CHANGELOG
+================================================================================
+CHANGELOG
+================================================================================
 - v1.2 (2026-01-07): T06 Referenzen entfernt/ersetzt durch docs/nft_service_ip_scopes.txt (Dependencies + MUST). Inhalt ansonsten unverändert.
 - v1.1: Bindings präzisiert (UDP+TCP) für Unbound/AdGuard; nft-scope Abhängigkeiten (T06/B150) ergänzt; Server-DNS (OUTPUT) Kanon: nutzt Unbound direkt (B210 DNAT gilt nur für Clients); Tests um TCP-DNS + Restricted-Fall erweitert.
 - v1.0: Initial
-
 ================================================================================

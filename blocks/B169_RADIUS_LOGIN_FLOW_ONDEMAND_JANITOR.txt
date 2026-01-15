@@ -1,8 +1,21 @@
-BLOCK: B169_RADIUS_LOGIN_FLOW_ONDEMAND_JANITOR
-VERSION: v1.6.2
+xp-vpn-stack/blocks/B169_RADIUS_LOGIN_FLOW_ONDEMAND_JANITOR.txt
+================================================================================
+BLOCK-ID: B169
+TITLE: RADIUS Login Flow – On-Demand Janitor Hook
+VERSION: v1.9
+DATUM: 2026-01-14
 STATUS: ACTIVE
-OWNER: Marco + ChatGPT
-LAST-UPDATE: 2026-01-09
+PRIORITY: MUST
+REQUIRES: B050, B055, B056, B168, D012
+INFLUENCES: B310
+OWNER-INTENT: Fixiert den On-Demand Cleanup-Punkt im Login-Flow, damit Reconnects nicht an stale Sessions scheitern.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- On-Demand-Janitor ist ein „schneller Cleanup“ auf dem Auth-Pfad, aber darf den Auth nicht blockieren.
+- Keine teuren DB-Operationen pro Access-Request (thundering herd vermeiden).
+- Implementiere eine kurze, per-vpn_connection_id gelockte Cleanup-Routine mit harten Timeouts.
+================================================================================
 
 ================================================================================
 1) ZWECK
@@ -112,6 +125,14 @@ Parameter (SQL-first + lokale Safety Caps, KANONISCH):
   - Hard Cap (MUST): <= 2s
   - Notfall-Fallback (klar markiert): default = 1s
 
+SQL-FIRST SETTINGS: KEY-NAMEN / MAPPING (KANONISCH, MUST)
+- CLEANUP_RATELIMIT_WINDOW_SECONDS => cleanup_ratelimit_window_seconds
+  - Notfall-Fallback: 10s, Hard Cap <= 30s (lokal, MUST)
+- CLEANUP_RESULT_TTL_SECONDS => cleanup_result_ttl_seconds
+  - Notfall-Fallback: 30s, Hard Cap <= 120s (lokal, MUST)
+- CLEANUP_TIMEOUT_SECONDS => cleanup_timeout_seconds
+  - Notfall-Fallback: 1s, Hard Cap <= 2s (lokal, MUST)
+
 Hinweis (Ops/Performance, MUST):
 - SQL-Settings dürfen im RADIUS authorize-flow NICHT pro Request „live“ aus der DB geladen werden (DoS-Vektor).
 - Implementierung MUSS Settings gecacht halten (kurzlebig) oder sichere Notfall-Fallbacks nutzen.
@@ -128,25 +149,29 @@ Verhalten:
   - Timeout/DB-Error => Cleanup failt/skippt; Simultaneous-Use bleibt STRICT.
 
 ================================================================================
-6.5) INTEGRATION: ATOMARER SESSION-LOCK (active_session_locks, B055/B056)
+6.5) INTEGRATION: ATOMARER SESSION-LOCK (active_session_locks, B055/B056, D012)
 ================================================================================
 Ziel:
 - On-Demand Cleanup (B169/B168) reduziert Lockouts durch stale radacct.
 - Zusätzlich verhindert active_session_locks (B055/B056) atomar Parallel-Logins/Races im authorize-flow.
+- Kein zweites Truth-System: radacct bleibt einzige Wahrheit (D012).
 
-Regeln (KANONISCH):
+Regeln (KANONISCH, D012):
 - On-Demand Cleanup bleibt "pre-check" BEST EFFORT (wie oben).
-- active_session_locks ist der atomare Guard:
-  - authorize: Lock PENDING anlegen (für die zugehörige vpn_connection/connection_id)
-    - Safety/Runtime: ob eine Session/Connection "live" ist, wird über ein VALID Runtime-Mapping in /run/vpn-sessions/*.env geprüft
-    - (Format/Quelle: B165; VALID-Definition + Permissions/Integrität: B168 Abschnitt 6).
-  - wenn final REJECT (z.B. weiterhin "blocked") -> PENDING Lock MUSS wieder entfernt werden (keine Lock-Leichen)
-  - accounting-start: Lock -> ACTIVE
-  - accounting-stop: Lock löschen
+- Truth für "blocked" bleibt radacct stop_time IS NULL (KANONISCH).
+- active_session_locks ist NUR Mutex/Guard (keine PENDING/ACTIVE State-Machine):
+  - authorize: Lock anlegen (state='held', expires_at=NOW()+20s) sobald vpn_connection_id bekannt ist.
+  - wenn Lock nicht erlangt werden kann (UNIQUE hit): sofort REJECT/TEMPFAIL gemäß Policy (Parallel-Login wird abgewehrt).
+  - wenn final REJECT (z.B. weiterhin "blocked") -> BEST EFFORT lock löschen (keine Lock-Leichen).
+  - accounting-start: lock wird sofort gelöscht (DELETE) -> Guard ist beendet.
+  - TTL: falls Acct-Start nie kommt, läuft Lock nach 20s aus und wird (spätestens) durch Janitor bereinigt.
+- No Takeover (Fail-Closed, D012):
+  - Wenn radacct offen bleibt (auch nach On-Demand Cleanup), wird REJECTed.
+  - Kein "conditional takeover" im authorize-flow.
 
-Hinweis:
-- "blocked" im Sinne von B169 bleibt radacct stop_time IS NULL (KANONISCH).
-- active_session_locks ergänzt das Modell gegen Parallel-Login-Races; es ersetzt nicht die stale-radacct-Logik.
+Runtime-Hinweis (nur Validierung, nicht Truth):
+- Safety/Runtime: ob eine Session/Connection "live" ist, wird über ein VALID Runtime-Mapping in /run/vpn-sessions/*.env geprüft
+  - (Format/Quelle: B165; VALID-Definition + Permissions/Integrität: B168 Abschnitt 6).
 
 ================================================================================
 7) BEZUG ZU ANDEREN BLOECKEN
@@ -185,8 +210,11 @@ Hinweis:
     -> STUFE 2 darf genau EINEN Cleanup-Versuch machen; danach Re-Check; Ergebnis deterministisch.
 
 ================================================================================
-9) CHANGELOG
+CHANGELOG
 ================================================================================
+- v1.9 (2026-01-14): Konsistenz/Format: Header-DATUM aktualisiert; REQUIRES um B055/B056/D012 ergänzt (6.5 nutzt diese Quellen); NOTES Terminologie „vpn_connection_id“ statt „connection_id“; 6.5-Section-Header auf Block-Standard (Separator vor Titel) harmonisiert. Keine Logikänderung.
+- v1.8 (2026-01-14): 3.2 SQL-first SoT: Kanonische SQL-Settings-Key-Namen/Mappings für CLEANUP_* Parameter ergänzt (cleanup_ratelimit_window_seconds, cleanup_result_ttl_seconds, cleanup_timeout_seconds). Keine Logikänderung, nur Referenzierbarkeit.
+- v1.7 (2026-01-14): Session-Control gemäß D012 finalisiert: active_session_locks nur Mutex/Guard (kein PENDING/ACTIVE), TTL=20s, Release auf Accounting-Start (DELETE), No Takeover (Fail-Closed).
 - v1.6.2 (2026-01-09): Mini-Upgrade: Username-Normalisierung kanonisiert (trim-only, kein case-folding im RADIUS-Flow); Cleanup Result-Code Norm definiert (executed/skip/fail) zur deterministischen Umsetzung der 2-Stufen-Retry-Regel.
 - v1.6.1 (2026-01-09): Konsistenz-Fix zu B168: Safety-Check auf VALID Runtime-Mapping umgestellt; 2-Stufen Retry deterministisch und DoS-sicher präzisiert (2. Cleanup nur wenn STUFE 1 skipped/failed); authorize-flow Config-Reads als MUST verboten (Cache/Fallback Pflicht); 6.5 Runtime-Guard Referenzen auf B165 (Format) + B168 (VALID/Permissions) getrennt; Tests erweitert.
 - v1.6 (2026-01-09): RateLimit/Cache/Timeout Parameter auf Hybrid umgestellt: SQL-first Settings + lokale Safety Caps + klar markierte Notfall-Fallbacks. Section 6.5 Überschrift-Duplikat gefixt. Tests um RateLimit/Cache/Timeout Validierung ergänzt.

@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B100_NFT_WAN_STEALTH.txt
+xp-vpn-stack/blocks/B100_NFT_WAN_STEALTH.txt
 ================================================================================
 BLOCK-ID: B100
 TITLE: nftables WAN Minimal Exposure (Stealth)
-VERSION: v1.1
+VERSION: v1.2
+DATUM: 2026-01-14
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B060
+INFLUENCES: alle
 OWNER-INTENT: Von außen nur VPN sichtbar.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- WAN-Expose ist minimal: nur UDP 500/4500 + ESP (und optional streng limitiertes ICMP) – sonst DROP.
+- SSH/Panel/DB dürfen niemals auf WAN lauschen oder durchgelassen werden.
+- nftables-Regeln müssen stateful + rate-limited sein, um Scan/Bruteforce Noise zu minimieren (Logging sparsam).
 ================================================================================
 
 1) ZWECK
@@ -24,8 +33,8 @@ OWNER-INTENT: Von außen nur VPN sichtbar.
 
 5) OUTPUTS
 - ACCEPT:
-  - UDP 500
-  - UDP 4500
+  - udp dport 500
+  - udp dport 4500
   - ESP (proto 50)
 - Optional ICMP limit/drop
 - DROP sonst
@@ -45,8 +54,10 @@ OWNER-INTENT: Von außen nur VPN sichtbar.
 9) TESTS
 - nmap von außen: nur 500/4500, ESP sichtbar.
 
-10) CHANGELOG
+================================================================================
+CHANGELOG
+================================================================================
+- v1.2 (2026-01-14): Konsistenz: Header-DATUM aktualisiert; Changelog-Datierung standardisiert. Keine Regeländerung.
 - v1.1: Scope-Präzisierung: WAN-Stealth-Regeln gelten strikt nur auf iifname "ens13" und dürfen VPN-Input (ppp*) nicht beeinflussen.
 - v1.0: Initial
-
 ================================================================================

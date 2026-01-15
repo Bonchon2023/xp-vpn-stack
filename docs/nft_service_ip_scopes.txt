@@ -1,7 +1,13 @@
-# docs/nft_service_ip_scopes.txt
-VERSION: v1.0
-LAST-UPDATE: 2026-01-07
-SOURCE: T06 + B150 + B200 + B210 (Single Source of Truth für Service-IP Scopes)
+================================================================================
+TITLE: Service-IP 10.77.0.1 – nft Scope/Port-Matrix
+VERSION: v1.1
+DATUM: 2026-01-12
+STATUS: ACCEPTED
+PRIORITY: MUST
+REQUIRES: docs/nft_service_ip_scopes.txt (SoT) + B150 + B200 + B210 (Inputs)
+OWNER-INTENT: Definitive Matrix für erlaubte Services/Scopes an 10.77.0.1; verhindert nft-Drift und Fehl-Exposure.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+================================================================================
 
 ================================================================================
 0) ZIEL / KURZBILD
@@ -157,7 +163,12 @@ Forward/WAN Tests:
 ================================================================================
 8) REFERENZEN (Konzeptdateien)
 ================================================================================
-- T06: Service-IP Scopes (Task / Output)
 - B150: Restricted Mode / Walled Garden (Allowlist + input/forward Enforcement)
 - B210: DNS Enforcement DNAT53 (udp+tcp)
 - B200: DNS Stack Unbound + AdGuard (Bindings + UI admin-only)
+
+================================================================================
+9) CHANGELOG
+================================================================================
+- v1.1 (2026-01-12): T06-Referenzen entfernt (Tasks werden gelöscht); SOURCE als „Doc ist SoT“ präzisiert; Header aktualisiert.
+- v1.0 (2026-01-07): Neu angelegt (Service-IP Scope Matrix).

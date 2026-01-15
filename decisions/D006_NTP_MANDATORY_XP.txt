@@ -1,8 +1,9 @@
-vpn_masterkonzept/decisions/D006_NTP_MANDATORY_XP.txt
+xp-vpn-stack/decisions/D006_NTP_MANDATORY_XP.txt
 ================================================================================
 DECISION-ID: D006
 TITLE: NTP/Zeitstrategie ist Pflicht (XP Zertifikats- und Panel-Stabilität)
-DATE: (von dir eintragen)
+VERSION: v1.1
+DATUM: 2026-01-13
 STATUS: ACCEPTED
 OWNER: Marco (Owner) + ChatGPT (Co-Architect)
 ================================================================================
@@ -44,6 +45,9 @@ CONSEQUENCES
 LINKED BLOCKS
 - B260, B240, B230
 
+================================================================================
 CHANGELOG
+================================================================================
+- v1.1 (2026-01-13): Added VERSION header field (protocol compliance).
 - v1.0: initial
 ================================================================================

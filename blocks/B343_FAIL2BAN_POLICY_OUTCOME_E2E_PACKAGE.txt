@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B343_FAIL2BAN_POLICY_OUTCOME_E2E_PACKAGE.txt
+xp-vpn-stack/blocks/B343_FAIL2BAN_POLICY_OUTCOME_E2E_PACKAGE.txt
 ================================================================================
 BLOCK-ID: B343
 TITLE: Fail2ban + Policy-Outcomes – End-to-End Package (RADIUS→Logs→Ban / Outcome→Enforcement)
-VERSION: v1.0.0
+VERSION: v2.5
+DATUM: 2026-01-15
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B050, B150, B270, B310, B330, B340, B341, B342
+INFLUENCES: B270, B310, B320, B330, B341
 OWNER-INTENT: E2E-Verständnis/DoD: Zusammenspiel von Auth-Events (Fail2ban) und Policy-Outcomes (DENY/RESTRICT/OK) ohne Kollisionsrisiko.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- Dieses Paket ist das E2E-Glue: RADIUS→Log→F2B Filter→Enforcement muss als Kette funktionieren.
+- Änderungen an Event-Format/Reason-Codes erfordern synchrones Update von Filter, Tests (B310) und Diag (B270).
+- Enforcement soll atomar/rollback-fähig sein (ipset/nft sets), damit falsche Matches schnell reversibel sind.
 ================================================================================
 
 ================================================================================
@@ -26,43 +35,56 @@ Ziel:
 
 ### 2.1 Auth/Fail2ban Contract
 - FreeRADIUS MUSS bei Reject **genau eine** `F2B_EVENT` Logline schreiben (B340).
+- Emission-Mechanik (MUST, Contract-Verweis):
+  - REJECT: MUSS über `Post-Auth-Type REJECT` via `linelog` emittiert werden (dedizierte Fail2ban-Quelle).
+  - ACCEPT: MUSS über einen ACCEPT-Hook (`Post-Auth-Type ACCEPT` oder am Ende der regulären `post-auth`-Sektion) emittiert werden, ebenfalls als `F2B_EVENT`:
+    - `Class=OK`, `Outcome=OK`, `Reason=R_OK`, `Detail=NA` (oder percent-encoded Detail, siehe B340).
+  - Invariante: pro Request exakt eine `F2B_EVENT`-Zeile (Guard MUSS deterministisch sein; siehe B340 `control:F2B_EMITTED`).
+  - Sanitizing/Encoding/Caps: `User` und `Detail` MUSS RFC3986 percent-encoded folgen; leere/NULL Rohwerte werden als `NA` geloggt; Caps (nach Encoding): User<=64, Detail<=256 (B340 „Sanitizing-Contract“).
+  - SrcIP: nur Calling-Station-Id → sonst `NA` (B340 „SrcIP ERMITTLUNG / SAFETY“).
+
+- `F2B_EVENT` Pflichtfelder (MUST): `Class`, `SrcIP`, `User`, `Outcome`, `Reason` (optional: `Detail`).
 - Fail2ban MUSS ausschließlich `F2B_EVENT` matchen (B341).
 - Bans dürfen nur durch `Class=UNKNOWN_USER` oder `Class=KNOWN_BADPASS` entstehen.
+- FreeRADIUS Tmp-Strings 0 bis 3 sind EXKLUSIV für die Event-Klassifikation reserviert und dürfen von keiner anderen Logik überschrieben werden (Invariant).
 
 ### 2.2 Policy/Outcome Contract
 - Jede Policy-Entscheidung MUSS Outcome+Reason gemäß B342 liefern.
 - Policy-Reject (DENY) ist **kein** Fail2ban-Trigger.
 - `POLICY_DENY` darf als Log/Debug auftreten, darf aber keinen Ban auslösen (B340/B341).
+- Regel (bindend): Fail2ban-Bans entstehen ausschließlich aus Class=UNKNOWN_USER oder Class=KNOWN_BADPASS (siehe 2.1); POLICY_* ist stets log-only.
 
 ## 3) E2E FLOW (KANONISCH)
 
 ### 3.1 UNKNOWN_USER (Enumeration)
 1) Request kommt rein
-2) authorize: SQL NOTFOUND => `F2B_CLASS_STATE=UNKNOWN`
+2) authorize: SQL NOTFOUND => `IDENTITY_STATE=UNKNOWN`
 3) reject => Log:
-   `F2B_EVENT: Class=UNKNOWN_USER ... SrcIP=<peer ip> Reason=R_AUTH_UNKNOWN_USER ...`
+   `F2B_EVENT: Class=UNKNOWN_USER SrcIP=<IP-or-NA> User=<USER_PCT-or-NA> Outcome=DENY Reason=R_AUTH_UNKNOWN_USER Detail=<DETAIL_PCT-or-NA>`
 4) Fail2ban Jail UNKNOWN_USER matcht => nft banset add (bantime gemäß B341)
 
 ### 3.2 KNOWN_BADPASS (Bruteforce)
-1) authorize: SQL OK => `F2B_CLASS_STATE=KNOWN`
+1) authorize: SQL OK => `IDENTITY_STATE=KNOWN`
 2) authenticate: MSCHAP reject => `AUTH_DETAIL=MSCHAP_FAIL`
 3) reject => Log:
-   `F2B_EVENT: Class=KNOWN_BADPASS ... SrcIP=<peer ip> Reason=R_AUTH_KNOWN_BADPASS ...`
+   `F2B_EVENT: Class=KNOWN_BADPASS SrcIP=<IP-or-NA> User=<USER_PCT-or-NA> Outcome=DENY Reason=R_AUTH_KNOWN_BADPASS Detail=<DETAIL_PCT-or-NA>`
 4) Fail2ban Jail KNOWN_BADPASS matcht => ban (konservativer, B341)
 
 ### 3.3 BACKEND_ERROR (D1a / Fail-Closed)
-1) authorize: SQL FAIL => `F2B_CLASS_STATE=BACKEND_ERROR`
+1) authorize: SQL FAIL => `IDENTITY_STATE=BACKEND_ERROR`
 2) reject => Log:
-   `F2B_EVENT: Class=BACKEND_ERROR ... Reason=R_AUTH_BACKEND_SQL_DOWN|R_AUTH_BACKEND_SQL_FAIL ...`
+   `F2B_EVENT: Class=BACKEND_ERROR SrcIP=<IP-or-NA> User=<USER_PCT-or-NA> Outcome=DENY Reason=<R_AUTH_BACKEND_REASON> Detail=<DETAIL_PCT-or-NA>`
 3) Fail2ban MUSS ignorieren (kein Ban-Sturm)
 
 ### 3.4 POLICY (State/Quota/Verify/Claim)
 1) Auth ist korrekt (kein MSCHAP_FAIL)
-2) Policy entscheidet Outcome/Reason (B342):
-   - Verify/Claim/Quota/Expired => RESTRICT + entsprechender Reason
-   - Hard Admin/Security => DENY + entsprechender Reason
+2) Kernel-Policy entscheidet Outcome/Reason gemäß B342 (Domains beachten):
+   - RESTRICT (Kernel, Tunnel steht / Walled Garden): Outcome=RESTRICT + Reason=<R_KERNEL_REASON> (B342-canonical; z.B. R_POLICY_* / R_SECURITY_*)
+   - DENY (Kernel, kein Tunnel): Outcome=DENY + Reason=<R_KERNEL_REASON> (B342-canonical; z.B. R_ACCOUNT_* / R_ABUSE_* / R_MAINTENANCE_*)
+   - Verify/Claim/Ownership => PANEL-only (DOMAIN=PANEL; kein Kernel-RESTRICT/DENY)
 3) Fail2ban ist davon unabhängig:
-   - Wenn Reject aus Policy resultiert: optional `F2B_EVENT Class=POLICY_DENY` (log-only)
+   - Wenn DENY aus Kernel-Policy resultiert: optional log-only `F2B_EVENT: Class=POLICY_DENY SrcIP=<IP-or-NA> User=<USER_PCT-or-NA> Outcome=DENY Reason=<R_KERNEL_REASON> Detail=<DETAIL_PCT-or-NA>` (nicht bannen)
+   - Wenn RESTRICT aus Kernel-Policy resultiert: optional log-only `F2B_EVENT: Class=POLICY_RESTRICT SrcIP=<IP-or-NA> User=<USER_PCT-or-NA> Outcome=RESTRICT Reason=<R_KERNEL_REASON> Detail=<DETAIL_PCT-or-NA>` (nicht bannen)
    - Kein Fail2ban Ban
 
 ## 4) RISIKEN / MITIGATIONS (MUST)
@@ -84,13 +106,19 @@ E2E-DoD:
 - E1 UNKNOWN_USER erzeugt Ban nach Policy (B341 Thresholds)
 - E2 KNOWN_BADPASS erzeugt Ban nach Policy (B341 Thresholds)
 - E3 BACKEND_ERROR erzeugt **nie** Ban, selbst bei hoher Frequenz
-- E4 Verify/Claim/Quota/Expired => RESTRICT + Panel erreichbar (Outcome/Reason korrekt)
+- E4 RESTRICT gilt für Policy-Restricted Zustände (Quota/Expiry/Manual/UnclaimedOverdue/RateLimit) => RESTRICT + Panel erreichbar (Outcome/Reason nach B342 korrekt); Verify/Claim sind PANEL-only (kein Kernel-RESTRICT).
 - E5 Hard Admin => DENY (kein Tunnel)
 - E6 Self-DoS: SrcIP=NA erzeugt nie Ban
 
 ================================================================================
-2) CHANGELOG
+CHANGELOG
 ================================================================================
+- v2.5 (2026-01-15): Mini-Konsistenzfix: Sanitizing-Regel präzisiert (User/Detail percent-encoded; `NA` nur bei leer/NULL), konform zu B340. Keine Logikänderung.
+- v2.4 (2026-01-15): Drittprüfung L-1..L-5 gespiegelt: Emission-Mechanik gehärtet (REJECT=MUSS, ACCEPT=MUSS mit Class=OK/Outcome=OK/Reason=R_OK), Guard/Sanitizing/SrcIP-Verweise auf B340 ergänzt; Flow-Beispiele auf percent-encoded + NA umgestellt; POLICY-Abschnitt ellipsenfrei/zeilenfest gemacht (kein Ban durch Policy-Logs).
+- v2.3 (2026-01-14): Konsistenz/Redaktion: Header-DATUM aktualisiert; Policy/Outcome Contract präzisiert (POLICY_* ist strikt log-only; Bans nur aus UNKNOWN_USER/KNOWN_BADPASS). Keine Verhaltensänderung.
+- v2.2 (2026-01-13): E4 angepasst: Verify/Claim sind PANEL-only (kein Kernel-RESTRICT); RESTRICT-States auf Quota/Expiry/Manual/UnclaimedOverdue/RateLimit präzisiert (B342-konsistent).
+- v2.1 (2026-01-12): Auth/Fail2ban Contract um Emission-Mechanik ergänzt (Post-Auth-Type REJECT / ACCEPT-Hook Verweis auf B340), damit T-Buffer entfernbar ist.
+- v2.0 (2026-01-12): T-SOT Sync: F2B_EVENT Contract um Outcome als MUST-Key ergänzt, IDENTITY_STATE Naming konsistent (statt F2B_CLASS_STATE), Log-Beispiele auf kanonisches Keyset aktualisiert.
 - v1.0.0 (2026-01-11): Neu angelegt. E2E-Paketbeschreibung für Fail2ban (Auth-Abuse) + Policy-Outcomes (DENY/RESTRICT/OK) inkl. Contracts und DoD.
 ================================================================================
 END BLOCK B343

@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B120_NFT_FORWARD_NAT_FULLTUNNEL.txt
+xp-vpn-stack/blocks/B120_NFT_FORWARD_NAT_FULLTUNNEL.txt
 ================================================================================
 BLOCK-ID: B120
 TITLE: nftables Forward + NAT (Full-Tunnel)
-VERSION: v1.4
+VERSION: v1.5
+DATUM: 2026-01-14
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B060, B100, B110
+INFLUENCES: alle
 OWNER-INTENT: Full-Tunnel Routing/NAT sauber und deterministisch.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- Baseline ist Full-Tunnel: VPN-Clients nutzen Server als Default-Gateway (NAT/Masquerade Richtung WAN).
+- Kein Split-Tunnel in der Baseline; falls nötig, muss das als eigene Entscheidung/Block kommen.
+- Achte auf Reihenfolge: Abuse-Blocks/Peer-Isolation vor NAT; MSS-Clamp muss hier technisch korrekt eingehängt werden.
 ================================================================================
 
 1) ZWECK
@@ -33,7 +42,7 @@ OWNER-INTENT: Full-Tunnel Routing/NAT sauber und deterministisch.
 - DNS-Enforcement (B210): DNAT für 53/udp + 53/tcp auf 10.77.0.1 muss in nft nat prerouting auf iifname "ppp*" greifen (vor filter/forward), damit Clients keinen externen DNS nutzen können.
 
 3) ABHÄNGIGKEITEN
-- Requires: B060, B100
+- Requires: B060, B100, B110
 - Influences: B130, B140, B150, B210
 
 4) INPUTS
@@ -64,11 +73,13 @@ OWNER-INTENT: Full-Tunnel Routing/NAT sauber und deterministisch.
 - From client: traceroute shows server exit.
 - IP check: public IP = server IP.
 
-10) CHANGELOG
+================================================================================
+CHANGELOG
+================================================================================
+- v1.5 (2026-01-14): Konsistenz: Header-DATUM aktualisiert; ABHÄNGIGKEITEN/Requires an Header angeglichen (B110 ergänzt). Keine Logikänderung.
 - v1.4 (2026-01-10): D1a ergänzt: Connect-Pending Gate (connect_pending_v4) als deny-all forward bis policy-apply SUCCESS; kein Default-Restricted/Portal-Fallback.
 - v1.3 (2026-01-07): T06-Referenz entfernt (Service-IP Scopes jetzt über docs/nft_service_ip_scopes.txt referenziert). Inhalt unverändert.
-- v1.2: Klarstellung ergänzt: B120 beschreibt Restricted Enforcement nur im forward-Pfad; input-Enforcement für Service-IP 10.77.0.1 ist separat in B150/T06 Pflicht (Pfad-Trennung, keine Logikänderung).
--    v1.1:     Restricted Mode Reihenfolge + konkrete Allowlist (DNS udp+tcp 53, Web 80/443, NTP 123/udp, ICMP zu 10.77.0.1) ergänzt; Hinweis zu DNS-Enforcement Hook/Order (B210) ergänzt.
-- v1.0: Initial
-
+- v1.2 (2026-01-07): Klarstellung ergänzt: B120 beschreibt Restricted Enforcement nur im forward-Pfad; input-Enforcement für Service-IP 10.77.0.1 ist separat in B150/T06 Pflicht (Pfad-Trennung, keine Logikänderung).
+- v1.1 (2026-01-07): Restricted Mode Reihenfolge + konkrete Allowlist (DNS udp+tcp 53, Web 80/443, NTP 123/udp, ICMP zu 10.77.0.1) ergänzt; Hinweis zu DNS-Enforcement Hook/Order (B210) ergänzt.
+- v1.0 (2026-01-07): Initial
 ================================================================================

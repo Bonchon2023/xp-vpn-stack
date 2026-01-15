@@ -1,6 +1,11 @@
-vpn_masterkonzept/03_ASSUMPTIONS_AND_RULES.txt
+xp-vpn-stack/03_ASSUMPTIONS_AND_RULES.txt
 ================================================================================
-ASSUMPTIONS & RULES (bindend) — v2.3
+TITLE: ASSUMPTIONS & RULES (bindend)
+VERSION: v2.5
+DATUM: 2026-01-15
+STATUS: ACCEPTED
+OWNER-INTENT: Bindende Annahmen/Regeln (Scope, Security, Defaults), die alle Blocks konsistent machen.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
 ================================================================================
 
 A) Systemannahmen
@@ -76,6 +81,11 @@ D) Qualitätsregeln / Abnahme
   bounded retry/backoff im ip-up (kurzes, begrenztes Zeitfenster), danach fail-closed default bis apply.
   Wenn vpn-policy-apply nicht erfolgreich/zeitnah durchläuft, darf keine undefinierte Session Traffic führen (Session wird beendet).
 
+================================================================================
+CHANGELOG
+================================================================================
+
+================================================================================
 ================================================================================
 ENDE 03_ASSUMPTIONS_AND_RULES.txt
 ================================================================================

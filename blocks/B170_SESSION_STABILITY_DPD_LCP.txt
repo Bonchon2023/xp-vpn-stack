@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B170_SESSION_STABILITY_DPD_LCP.txt
+xp-vpn-stack/blocks/B170_SESSION_STABILITY_DPD_LCP.txt
 ================================================================================
 BLOCK-ID: B170
 TITLE: Session Stability (strongSwan DPD + PPP LCP Echo)
 VERSION: v1.0
+DATUM: 2026-01-06
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B040
+INFLUENCES: B168
 OWNER-INTENT: Keine Ghost Sessions / Reconnect sauber.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- DPD (IKE) + LCP-Echo (PPP) sind Pflicht, um „Geistersessions“ zuverlässig zu erkennen und zu beenden.
+- Keine aggressiven Defaults: zu kurze Intervalle erzeugen Flapping auf schlechten Leitungen.
+- Die Werte müssen mit Real-Tests validiert werden (WLAN Drop, NAT Wechsel, Router Reboot) und in Logs sichtbar sein.
 ================================================================================
 
 1) ZWECK
@@ -40,7 +49,8 @@ OWNER-INTENT: Keine Ghost Sessions / Reconnect sauber.
 - Simulate laptop sleep -> session cleared within minutes.
 - Reconnect works.
 
-10) CHANGELOG
+================================================================================
+CHANGELOG
+================================================================================
 - v1.0: Initial
-
 ================================================================================

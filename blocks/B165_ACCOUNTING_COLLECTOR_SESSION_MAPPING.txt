@@ -1,15 +1,28 @@
-BLOCK: B165_ACCOUNTING_COLLECTOR_SESSION_MAPPING
-VERSION: v1.5.1
+xp-vpn-stack/blocks/B165_ACCOUNTING_COLLECTOR_SESSION_MAPPING.txt
+================================================================================
+BLOCK-ID: B165
+TITLE: Accounting Collector + Session Mapping
+VERSION: v1.7
+DATUM: 2026-01-14
 STATUS: ACTIVE
-OWNER: Marco + ChatGPT
-LAST-UPDATE: 2026-01-10
+PRIORITY: MUST
+REQUIRES: B050, B166, B168, B330
+INFLUENCES: B310
+OWNER-INTENT: Definiert Accounting-Erfassung + stabile Zuordnung pppX→vpn_connection_id (DB PK; im /run Mapping als CONNECTION_ID geführt) als Grundlage für Quota/Policy/Janitor.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- Accounting soll Quota-Usage aggregieren (zeit-/delta-basiert) statt DB-Spam mit pro-packet Events zu erzeugen.
+- Identität ist vpn_connection_id (SQL PK von vpn_connections.id); im /run Mapping heißt der Key CONNECTION_ID und trägt diesen Wert, nicht „username“; Username kann wechseln/aliasen und ist nicht eindeutig.
+- Collector muss restart-idempotent sein (Counter-Deltas, last_seen) und darf Quota nicht durch Reboots verfälschen.
+================================================================================
 
 ================================================================================
 1) ZWECK
 ================================================================================
 - Definiert Session-Mapping und Accounting-Lifecycle für Quota-Usage.
 - Ziel: Quota-Zählung über pppX rx/tx Kernel-Counter ohne DB-Spam.
-- Schlüssel-Identität: connection_id (SQL PK), nicht username.
+- Schlüssel-Identität: vpn_connection_id (SQL PK von vpn_connections.id), nicht username.
 
 ================================================================================
 2) KERNPRINZIP
@@ -19,7 +32,7 @@ LAST-UPDATE: 2026-01-10
 - Quota-Usage wird als Deltas gesammelt und batchweise geschrieben (Intervall 300s).
 
 ================================================================================
-3) SESSION-MAPPING (pppX -> connection_id)
+3) SESSION-MAPPING (pppX -> vpn_connection_id)
 ================================================================================
 - Bei PPP Connect (ip-up Hook) wird ein Mapping-File erstellt:
   - Pfad: /run/vpn-sessions/<ppp_if>.env
@@ -39,7 +52,7 @@ LAST-UPDATE: 2026-01-10
   - PPPD_PID ist der deterministische Fail-Safe Kill-Handle für "fail-closed bis apply" (B167) und Hard-Cut Fallback (B166/B150).
 - Bei PPP Disconnect (ip-down Hook) wird /run/vpn-sessions/<ppp_if>.env entfernt.
 - Runtime-Aktivitätsprüfung (für Janitor/Locks) (KANONISCH, konsistent zu B168/B169):
-  - Eine "connection_id ist aktiv" gilt genau dann, wenn mindestens ein VALID Runtime-Mapping in /run/vpn-sessions/*.env existiert,
+  - Eine "vpn_connection_id ist aktiv" gilt genau dann, wenn mindestens ein VALID Runtime-Mapping in /run/vpn-sessions/*.env existiert,
     dessen CONNECTION_ID=<id> ist.
   - VALID bedeutet: Mapping ist nicht nur vorhanden, sondern gegen Kernel-Realität validiert (Interface/Prozess/START_TS) – Definition siehe B168.
   - Konsequenz: Bloße Dateiexistenz ist NICHT ausreichend für Sicherheitsentscheidungen (Ghost-File Problem).
@@ -83,7 +96,7 @@ LAST-UPDATE: 2026-01-10
       - ceiling_bytes / ceiling_age_seconds
 - Idempotenz/De-Dup (MUST):
   - Ein Replay darf quota_used nicht doppelt erhöhen.
-  - Es MUSS ein deterministischer Replay-Key existieren (z.B. session_id + flush_window oder connection_id + flush_window + delta_seq).
+  - Es MUSS ein deterministischer Replay-Key existieren (z.B. session_id + flush_window oder vpn_connection_id + flush_window + delta_seq).
 - Observability (MUST):
   - spool backlog size (bytes) + oldest record age (seconds) müssen messbar sein (für /diag/Monitoring später).
 - Replay-Verhalten (MUST/SOLL):
@@ -101,7 +114,7 @@ LAST-UPDATE: 2026-01-10
     - Lesen rx/tx counters: /sys/class/net/pppX/statistics/{rx_bytes,tx_bytes}
     - Delta = current - last (aus durable state)
     - DB up:
-      - Batch-Commit in einer Transaktion: quota_used += delta (pro connection_id)
+      - Batch-Commit in einer Transaktion: quota_used += delta (pro vpn_connection_id)
       - Update durable state (last_*, pending=0)
     - DB down:
       - pending_* aufaddieren + spool append (unterliegt lokalen Safety Ceilings + Drop/Ring-Buffer MUST gemäß Abschnitt 4)
@@ -130,14 +143,15 @@ LAST-UPDATE: 2026-01-10
 - Collector Test: alle 300s werden Deltas korrekt berechnet und als Batch committed.
 - DB Down Test: DB stoppen -> Spool wächst bis Ceiling; bei Ceiling Hit Drop/Ring-Buffer greift + Alert; nach DB recovery wird idempotent nachgetragen.
 - Reboot Test: DB down + reboot -> spool/state bleibt; nach DB recovery wird korrekt nachgetragen.
-- Runtime Index Test (connection_id):
-  - Wenn ein VALID Runtime-Mapping in /run/vpn-sessions/pppX.env existiert und CONNECTION_ID=123 enthält, gilt connection_id=123 als aktiv (scan *.env + VALID-Check).
+- Runtime Index Test (vpn_connection_id):
+  - Wenn ein VALID Runtime-Mapping in /run/vpn-sessions/pppX.env existiert und CONNECTION_ID=123 enthält, gilt vpn_connection_id=123 als aktiv (scan *.env + VALID-Check).
   - Wenn kein VALID Mapping diese CONNECTION_ID enthält, gilt sie als inaktiv (wichtig für B168 Lock-Leiche Backstop).
 
 ================================================================================
-7) CHANGELOG
+CHANGELOG
 ================================================================================
-- v1.5.1 (2026-01-10): Header (LAST-UPDATE) korrigiert. Collector-Norm ergänzt: non-VALID Mappings ignorieren. Runtime Index Test auf VALID umgestellt (konsistent zu B168).
+- v1.7 (2026-01-14): Konsistenz/Redaktion: DATUM aktualisiert; REQUIRES um B168 (VALID Mapping) + B330 (Ceiling-Hit Alert) ergänzt; Terminologie vereinheitlicht (vpn_connection_id statt „connection_id“ in ZWECK + Replay-Key Beispiel). Keine Logikänderung.
+- v1.6 (2026-01-10): Header (LAST-UPDATE) korrigiert. Collector-Norm ergänzt: non-VALID Mappings ignorieren. Runtime Index Test auf VALID umgestellt (konsistent zu B168).
 - v1.5 (2026-01-10): Runtime-Aktivität auf VALID Runtime-Mapping (B168) umgestellt (File-exists reicht nicht). Permissions/Integrität für /run/vpn-sessions als MUST ergänzt. Collector-DB-down Text auf Ceilings + Drop/Ring-Buffer normiert. Tests um Permissions + Ring-Buffer/Ceiling Hit erweitert.
 - v1.4 (2026-01-09): TESTS aktualisiert: Mapping-Test prüft nun START_TS + PPPD_PID (MUST) statt nur CONNECTION_ID/SESSION_ID. Zusätzlicher Testpunkt zur Absicherung "PPPD_PID nur aus env, pgrep/ps FORBIDDEN".
 - v1.3 (2026-01-09): Session-Mapping um PPPD_PID (MUST) erweitert (Quelle: pppd/ip-up env; pgrep verboten). Spool-Policy auf HYBRID kanonisiert: SQL-first Settings + lokale Safety Ceilings (immer aktiv) + Drop/Ring-Buffer MUST bei Ceiling-Hit inkl. Alert/Observability/Replay-Normen.

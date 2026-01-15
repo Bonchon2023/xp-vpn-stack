@@ -1,40 +1,139 @@
-vpn_masterkonzept/blocks/B310_TESTS_ACCEPTANCE_CATALOG.txt
+xp-vpn-stack/blocks/B310_TESTS_ACCEPTANCE_CATALOG.txt
 ================================================================================
 BLOCK-ID: B310
 TITLE: Tests / Acceptance Criteria (E2E-Katalog)
-VERSION: v1.4
+VERSION: v1.11
+DATUM: 2026-01-14
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B050, B090, B165, B168, B169, B190, B200, B210, B220, B260, B330, B340, B341, B342, B343
+INFLUENCES: alle
 OWNER-INTENT: Abnahmekatalog für Stabilität (SimUse, DNS, /diag, Webstack, MTU/MSS/Offload) — messbar, reproduzierbar.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- Tests sind kanonisch und reproduzierbar: jeder Test hat Command + Expected Output + Pass/Fail.
+- Keine „Bauchgefühl“-Validierung; Tests müssen auch Support-fähig sein (1:1 nachstellbar).
+- Netz-/RADIUS-Validierung beinhaltet explizit tcpdump/radsniff-Nachweise (z.B. Calling-Station-Id/SrcIP) wo relevant.
+- Spiegelregel (Variante 2): Source-Blocks dürfen eigene DoD-Listen behalten, aber B310 muss alle MUST-Tests vollständig spiegeln und bleibt kanonische Abnahme-SoT.
 ================================================================================
 
 ================================================================================
 1) SIMUSE + STALE SESSIONS
 ================================================================================
 
-## 1) SimUse atomic guard tests
+## 1) SimUse atomic guard tests (D012: Model A Truth + Model B Guard)
 - Two parallel logins for same vpn_connection_id / subaccount_login (AAA identity; claim_token is claim-only):
   - Expect exactly one ACCEPT, one REJECT/TEMPFAIL (policy-defined)
-- Lock row exists in active_session_locks after ACCEPT
-- Lock released on Accounting-Stop
-- Lock expires by janitor after expires_at
+- Lock row exists in active_session_locks after ACCEPT (kurzlebiger Guard)
+- Lock released on Accounting-Start (DELETE lock row)
+- Lock TTL = 20s:
+  - Wenn Acct-Start nie kommt (simulate drop): Lock läuft nach ~20s ab
+  - Danach darf ein erneuter Login nicht mehr am Lock scheitern
+- No Takeover:
+  - Wenn radacct Session offen ist (stop_time IS NULL) und Janitor nicht schließen darf -> REJECT, kein “takeover”
+- Steps / Commands (Minimal, MUST):
+  - Erzeuge 2 parallele RADIUS Access-Requests für dieselbe Identität (vpn_connection_id + subaccount_login identisch).
+    - Beispiel (Server/Testhost): parallel `radclient`/`radtest` (oder äquivalenter Test-Client).
+  - Verifiziere unmittelbar nach dem ersten ACCEPT den Lock-Eintrag in `active_session_locks`.
+  - Erzeuge anschließend (a) Acct-Start sauber, (b) alternativ: simuliere “kein Acct-Start” (Accounting blockiert/Drop).
+  - Für “No Takeover”: Stelle sicher, dass `radacct.stop_time IS NULL` und das Runtime-Mapping als VALID existiert (oder explizit “nicht schließbar” ist).
+- Pass/Fail (MUST):
+  - PASS: exakt 1x ACCEPT + 1x REJECT/TEMPFAIL (policy-defined), nie 2x ACCEPT für gleiche vpn_connection_id/subaccount_login.
+  - PASS: Lock existiert nach ACCEPT; Lock wird bei Acct-Start deterministisch entfernt.
+  - PASS: Wenn Acct-Start nie kommt: Lock läuft spätestens nach ~25s ab; Re-Login scheitert nicht dauerhaft am Lock.
+  - PASS: Wenn radacct live (stop_time NULL) und nicht schließbar => Login REJECT (Fail-Closed), kein Takeover.
+  - FAIL: Doppel-ACCEPT, Dauerlockout, oder Takeover trotz live Session.
+- Artifacts (MUST):
+  - DB: `active_session_locks` row (created/expired/deleted), `radacct` (stop_time), ggf. `radpostauth`/Auth-Log.
+  - Logs: policy/AAA decision + janitor notes (nur soweit vorhanden).
 
 ## 1.1) Connect Gate (D1a) – No Unpoliced Window
 - Setup: In ip-up oder vpn-policy-apply künstlichen Delay einbauen (sleep 10).
 - Erwartung: Während connect_pending_v4 aktiv ist, ist Forward-Traffic (WAN) 0.
 - Erwartung: Nach SUCCESS wird Gate entfernt und Policy gilt (restricted/full).
 - Negativtest: policy-apply TEMPFAIL_SQL/Timeout -> PPP wird gekillt, Gate bleibt bis Cleanup, kein Leak.
+- Steps / Commands (Minimal, MUST):
+  - In `ip-up` oder `vpn-policy-apply` (Testmode) künstlichen Delay setzen (z.B. 10s) und eine neue Verbindung aufbauen.
+  - Während `connect_pending_v4` aktiv: versuche gezielt WAN-Traffic (z.B. HTTP/ICMP) zu erzeugen.
+  - Danach: SUCCESS erzwingen (Policy apply OK) und erneut WAN-Traffic testen.
+  - Negativtest: Policy apply bewusst in TEMPFAIL (z.B. SQL down/Timeout) laufen lassen.
+- Pass/Fail (MUST):
+  - PASS: Während connect_pending aktiv ist: Forward/WAN Traffic = 0 (kein Leak).
+  - PASS: Nach SUCCESS: Gate entfernt, Policy greift (full oder restricted wie Outcome).
+  - PASS: Bei TEMPFAIL: PPP wird beendet; Gate bleibt bis Cleanup wirksam; kein unpoliced window.
+  - FAIL: Traffic geht raus bevor Policy greift oder Gate bleibt nach SUCCESS fälschlich aktiv.
+- Artifacts (MUST):
+  - nftables counters/ruleset (Gate-Regeln + Zähler), conntrack/counters (optional),
+  - Logs: “connect_pending set/unset”, policy-apply result.
 
-## 2) Stale sessions tests
+
+## 2) Stale sessions tests (Ghosts, D012)
+- Simulate ACCEPT without Acct-Start (kritisch):
+  - Erwartung: Lock läuft nach 20s ab (kein Dauerlockout)
+  - Erwartung: nächster Login scheitert nicht am Lock
 - Simulate missing Accounting-Stop:
-  - Lock expires -> next login succeeds
-- Janitor clears stale radacct entries and stale locks deterministically
+  - Erwartung: radacct kann “offen” bleiben -> Login ist zunächst REJECT (Fail-Closed)
+  - Erwartung: Janitor (B168/B169) schließt nur, wenn kein VALID Runtime-Mapping existiert
+  - Danach: Login succeeds
+- Determinismus:
+  - Janitor schließt nie eine live Session (VALID mapping vorhanden)
+  - Locks werden deterministisch bereinigt (expires_at < NOW())
+- Steps / Commands (Minimal, MUST):
+  - “ACCEPT ohne Acct-Start”: Accounting-Start gezielt verhindern (z.B. Accounting-Port blockieren / Testmode drop) und Login auslösen.
+  - “Missing Acct-Stop”: Session normal starten, dann Stop verhindern (kontrolliert) und anschließend Re-Login versuchen.
+  - Janitor-Run auslösen (On-Demand oder Timer) und beobachten, ob nur schließbare Ghosts geschlossen werden.
+- Pass/Fail (MUST):
+  - PASS: ACCEPT ohne Acct-Start => Lock läuft nach ~20s aus; kein Dauerlockout.
+  - PASS: Missing Acct-Stop => Re-Login initial REJECT (Fail-Closed), danach SUCCESS erst wenn Janitor schließen darf (kein VALID mapping).
+  - PASS: Janitor schließt niemals live Sessions mit VALID mapping; nur bereinigbare Ghosts.
+  - FAIL: Takeover wird möglich, oder Janitor schließt live Sessions, oder Ghosts bleiben unendlich hängen.
+- Artifacts (MUST):
+  - DB: `radacct` (stop_time, mapping status), `active_session_locks` (expires_at),
+  - Logs: Janitor decision (“closed” vs “kept open”) + reason.
 
 ## 3) E2E validation
 - Run 50 parallel connect attempts:
-  - No double-ACCEPT for same vpn_connection
+  - No double-ACCEPT for same vpn_connection_id
   - No DB deadlocks
   - Mean time stable
+- Steps / Commands (Minimal, MUST):
+  - Starte 50 parallele Connect-Versuche (Testhost/Tooling oder orchestriert über dein Panel/Testharness).
+  - Varianz: gleiche Connection mehrfach parallel + unterschiedliche Connections parallel.
+  - Beobachte DB (deadlocks/timeouts) und AAA decisions.
+
+- Pass/Fail (MUST):
+  - PASS: Für gleiche vpn_connection_id/subaccount_login niemals 2x ACCEPT parallel.
+  - PASS: Keine DB deadlocks (und keine “stuck locks” danach).
+  - PASS: System bleibt stabil (keine eskalierende Latenz / keine Queue-Explosion).
+  - FAIL: Doppel-ACCEPT, Deadlocks, oder Lock-Leichen nach Test.
+
+- Artifacts (MUST):
+  - DB/Logs: Deadlock-Logs (MariaDB), Auth-Log/Audit, `active_session_locks` “clean state” nach Test.
+
+## 3.1) Admin Hardcut (D012)
+- Setup: aktive Session (radacct stop_time NULL, pppX live)
+- Admin triggert Hardcut im Panel:
+  - Erwartung: Panel führt keinen direkten kill aus (Privilege Separation via sudo wrapper)
+  - Erwartung: vpn-session-kill beendet Session technisch (pppd/xl2tpd), danach reconcile/policy-apply
+  - Erwartung: Kein Zombie-Traffic (nft/tc sind nach reconcile konsistent)
+  - Erwartung: radacct wird durch den Kill/Stop (oder spätestens Janitor) sauber geschlossen
+  - Danach: Re-Login ist möglich (Fail-Closed bleibt erhalten, kein Takeover)
+- Steps / Commands (Minimal, MUST):
+  - Baue eine aktive Session auf (pppX live, `radacct.stop_time IS NULL`).
+  - Trigger Hardcut via Panel (soll über sudo-wrapper/worker laufen, nicht direkt im Webprozess).
+  - Verifiziere technisch: pppd/xl2tpd Session beendet; danach reconcile/policy-apply ausgeführt.
+- Pass/Fail (MUST):
+  - PASS: Panel führt keinen direkten Kill aus (Privilege Separation bleibt erhalten).
+  - PASS: Session ist technisch tot (pppX down/pppd beendet); nft/tc konsistent (kein Zombie-Traffic).
+  - PASS: `radacct.stop_time` wird gesetzt (durch Kill/Stop oder spätestens Janitor).
+  - PASS: Re-Login möglich; kein Takeover und kein Leak.
+  - FAIL: Session “lebt” weiter, Policy bleibt inkonsistent oder radacct bleibt dauerhaft offen.
+- Artifacts (MUST):
+  - System: `systemctl/journal` (hardcut worker), Prozess-/Interface-Status (pppX),
+  - Netzwerk: nft/tc snapshot,
+  - DB: `radacct` stop_time gesetzt + ggf. Audit-Event.
+
 
 ## 4) ONBOARDING / VERIFY-WALL / CLAIM (SECURITY-CRITICAL E2E)
 - PENDING Customer (email_verified_at NULL):
@@ -42,9 +141,17 @@ OWNER-INTENT: Abnahmekatalog für Stabilität (SimUse, DNS, /diag, Webstack, MTU
   - /claim muss abgewiesen werden (Customer nicht ACTIVE).
 - ACTIVE Customer (email_verified_at gesetzt):
   - Claim mit korrekt eingegebenem claim_token (Server prüft gegen claim_token_hash) funktioniert.
-  - Wrong-Token Versuche sind rate-limited; kein Enumeration-Leak (gleiche Fehlermeldung für „nicht existent“ vs „falsch“).
+  - Wrong-claim_token Versuche sind rate-limited; kein Enumeration-Leak (gleiche Fehlermeldung für „nicht existent“ vs „falsch“).
 - First-Claim IP-Bind:
   - Request VPN-IP muss == fixed_ip der Ziel-Connection sein, sonst Claim fail.
+- Panel Greeting / display_name (UI-only):
+  - Wenn display_name gesetzt (<=40 Zeichen): Panel-Anrede nutzt display_name („Hallo <display_name>“).
+  - Wenn display_name leer/NULL: Panel-Anrede fällt auf email zurück („Hallo <email>“).
+  - Validation: 41 Zeichen display_name wird abgewiesen (freundlicher UI-Error).
+  - XSS-Safety: display_name wird escaped gerendert (kein Script/HTML Execute).
+- subaccount_login Format + Read-only:
+  - Jede neu erzeugte Connection hat subaccount_login, das Regex ^vpn_[a-z2-7]{16}$ matcht.
+  - Panel zeigt subaccount_login an, aber es existiert kein Edit-Flow; Update-Versuche (API/POST) werden serverseitig rejected/audited.
 - UNCLAIMED_GRACE / UNCLAIMED_OVERDUE:
   - Nach Ablauf unclaimed_grace_until: Internet gesperrt (restricted), Panel/Verify/Claim bleibt erreichbar.
   - Claim innerhalb claim_deadline hebt UNCLAIMED_OVERDUE sofort auf (restricted entfernt, sofern kein anderer Grund).
@@ -55,63 +162,345 @@ OWNER-INTENT: Abnahmekatalog für Stabilität (SimUse, DNS, /diag, Webstack, MTU
 2) DNS FAILURE MODES + HEALTHCHECKS
 ================================================================================
 
-## 1) Failure modes
-- AdGuard down -> what happens?
-- Unbound down -> what happens?
-- Upstream DNS failure -> what happens?
+## DNS-001 Failure modes
+- AdGuard down:
+  - Expected: /diag zeigt DNS degraded + reason_code (z.B. DNS_ADGUARD_DOWN); DNS bleibt enforced (kein Leak auf externe Resolver); Antworten sind fail-closed (SERVFAIL/REFUSED) mit bounded timeout (keine “hängenden” Queries).
+- Unbound down:
+  - Expected: /diag zeigt DNS degraded + reason_code (z.B. DNS_UNBOUND_DOWN); DNS bleibt enforced; fail-closed (SERVFAIL/REFUSED) mit bounded timeout; kein Fallback auf externe Resolver.
+- Upstream DNS failure (Upstream unreachable/timeout):
+  - Expected: /diag zeigt DNS degraded + reason_code (z.B. DNS_UPSTREAM_DOWN/UNREACHABLE); Antworten sind deterministisch (bounded timeout; optional cache-hit weiterhin möglich, falls so implementiert), kein Policy-Bypass.
+- Pass/Fail (MUST):
+  - PASS: Jeder Failure-Mode resultiert in einem deterministischen Zustand (z.B. degraded) und blockiert/erlaubt DNS wie im DNS-Design vorgesehen (keine “random timeouts ohne Diagnose”).
+  - FAIL: Clients hängen im Timeout ohne klare Ursache / Policy-Bypass möglich.
+- Artifacts:
+  - /diag dns section (oder gleichwertig)
+  - Resolver Logs (PII-frei) + Service-Status (systemctl)
 
-## 2) Healthchecks
+## DNS-002 Healthchecks
 - local resolver health probe
 - panel shows degraded state
 - enforcement still forces port 53 to service IP
+- Pass/Fail (MUST):
+  - PASS: Probe erkennt Down/Degraded zuverlässig; Panel zeigt Status + Reason; DNS-Enforcement bleibt aktiv (kein Leak auf externe Resolver).
+  - FAIL: Probe liefert false green oder Enforcement fällt aus.
+- Artifacts:
+  - nftables counters/ruleset excerpt + /diag output
 
 ================================================================================
 3) /diag SPEZIFIKATION + TESTS
 ================================================================================
 
-## 1) Endpoint
+## DIAG-001 Endpoint
 - GET /diag returns JSON with:
   - vpn stack health
   - dns health
   - radius health
   - nftables rules present
   - tc qdisc state
+- Steps / Commands (Minimal, MUST):
+  - Request: `GET /diag` (z.B. curl aus Admin/VPN-Netz).
+  - Prüfe, dass JSON die genannten Sektionen/Keys enthält (vpn/dns/radius/nftables/tc).
+- Pass/Fail (MUST):
+  - PASS: Response ist JSON, HTTP 200, und alle Pflichtsektionen sind vorhanden (auch wenn einzelne “degraded” sind).
+  - FAIL: Missing keys / non-JSON / 500 ohne klare reason.
+- Artifacts (MUST):
+  - Sanitized JSON Sample (ohne Secrets) + Header/Statuscode.
 
-## 2) Security
+## DIAG-002 Security
 - Only accessible inside VPN/admin scope
 - No sensitive secrets returned
+- Steps / Commands (Minimal, MUST):
+  - Versuch von WAN (nicht-VPN): `/diag` muss scheitern (timeout/deny/kein route).
+  - Versuch von Admin/VPN: `/diag` muss funktionieren.
+  - Content-Check: Response auf Secrets prüfen (PSK, Passwords, private keys, raw tokens).
+- Pass/Fail (MUST):
+  - PASS: Von WAN nicht erreichbar; von Admin/VPN erreichbar.
+  - PASS: Keine Secrets im Body (keine PSK, keine Passwörter, keine Tokens/Hashes die als Credentials nutzbar wären).
+  - FAIL: `/diag` von WAN erreichbar oder Secret-Leak im Output.
+- Artifacts (MUST):
+  - WAN-Test: nmap/curl Ergebnis (sanitized),
+  - Admin/VPN-Test: JSON Sample + grep/secret-scan Ergebnis (sanitized).
 
-## 3) Tests
+## DIAG-003 Tests
 - /diag returns 200 when healthy
 - /diag returns degraded with clear reason codes
+- Pass/Fail (MUST):
+  - PASS: “healthy” => HTTP 200 + status=healthy; “degraded” => HTTP 200 + status=degraded + reason_codes[] nicht leer; “hard-fail” (falls definiert) => klarer Status, kein Secret-Leak.
+  - FAIL: Fehlende reason_codes oder Secrets im Output.
+- Artifacts:
+  - JSON response samples (sanitized) + Access-Control/Scope Nachweis (nur VPN/admin)
 
 ================================================================================
 4) WEBSTACK HARDENING / INTERNAL-ONLY TESTS
 ================================================================================
 
-## 1) Binding scope
+## WEB-001 Binding scope
 - OpenResty only listens on service-IP and/or VPN nets
 - No WAN port open except VPN ports
 
-## 2) Tests
+## WEB-002 Tests
 - Port scan from WAN: no panel ports reachable
 - From admin net: panel reachable
+- Pass/Fail (MUST):
+  - PASS: WAN-scan zeigt nur IKE/NAT-T + ESP (UDP 500/4500 + ESP) als extern sichtbar; Panel/DB/AdGuard UI etc. sind von WAN nicht erreichbar.
+  - PASS: UDP 1701 ist von WAN nicht als “Plain L2TP” nutzbar: ein Plain-L2TP Probe ohne IPsec/XFRM erzeugt keine gültige Session/Antwort (und es gibt keinen L2TP-Ingress ohne IPsec).
+  - PASS: Von Admin-Netz ist Panel erreichbar.
+  - FAIL: Irgendein Panel-Port ist von WAN offen.
+- Artifacts:
+  - nmap results (WAN vantage) + ss -lntup (server) + nftables ruleset snapshot
 
 ================================================================================
 5) MTU/MSS/OFFLOAD DEFAULTS + TESTS
 ================================================================================
 
-## 1) MTU/MSS tests
+## NET-001 MTU/MSS tests
 - Verify no PMTU blackhole
 - MSS clamp effective on PPP interfaces
+- Pass/Fail (MUST):
+  - PASS: Kein PMTU-Blackhole (große Transfers funktionieren stabil); MSS-Clamp sichtbar wirksam auf pppX (z.B. via tcpdump SYN options / iptables/nft counters je Implementierung).
+  - FAIL: Reproduzierbare Hänger bei großen Transfers / fragment drops.
+- Artifacts:
+  - tcpdump excerpt (SYN MSS), ping -M do / tracepath (wo möglich), kernel logs
 
-## 2) Offload defaults
+## NET-002 Offload defaults
 - Default offload settings applied
 - Validate no checksum issues
 
+- Pass/Fail (MUST):
+  - PASS: Offload-Defaults sind gesetzt wie vorgesehen; keine Checksum-Offload Artefakte (keine “bad checksum” false positives außer erklärter Capture-Offload-Effekt).
+  - FAIL: Reale checksum errors / Paketverlust korreliert mit Offload.
+- Artifacts:
+  - ethtool -k (relevant IF) + tcpdump validation + interface error counters
+
 ================================================================================
-6) CHANGELOG
+6) LOGGING / RETENTION / ALERTS (B330 MIRROR)
 ================================================================================
+
+## LOG-001 Rotation/Retention deterministisch (B330 DoD)
+- Command (Beispiel): trigger logrotate / rotation (z.B. Timer-Run oder manueller Trigger je nach Setup).
+- Expected Output:
+  - Logs rotieren deterministisch.
+  - Gesamtspeicher Logs bleibt <= LOG_HARD_MAX_BYTES.
+- Pass/Fail:
+  - PASS: Rotation erfolgt + Speichergrenze eingehalten.
+  - FAIL: unbounded growth / Rotation nicht nachvollziehbar.
+- Artifacts:
+  - Dateiliste + Größen (vor/nach), ggf. Rotation-Log/Journal.
+
+## LOG-002 Ring-Buffer/Ceiling Hit (Logs) + Alert-Felder (B330 DoD)
+- Setup: Erzwinge LOG_HARD_MAX_BYTES (kontrolliertes Log-Volumen).
+- Expected Output:
+  - Ceiling-Hit Verhalten tritt ein (Drop/Ring-Buffer je Design).
+  - Alert wird ausgelöst: component="logs", current_log_bytes, ceiling_bytes.
+- Pass/Fail:
+  - PASS: Alert + Felder vorhanden, kein Disk-Full.
+  - FAIL: Kein Alert oder falsche Felder / Wachstum läuft weiter.
+- Artifacts:
+  - Alert-Record (Log/DB je nach Implementierung), log sizes.
+
+## LOG-003 Spool Alert bei DB down (B330 DoD)
+- Setup: DB down (kontrolliert) + Events erzeugen.
+- Expected Output:
+  - Spool wächst; bei Ceiling Hit: Drop/Ring-Buffer aktiv.
+  - Alert enthält: current_spool_bytes, oldest_age_seconds, ceiling_bytes/ceiling_age_seconds.
+- Pass/Fail:
+  - PASS: Alert + Felder korrekt.
+  - FAIL: Keine Alertierung / Spool wächst unbounded.
+- Artifacts:
+  - Spool-Verzeichnisgröße + Alert-Record.
+
+## LOG-004 DNS Counters (wenn aktiviert) ohne Target-Logs (B330 DoD)
+- Setup: DNS Traffic erzeugen.
+- Expected Output:
+  - Counter steigen bei DNS Traffic.
+  - Keine Domain-/Target-Logs entstehen (nur Counters).
+- Pass/Fail:
+  - PASS: Counter increment + keine Target-Logs.
+  - FAIL: Domains/Targets landen im Log.
+- Artifacts:
+  - Counter-Ausgabe + Log-Auszug (PII-frei).
+
+## LOG-005 Hard-Cut Failure => FATAL Alert (B330 DoD)
+- Setup: Hardcut auslösen und Failure injizieren (conntrack flush fail + PPP-kill fail; Testmodus/Hook je Implementierung).
+- Expected Output:
+  - FATAL Alert wird ausgelöst.
+- Pass/Fail:
+  - PASS: FATAL Alert eindeutig + reason/failure_stage vorhanden.
+  - FAIL: Failure bleibt silent / halb-kaputter Zustand ohne Alarm.
+- Artifacts:
+  - Alert-Record + Systemlog.
+
+================================================================================
+7) FAIL2BAN / EVENT-CLASSIFICATION / JAILS / E2E (B340/B341/B343 MIRROR)
+================================================================================
+## F2B-000 OK/ACCEPT Emission ist MUST (B340 T0)
+- Setup: erfolgreicher Login (gültige Credentials; Policy Outcome OK).
+- Expected Output:
+  - F2B_EVENT enthält `Class=OK`
+  - `Outcome=OK`
+  - `Reason=R_OK`
+  - `User`/`Detail` sind RFC3986-percent-encoded; leere Werte => `NA`; Caps: User<=64, Detail<=256 (nach Encoding)
+- Pass/Fail:
+  - PASS: genau 1 OK-Event pro erfolgreichem Login; kein Fail2ban Ban/Match.
+  - FAIL: OK-Event fehlt (Audit-Lücke) oder erzeugt Ban/Match.
+- Artifacts:
+  - F2B_EVENT Logline + fail2ban status (unverändert).
+
+## F2B-001 UNKNOWN_USER klassifiziert korrekt (B340 T1)
+- Setup: falscher Username.
+- Expected Output:
+  - F2B_EVENT enthält `Class=UNKNOWN_USER`
+  - SrcIP = echte Peer-IP (ban-eligible)
+- Pass/Fail:
+  - PASS: Class + SrcIP korrekt.
+  - FAIL: falsche Class oder SrcIP=NA ohne Grund.
+- Artifacts:
+  - F2B_EVENT Logline.
+
+## F2B-002 KNOWN_BADPASS klassifiziert korrekt (B340 T2)
+- Setup: existierender User + falsches Passwort.
+- Expected Output: `Class=KNOWN_BADPASS`, ban-eligible.
+- Artifacts: F2B_EVENT Logline.
+
+## F2B-003 BACKEND_ERROR (SQL down) erzeugt nie Ban (B340 T3, B343 E3, B341 No-Ban)
+- Setup: SQL down, wiederholte Authversuche.
+- Expected Output: `Class=BACKEND_ERROR`, kein Ban.
+- Pass/Fail:
+  - PASS: kein Ban auch bei hoher Frequenz.
+  - FAIL: Ban/Lockout entsteht.
+- Artifacts:
+  - F2B_EVENT Lines + fail2ban status.
+
+## F2B-004 POLICY_DENY erzeugt nie Ban (B340 T4)
+- Setup: Auth ok, aber Policy reject.
+- Expected Output: `Class=POLICY_DENY`, kein Ban.
+- Artifacts: F2B_EVENT + fail2ban status.
+
+## F2B-005 Self-DoS Guard: localhost/nicht-IP => SrcIP=NA => nie Ban (B340 T5, B341 Negative)
+- Setup: Fall erzeugen, der Calling-Station-Id localhost/127.0.0.1/::1 oder nicht-IP liefern würde.
+- Expected Output:
+  - `SrcIP=NA`
+  - Regex <ADDR> darf nicht matchen; Ban bleibt aus.
+- Artifacts:
+  - F2B_EVENT + fail2ban status.
+
+## F2B-006 Collision Safety: Tmp-String-0..-3 nicht überschreibbar (B340 T6)
+- Setup: Inject/Override-Versuch über nachgelagerte Module.
+- Expected Output: Tmp-Strings bleiben stabil; keine Überschreibung.
+- Artifacts: F2B_EVENT / Debug-Log.
+
+## F2B-007 Policy Logging: RESTRICT => POLICY_RESTRICT + Outcome=RESTRICT (ohne Ban) (B340 T7)
+- Setup: RESTRICT-Policyzustand erzeugen.
+- Expected Output:
+  - `Class=POLICY_RESTRICT`
+  - `Outcome=RESTRICT`
+  - Kein Ban.
+- Artifacts: F2B_EVENT + fail2ban status.
+
+## F2B-008 Tooling-Nachweis Calling-Station-Id -> SrcIP korrekt (B340 T8)
+- tcpdump (Beispiel):
+  - Capture lokal: `tcpdump -ni lo udp port 1812 -vv`
+- radsniff (Beispiel, falls installiert):
+  - RADIUS dekodieren und `Calling-Station-Id` prüfen.
+- Expected Output (MUST):
+  - Calling-Station-Id == echte Peer-IP (oder definierter Wert)
+  - F2B_EVENT übernimmt exakt diese IP als SrcIP
+  - localhost/NA ist nicht bannbar (Regex matcht nicht)
+- Artifacts:
+  - tcpdump/radsniff Output + korrelierte F2B_EVENT Zeile.
+
+## F2B-101 J1_STRONGSWAN_IKE_SCAN Threshold (B341 J1)
+- Expected: 11 IKE-Fail-Events innerhalb 300s von gleicher SrcIP => Ban ~900s.
+- Artifacts: fail2ban status (J1) + Log.
+
+## F2B-102 J2_RADIUS_UNKNOWN_USER Threshold (B341 J2)
+- Expected: 6 falsche Usernames innerhalb 600s von gleicher SrcIP => Ban ~3600s.
+- Artifacts: fail2ban status (J2) + F2B_EVENT Lines.
+
+## F2B-103 J3_RADIUS_KNOWN_BADPASS Threshold (B341 J3)
+- Expected: 51 falsche Passwörter innerhalb 600s von gleicher SrcIP => Ban ~600s.
+- Artifacts: fail2ban status (J3) + F2B_EVENT Lines.
+
+## F2B-104 NAT-Safety / No-Ban für Policy/Backend/OK (B341)
+- Expected: POLICY_DENY, POLICY_RESTRICT, BACKEND_ERROR und OK erzeugen nie Ban.
+- Artifacts: fail2ban status bleibt unverändert trotz Events.
+
+## F2B-105 Self-DoS Double Guard (B341)
+- Expected:
+  - SrcIP=NA erzeugt niemals Ban (Regex <ADDR>)
+  - SrcIP=127.0.0.1 erzeugt niemals Ban (Regex + ignoreip)
+- Artifacts: fail2ban ignoreip + status.
+
+## F2B-201 E2E E1 UNKNOWN_USER -> Ban nach Policy (B343 E1)
+- Expected: UNKNOWN_USER ban nach B341 Thresholds.
+- Artifacts: J2 ban status.
+
+## F2B-202 E2E E2 KNOWN_BADPASS -> Ban nach Policy (B343 E2)
+- Expected: KNOWN_BADPASS ban nach B341 Thresholds.
+- Artifacts: J3 ban status.
+
+## F2B-203 E2E E3 BACKEND_ERROR -> nie Ban (B343 E3)
+- Expected: nie Ban.
+- Artifacts: status unverändert.
+
+## F2B-204 E2E E4 RESTRICT Semantik + Panel-only Verify/Claim (B343 E4, B342 Regression)
+- Expected:
+  - RESTRICT gilt für Policy-Restricted Zustände (Quota/Expiry/UnclaimedOverdue/RateLimit).
+  - Verify/Claim sind PANEL-only => kein Kernel-RESTRICT nur wegen Verify/Claim.
+- Artifacts: Policy-Outcome logs + Matrix mapping.
+
+## F2B-205 E2E E5 Hard Admin => DENY (B343 E5)
+- Expected: kein Tunnel (DENY).
+- Artifacts: RADIUS outcome + Verbindung scheitert.
+
+## F2B-206 E2E E6 Self-DoS: SrcIP=NA -> nie Ban (B343 E6)
+- Expected: nie Ban.
+- Artifacts: status unverändert.
+
+================================================================================
+8) OUTCOME/REASON MATRIX REGRESSION (B342 MIRROR)
+================================================================================
+
+## MATRIX-001 Matrix-Check (B342)
+- Expected: Für jeden Code sind DOMAIN + OUTCOME exakt wie definiert.
+- Pass/Fail: fehlender/inkonsistenter Eintrag => FAIL.
+- Artifacts: Matrix-Dump/Export (je nach Tooling).
+
+## MATRIX-002 Alias-Check (B342)
+- Expected: Jeder Alias explizit gelistet; intern Normalisierung auf canonical.
+- Artifacts: Alias-Liste + Normalform.
+
+## MATRIX-003 Prioritäten-Check Kernel (B342)
+- Expected: PRIO0 schlägt alles; PRIO1 > PRIO2 > PRIO3 > PRIO4.
+- Artifacts: deterministische Evaluation (Testcases mit Mehrfachzutreffen).
+
+## MATRIX-004 Regression B050/B155 (B342)
+- Expected:
+  - Verify pending / Claim required (PANEL) => kein Kernel-RESTRICT.
+  - PREPROVISIONED innerhalb Grace => OK (Full Tunnel).
+  - UNCLAIMED_OVERDUE => RESTRICT (Panel erreichbar).
+  - claim_deadline passed => JOB setzt DISABLED => Kernel DENY.
+- Artifacts: DB-state + Outcome logs.
+
+## MATRIX-005 RateLimit-Check (B342)
+- Expected: RateLimit => RESTRICT (Panel erreichbar), kein hard deny als Default.
+- Artifacts: Outcome logs + allowlist.
+
+## MATRIX-006 F2B-Check (B342)
+- Expected: SQL_DOWN/SQL_FAIL erzeugt keine Bans; Events sind sauber klassifiziert.
+- Artifacts: F2B_EVENT + fail2ban status.
+
+================================================================================
+CHANGELOG
+================================================================================
+- v1.11 (2026-01-14): B340 Mirror ergänzt: F2B-000 OK/ACCEPT Emission als MUST-Test (Class=OK, Outcome=OK, Reason=R_OK) inkl. RFC3986 Percent-Encoding + NA-Marker + Caps (User<=64, Detail<=256). Keine Änderung an bestehenden FAIL2BAN/Jail-Tests.
+- v1.10 (2026-01-14): Redaktion/Konsistenz: NOTES-Spiegelregel-Zeile repariert (DoD-Text nicht beschädigt); kleine Drift in 3) E2E validation behoben („vpn_connection“ -> „vpn_connection_id“). Keine Testlogik geändert.
+- v1.9 (2026-01-14): Terminologie-Fix: „Wrong-Token“ im Claim-Test präzisiert auf „Wrong-claim_token“ (kein unqualifiziertes Token).
+- v1.8 (2026-01-14): J-01..J-04 Fix: Kapitel 1 (SimUse/Stale/E2E/Hardcut) um minimale Steps/Artifacts/PassFail ergänzt; /diag DIAG-001/002 testbar gemacht; DNS-001 Failure-Modes von Fragen zu erwarteten Verhalten konkretisiert; WEB-002 WAN-Port-Semantik (UDP 1701 “nur via IPsec/XFRM”) präzisiert.
+- v1.7 (2026-01-14): Variante-2 Spiegelung umgesetzt: MUST-DoD aus B330/B340/B341/B342/B343 in B310 ergänzt (LOG/F2B/MATRIX Sektionen, Test-IDs). Zusätzlich Kapitel 2–5 referenzierbar gemacht (DNS/DIAG/WEB/NET IDs) und Minimal-Pass/Fail+Artifacts ergänzt, damit NOTES (“Command/Expected/PassFail”) nicht verletzt wird.
+- v1.6 (2026-01-14): Redaktion/Konsistenz: B169 zu REQUIRES ergänzt (B310 referenziert Login-Flow/On-Demand Janitor Hook explizit). Keine Test-Logik geändert.
+- v1.5 (2026-01-14): SimUse/Session-Control Tests an D012 angepasst: Release auf Acct-Start, TTL=20s, No Takeover (Fail-Closed), kritischer Test “ACCEPT ohne Acct-Start”, Admin Hardcut E2E ergänzt.
+- v1.4 (2026-01-14): E2E/Acceptance ergänzt: display_name UI-only (<=40, Fallback=email, escaped) + subaccount_login Format (^vpn_[a-z2-7]{16}$) + Panel read-only Enforcement.
 - v1.3 (2026-01-09): Security-kritische E2E Tests ergänzt: Verify-Wall/Claim/IP-Bind/UNCLAIMED_OVERDUE/claim_deadline Hard-Stop.
 - v1.2 (2026-01-09): Terminologie-Regel umgesetzt: unqualifiziertes „token“ im SimUse-Testtext zu „claim_token“ präzisiert.
 - v1.1 (2026-01-09): Test-Semantik korrigiert: SimUse bezieht sich auf vpn_connection_id/subaccount_login (AAA). Klarstellung: token ist Claim-only und kein Login-Credential.

@@ -1,8 +1,21 @@
-BLOCK: B168_STALE_SESSION_JANITOR
-VERSION: v1.6.1
+xp-vpn-stack/blocks/B168_STALE_SESSION_JANITOR.txt
+================================================================================
+BLOCK-ID: B168
+TITLE: Stale Session Janitor (Accounting/DB)
+VERSION: v1.11
+DATUM: 2026-01-14
 STATUS: ACTIVE
-OWNER: Marco + ChatGPT
-LAST-UPDATE: 2026-01-09
+PRIORITY: MUST
+REQUIRES: B050, B055, B056, B165, B169
+INFLUENCES: B310
+OWNER-INTENT: Verhindert Lockouts durch stale RADIUS Accounting-Sessions (radacct.stop_time NULL) und ergänzt DPD/LCP um DB-Safety-Net.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- Janitor räumt verwaiste Locks/Sessions auf (Crash, Hard-Reboot, Line-Drop) ohne aktive PPP zu zerstören.
+- Keine Vollscans pro Minute: Cleanup muss skalieren (Indices/TTL) und darf RADIUS nicht ausbremsen.
+- Race-Safety ist Pflicht: Janitor darf nicht gegen parallele Reconnects arbeiten (Locking + conservative timeouts).
+================================================================================
 
 ================================================================================
 1) ZWECK
@@ -29,6 +42,18 @@ LAST-UPDATE: 2026-01-09
   - DEFAULT/FALLBACK: 300s
   - Safety Caps (MUST): Die Implementierung MUSS MIN/MAX Grenzen erzwingen, die niemals durch SQL übersteuert werden dürfen
     (Physik > Policy; Ziel: keine extremen/instabilen Werte).
+
+- SQL-FIRST SETTINGS: KEY-NAMEN (KANONISCH, MUST)
+  Ziel: Diese Parameter sind referenzierbar; Text nennt keine "losen" Zahlen ohne Key.
+  - radius_acct_interim_seconds
+    - Notfall-Fallback: 300s
+    - Safety Caps (lokal, MUST): MIN/MAX werden lokal erzwungen (Physik > Policy)
+  - stale_threshold_seconds
+    - Notfall-Fallback (typisch): 900s (z.B. 3 * radius_acct_interim_seconds)
+    - Safety Caps (lokal, MUST): MIN/MAX lokal erzwingen
+  - janitor_interval_seconds
+    - Notfall-Fallback: 300s (5 Minuten)
+    - Safety Caps (lokal, MUST): MIN/MAX lokal erzwingen
 
 - Hinweis (Konsistenzregel, MUST):
   - STALE_THRESHOLD_SECONDS muss in plausibler Relation zum effektiven Interim stehen (siehe 4).
@@ -78,7 +103,7 @@ Konzept-Aufruf (CLI):
 
 Verhalten:
 - BEST EFFORT: Wenn DB down -> Cleanup kann nicht laufen (Fail-Closed blockiert ohnehin neue Logins).
-- SAFETY bleibt STRICT: Niemals schließen, wenn ein VALID Runtime-Mapping (/run/vpn-sessions/*) für diese Session/Connection existiert (Definition siehe 6)..
+- SAFETY bleibt STRICT: Niemals schließen, wenn ein VALID Runtime-Mapping (/run/vpn-sessions/*) für diese Session/Connection existiert (Definition siehe 6).
 - Der globale Timer bleibt als Backstop/Repair-Schleife bestehen.
 - Die konkrete Platzierung/Reihenfolge im FreeRADIUS Login-Pfad (inkl. 2-stufigem Retry) ist in B169 fest definiert.
 - Rate-Limit/Cache/Timeout Parameter für On-Demand Aufrufe sind in B169 kanonisch definiert.
@@ -110,21 +135,23 @@ Integritätsschutz / Permissions (MUST):
   dass ausschließlich der privilegierte VPN-Pfad (ip-up/root bzw. dedizierter privileged service user) schreibend zugreifen darf.
 - Manipulation durch User oder Web-Services (z.B. www-data) MUSS auf Dateisystemebene ausgeschlossen sein.
 Match-Kriterium (MUST):
-- Mapping enthält CONNECTION_ID; als "Runtime-Mapping vorhanden" zählt nur eine aktive Mapping-Datei mit derselben CONNECTION_ID,
-  die zusätzlich VALID ist (Definition siehe oben).
+- Mapping enthält vpn_connection_id (DB-Key); im Runtime-Mapping lautet der Feldname CONNECTION_ID (siehe B165).
+- Als "Runtime-Mapping vorhanden" zählt nur eine aktive Mapping-Datei mit derselben vpn_connection_id, die zusätzlich VALID ist (Definition siehe oben).
 
 ================================================================================
 6.5) INTEGRATION: ATOMARER SESSION-LOCK (active_session_locks, B055/B056)
 ================================================================================
 Ziel:
 - B168 schließt stale radacct Einträge (stop_time setzen), um SimUse=1 wieder freizugeben.
-- active_session_locks (B055/B056) ist der atomare Guard gegen Parallel-Login-Races.
+- active_session_locks (B055/B056) ist der atomare Guard/Mutex gegen Parallel-Login-Races im authorize-flow.
 
 Regel (MUST, um "Lock-Leichen" zu vermeiden):
 - Wenn B168 eine stale Session für einen subaccount_login schließt (stop_time=NOW()):
-  - DANN MUSS zusätzlich geprüft werden, ob ein active_session_locks Eintrag für die zugehörige vpn_connection/connection_id existiert.
+  - DANN MUSS zusätzlich geprüft werden, ob ein active_session_locks Eintrag für die zugehörige vpn_connection_id existiert.
     - Falls JA:
-    - und kein VALID Runtime-Mapping (/run/vpn-sessions/*) für diese Session/Connection existiert (Safety Check Definition siehe 6), dann darf/muss der Lock bereinigt werden (DELETE), damit keine Lock-Leiche neue Logins blockiert.
+      - und kein VALID Runtime-Mapping (/run/vpn-sessions/*) für diese Connection existiert (Safety Check Definition siehe 6),
+        dann darf/muss der Lock bereinigt werden (DELETE), damit keine Lock-Leiche neue Logins blockiert.
+
 Hinweis:
 - Diese Lock-Bereinigung ersetzt nicht den authorize-flow cleanup in B169; sie ist ein Backstop für Crash/Restart/Partial-Failure Fälle.
 
@@ -174,9 +201,13 @@ Hinweis:
   - Timer-Janitor und On-Demand Janitor laufen gleichzeitig -> genau ein Close wirkt (affected rows 1), der zweite ist No-Op.
 
 ================================================================================
-10) CHANGELOG
+CHANGELOG
 ================================================================================
-- v1.6.1 (2026-01-09): Konsistenz-Fix: On-Demand Safety-Formulierung auf VALID Mapping präzisiert; PID-Existenz allein explizit verboten (MUST, PID-Reuse Schutz); Terminologie STALE_THRESHOLD -> STALE_THRESHOLD_SECONDS vereinheitlicht; Janitor-Intervall-Formulierung auf SQL-first/Default harmonisiert.
+- v1.11 (2026-01-14): Redaktion/Format: Tippfehler in 5.1 korrigiert („siehe 6).“); 6.5-Section-Header auf Block-Standard (Separator vor Titel) harmonisiert. Keine Logikänderung.
+- v1.10 (2026-01-14): 3.2 SQL-first SoT: Kanonische SQL-Settings-Key-Namen für Interim/Threshold/Janitor-Intervall ergänzt (radius_acct_interim_seconds, stale_threshold_seconds, janitor_interval_seconds). Keine Verhaltensänderung, nur SoT/Referenzierbarkeit.
+- v1.9 (2026-01-14): Meta/Terminologie: Header-DATUM konsistent gemacht; Match-Kriterium präzisiert (vpn_connection_id als DB-Key, Runtime-Feldname CONNECTION_ID gemäß B165). Keine Logikänderung.
+- v1.8 (2026-01-14): Redaktion/Konsistenz: REQUIRES um B055/B056/B165/B169 ergänzt; 6.5 Lock-Referenz präzisiert auf vpn_connection_id (Guard-Key, keine Logikänderung).
+- v1.7 (2026-01-09): Konsistenz-Fix: On-Demand Safety-Formulierung auf VALID Mapping präzisiert; PID-Existenz allein explizit verboten (MUST, PID-Reuse Schutz); Terminologie STALE_THRESHOLD -> STALE_THRESHOLD_SECONDS vereinheitlicht; Janitor-Intervall-Formulierung auf SQL-first/Default harmonisiert.
 - v1.6 (2026-01-09): Mini-Upgrade: Safety-Check von "Mapping existiert" auf "Mapping VALID" erweitert (PPP_IF / PPPD_PID+START_TS, PID-Reuse Schutz), Integritätsschutz/Permissions für /run/vpn-sessions normiert, Hybrid Zeitparameter (SQL-first + lokale Caps + Fallbacks) ergänzt, On-Demand nutzt Cache/Fallback (DoS-Defense), Tests erweitert.
 - v1.5 (2026-01-07): Referenzen auf T01/T02 entfernt -> B055/B056 (keine Logikänderung).
 - v1.4: Querverweis präzisiert: Runtime-Aktivitätsdefinition für connection_id (über /run/vpn-sessions/*.env) explizit auf B165 referenziert (nur Klarstellung, keine Logikänderung).

@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B130_NFT_PEER_ISOLATION.txt
+xp-vpn-stack/blocks/B130_NFT_PEER_ISOLATION.txt
 ================================================================================
 BLOCK-ID: B130
 TITLE: nftables Peer Isolation (User-Netz)
-VERSION: v1.0
+VERSION: v1.1
+DATUM: 2026-01-14
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B060, B120
+INFLUENCES: alle
 OWNER-INTENT: User sehen sich nicht.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- User↔User ist standardmäßig verboten; User dürfen nur zum WAN und zur Service-IP (Portal/DNS/NTP) sprechen.
+- Kein Local-LAN-Feeling: NetBIOS/SMB/mDNS/Discovery ist im User-Netz nicht erwünscht.
+- Conntrack darf keine „Hairpin“-Ausnahmen erlauben: explizite Drops für intra-VPN Peer Traffic sind Pflicht.
 ================================================================================
 
 1) ZWECK
@@ -15,7 +24,7 @@ OWNER-INTENT: User sehen sich nicht.
 - Kein “nur ports sperren”: grundsätzlich drop.
 
 3) ABHÄNGIGKEITEN
-- Requires: B120
+- Requires: B060, B120
 - Influences: Security, Abuse containment
 
 4) INPUTS
@@ -38,7 +47,9 @@ OWNER-INTENT: User sehen sich nicht.
 9) TESTS
 - Two user clients cannot ping/smb each other.
 
-10) CHANGELOG
+================================================================================
+CHANGELOG
+================================================================================
+- v1.1 (2026-01-14): Konsistenz: Header-DATUM aktualisiert; ABHÄNGIGKEITEN/Requires an Header angeglichen (B060 ergänzt). Keine Logikänderung.
 - v1.0: Initial
-
 ================================================================================

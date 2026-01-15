@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B320_BACKUP_RESTORE_DR_RUNBOOK.txt
+xp-vpn-stack/blocks/B320_BACKUP_RESTORE_DR_RUNBOOK.txt
 ================================================================================
 BLOCK-ID: B320
 TITLE: Backup / Restore / DR Runbook
 VERSION: v1.0
+DATUM: 2026-01-06
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B050, B220
+INFLUENCES: alle
 OWNER-INTENT: Disaster Recovery ohne Raten: scratch -> restore -> verify (DB, config, secrets, spool).
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- Backup/Restore betrifft Config + DB + Secrets; Ziel ist reproduzierbarer Rebuild, nicht „Snapshot-Magie“.
+- Keine ungetesteten Backups: Restore-Probe ist Pflicht (DR-Übung).
+- Backups müssen verschlüsselt und versioniert sein; Restore-Schritte müssen zeilenfest dokumentiert werden.
 ================================================================================
 
 1) QUELLE / HERKUNFT
@@ -46,7 +55,7 @@ Priority: MUST
 ...
 
 ================================================================================
-3) CHANGELOG
+CHANGELOG
 ================================================================================
 - v1.0 (2026-01-07): Neu angelegt. Inhalt aus T14_BACKUP_RESTORE_DR_RUNBOOK in Block-Form übernommen (ohne inhaltliche Änderung).
 ================================================================================

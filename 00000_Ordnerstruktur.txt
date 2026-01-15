@@ -1,8 +1,29 @@
-vpn_masterkonzept/
+xp-vpn-stack/00000_Ordnerstruktur.txt
+================================================================================
+TITLE: Ordnerstruktur (SOLL) / ZIP-Abgleich
+VERSION: v1.0
+DATUM: 2026-01-13
+STATUS: ACCEPTED
+OWNER-INTENT: Single Source of Truth für die Soll-Struktur; Basis für SOLL/IST-DIFF beim ZIP-Verify.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+================================================================================
+
+
+
+REGELN (SOT / ordnerstruktur):
+- Diese Datei ist die Single Source of Truth (SOLL-Struktur).
+- Pfade sind relativ ab Projekt-Root.
+- Alles nach einem '#' ist Kommentar/Metadaten und gehört NICHT zum Pfad.
+- Marker:
+  * # EMPTY        => Ordner MUSS existieren und MUSS strikt leer sein (0 Dateien, 0 Unterordner)
+  * # EMPTY-FILES  => Ordner MUSS existieren und darf Unterordner haben, aber 0 Dateien direkt im Ordner
+
+
+xp-vpn-stack/
 ├─ 00000_Ordnerstruktur.txt
 ├─ 0000_Erklärung.txt
-├─ 000_MASTER-KONZEPT v2.4 (ZEILENFEST).txt
-├─ 00_MASTER_v2.4.txt
+├─ 000_MASTER-KONZEPT v2.5 (ZEILENFEST).txt
+├─ 00_MASTER_v2.5.txt
 ├─ 01_CHANGELOG.txt
 ├─ 02_GLOSSAR.txt
 ├─ 03_ASSUMPTIONS_AND_RULES.txt
@@ -33,6 +54,7 @@ vpn_masterkonzept/
 │  ├─ B168_STALE_SESSION_JANITOR.txt
 │  ├─ B169_RADIUS_LOGIN_FLOW_ONDEMAND_JANITOR.txt
 │  ├─ B170_SESSION_STABILITY_DPD_LCP.txt
+│  ├─ B171_SESSION_CONTROL_KNOTENPUNKT.txt
 │  ├─ B180_SYSTEMD_RESTART_HEALTHCHECKS.txt
 │  ├─ B190_OFFLOAD_TUNING_DEFAULT.txt
 │  ├─ B200_DNS_UNBOUND_ADGUARD.txt
@@ -46,7 +68,6 @@ vpn_masterkonzept/
 │  ├─ B280_PANEL_FEATURES_USER_ADMIN.txt
 │  ├─ B285_PANEL_SECURITY_MODEL.txt
 │  ├─ B290_PHASE_PLAN_ROLLOUT.txt
-│  ├─ B300_SECURITY_STEALTH_GUIDELINES.txt
 │  ├─ B300_SECURITY_STEALTH_GUIDELINES.txt
 │  ├─ B310_TESTS_ACCEPTANCE_CATALOG.txt
 │  ├─ B320_BACKUP_RESTORE_DR_RUNBOOK.txt
@@ -64,26 +85,23 @@ vpn_masterkonzept/
 │  ├─ D006_NTP_MANDATORY_XP.txt
 │  ├─ D007_SUBACCOUNTS_PER_DEVICE.txt
 │  ├─ D008_VERIFY_WALL_CUSTOMER_SCOPE.txt
-│  └─ D009_CONNECT_GATING_D1A_SQL_FIRST.txt
+│  ├─ D009_CONNECT_GATING_D1A_SQL_FIRST.txt
 │  ├─ D010_FAIL2BAN_RADIUS_EVENT_CLASSIFICATION_POLICY_DENY.txt
-│  └─ D011_POLICY_OUTCOME_DENY_RESTRICT_REASON_CODES.txt
+│  ├─ D011_POLICY_OUTCOME_DENY_RESTRICT_REASON_CODES.txt
+│  └─ D012_SESSION_CONTROL_A_B.txt
 ├─ docs/
 │  └─ nft_service_ip_scopes.txt
-├─ tasks/
-│  ├─ T01_FAIL2BAN_RADIUS_EVENT_CLASSIFICATION.txt
-│  ├─ T02_FAIL2BAN_JAILS_POLICY_VALUES.txt
-│  ├─ T03_POLICY_OUTCOME_REASON_CODES_DENY_RESTRICT_OK.txt
-│  ├─ T04_FAIL2BAN_POLICY_OUTCOME_END_TO_END_PACKAGE.txt
-│  ├─ T90_GLOSSARY_ADDITIONS_FAIL2BAN_POLICY_OUTCOME.txt
-│  └─ T91_REASON_CODE_MATRIX_DENY_RESTRICT_OK.txt
-├─ exports/
-│  ├─ schema/
-│     └─ (leer)
-│  └─ reports/
-│     └─ (leer)
+├─ tasks/ # EMPTY
 ├─ templates/
 │  ├─ BLOCK_TEMPLATE.txt
 │  ├─ DECISION_RECORD_TEMPLATE.txt
 │  └─ TASK_TEMPLATE.txt
 ├─ LICENSE
 └─ README.md
+
+
+================================================================================
+CHANGELOG
+================================================================================
+- 2026-01-13 v1.0: Added VERSION/CHANGELOG sections (protocol compliance).
+================================================================================

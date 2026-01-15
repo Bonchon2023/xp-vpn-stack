@@ -1,11 +1,20 @@
-vpn_masterkonzept/blocks/B070_CRYPTO_LEGACY_DEBIAN13.txt
+xp-vpn-stack/blocks/B070_CRYPTO_LEGACY_DEBIAN13.txt
 ================================================================================
 BLOCK-ID: B070
 TITLE: Crypto Legacy / Debian 13 / OpenSSL Legacy
 VERSION: v1.0
+DATUM: 2026-01-06
 STATUS: ACTIVE
 PRIORITY: MUST
+REQUIRES: B010, B020, B030, B040
+INFLUENCES: alle
 OWNER-INTENT: XP IKEv1 Legacy Cipher Support auf modernem Debian sicherstellen.
+OWNER: Marco (Owner) + ChatGPT (Co-Architect)
+
+NOTES:
+- Legacy-Proposals (z.B. 3des/sha1/modp1024) sind bewusst für XP nötig; Security-Tradeoff wird nicht beschönigt.
+- Keine IKEv2-Pflicht: XP bleibt IKEv1; ein „Upgrade“ darf XP nicht aus Versehen ausschließen.
+- Stelle sicher, dass benötigte strongSwan-Plugins/OpenSSL-Legacy-Pakete tatsächlich installiert und geladen sind (Runtime-Check).
 ================================================================================
 
 1) ZWECK
@@ -44,7 +53,8 @@ OWNER-INTENT: XP IKEv1 Legacy Cipher Support auf modernem Debian sicherstellen.
 9) TESTS
 - XP connect test vor produktivem Rollout.
 
-10) CHANGELOG
+================================================================================
+CHANGELOG
+================================================================================
 - v1.0: Initial
-
 ================================================================================
